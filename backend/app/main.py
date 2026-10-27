@@ -14,13 +14,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import pymysql
+from contextlib import asynccontextmanager
 from .db import get_conn
 from .auth import verify_login, make_token, require_role, current_user
+from .safety import has_emergency_term, EMERGENCY_GUIDANCE
+from . import scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
 
 app = FastAPI(
     title="CareLoop API",
     description="Agentic Post-Discharge Care System — Single source of truth: MySQL 8.0.16+",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -242,3 +254,203 @@ def ingest_reading(r: ReadingIn, x_device_key: str = Header(...)):
             raise
 
     return {"status": "stored"}
+
+
+# ─── Patient Medication Doses (Milestone M3) ─────────────────────────────────
+
+class DoseConfirmIn(BaseModel):
+    status: str = Field(pattern="^(Taken_Confirmed|Skipped)$")
+    patient_note: Optional[str] = None
+
+
+@app.get("/patient/me/doses")
+def get_my_doses(user: Dict[str, Any] = Depends(require_role("Patient"))):
+    """
+    Returns today's scheduled medication doses for the authenticated patient.
+    PATIENT_ID IS STRICTLY EXTRACTED FROM JWT.
+    """
+    pid = user["patient_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        # Generate daily doses if not yet generated
+        cur.callproc("sp_generate_daily_doses", (datetime.now(IST).date(),))
+
+        cur.execute(
+            """SELECT ml.medication_log_id, m.medicine_name, pr.dose_instructions,
+                      ml.scheduled_for, ml.status, ml.reminder_sent_at, ml.recorded_at, ml.patient_note
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s
+                 AND ml.scheduled_for >= CURDATE()
+                 AND ml.scheduled_for < CURDATE() + INTERVAL 1 DAY
+               ORDER BY ml.scheduled_for""",
+            (pid,),
+        )
+        return cur.fetchall()
+
+
+@app.post("/patient/me/doses/{log_id}/confirm")
+def confirm_my_dose(
+    log_id: int,
+    body: DoseConfirmIn,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Confirm a dose as Taken_Confirmed or Skipped.
+    Allowed for:
+    - Patient (confirms own dose)
+    - Caregiver (confirms on patient's behalf if consent granted)
+    Writes to audit_log.
+    """
+    actor_role = user["role"]
+    pid = user["patient_id"]
+
+    with get_conn() as conn, conn.cursor() as cur:
+        if actor_role == "Caregiver":
+            # Look up caregiver's assigned patient
+            cur.execute(
+                "SELECT patient_id, consent_granted FROM caregivers WHERE caregiver_id=%s",
+                (user["caregiver_id"],),
+            )
+            cg = cur.fetchone()
+            if not cg or not cg["consent_granted"]:
+                raise HTTPException(status_code=403, detail="Caregiver consent not granted for this patient")
+            pid = cg["patient_id"]
+
+        # Ensure dose log belongs to this patient
+        cur.execute(
+            """SELECT ml.medication_log_id, ml.status, m.medicine_name
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE ml.medication_log_id = %s AND pr.patient_id = %s""",
+            (log_id, pid),
+        )
+        dose = cur.fetchone()
+        if not dose:
+            raise HTTPException(status_code=404, detail="Medication dose log not found for this patient")
+
+        # Update log
+        cur.execute(
+            """UPDATE medication_logs
+               SET status = %s, recorded_at = NOW(), recorded_by = %s, patient_note = %s
+               WHERE medication_log_id = %s""",
+            (body.status, actor_role, body.patient_note, log_id),
+        )
+
+        # Write immutable audit log
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES (%s, %s, 'CONFIRM_DOSE', 'medication_log', %s,
+                       JSON_OBJECT('status', %s, 'medicine', %s, 'patient_id', %s))""",
+            (actor_role, str(user["account_id"]), log_id, body.status, dose["medicine_name"], pid),
+        )
+
+    return {"status": "updated", "dose_id": log_id, "recorded_status": body.status}
+
+
+# ─── Symptom Check-in & Emergency Layer (Milestone M3) ───────────────────────
+
+class SymptomIn(BaseModel):
+    text: str
+    pain_level: int = Field(default=0, ge=0, le=10)
+    input_method: str = Field(default="Text", pattern="^(Text|Voice_Transcript|Caregiver)$")
+    language: str = Field(default="en", pattern="^(en|hi)$")
+
+
+@app.post("/patient/me/symptoms")
+def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient"))):
+    """
+    Symptom Check-in Endpoint:
+    - Runs deterministic emergency keyword check (English + Hindi) instantly.
+    - Inserts into symptom_reports table.
+    - Database AFTER INSERT trigger trg_symptom_rules_after_insert creates Urgent_Review
+      flag (for emergency hit) or Review_Soon flag (if pain_level >= clinician threshold).
+    - Writes to audit_log.
+    - Emergency guidance is returned immediately without waiting for any LLM call!
+    """
+    pid = user["patient_id"]
+    emergency = has_emergency_term(body.text)
+    guidance = EMERGENCY_GUIDANCE.get(body.language, EMERGENCY_GUIDANCE["en"]) if emergency else None
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO symptom_reports
+               (patient_id, symptom_text, pain_level, input_method, language, emergency_keyword_hit)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (pid, body.text, body.pain_level, body.input_method, body.language, emergency),
+        )
+        report_id = cur.lastrowid
+
+        # Write audit log
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Patient', %s, 'SUBMIT_SYMPTOM', 'symptom_report', %s,
+                       JSON_OBJECT('emergency_hit', %s, 'pain_level', %s, 'lang', %s))""",
+            (str(user["account_id"]), report_id, emergency, body.pain_level, body.language),
+        )
+
+    return {
+        "status": "recorded",
+        "report_id": report_id,
+        "emergency": emergency,
+        "guidance": guidance,
+    }
+
+
+# ─── Patient Status Page (Milestone M3) ──────────────────────────────────────
+
+@app.get("/patient/me/status")
+def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient"))):
+    """
+    Patient Status Page:
+    - Latest readings with quality label from v_latest_sensor_readings.
+    - Device connectivity status from v_device_status (flags Missing_Data).
+    - Next scheduled appointment.
+    - Active clinical flags.
+    Never shows missing data as 0 or normal!
+    """
+    pid = user["patient_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Latest readings
+        cur.execute(
+            """SELECT measurement_type, measurement_value, unit, measured_at, quality_status
+               FROM v_latest_sensor_readings WHERE patient_id=%s""",
+            (pid,),
+        )
+        readings = cur.fetchall()
+
+        # 2. Devices status
+        cur.execute(
+            """SELECT device_id, device_type, connectivity_status, last_seen_at
+               FROM v_device_status WHERE patient_id=%s""",
+            (pid,),
+        )
+        devices = cur.fetchall()
+
+        # 3. Next appointment
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status, s.full_name AS doctor_name
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id=%s AND a.status='Scheduled' AND a.appointment_date >= NOW()
+               ORDER BY a.appointment_date LIMIT 1""",
+            (pid,),
+        )
+        appt = cur.fetchone()
+
+        # 4. Open clinical flags
+        cur.execute(
+            """SELECT flag_id, severity, source_type, reason, created_at
+               FROM flags WHERE patient_id=%s AND status IN ('Open', 'Acknowledged')
+               ORDER BY created_at DESC""",
+            (pid,),
+        )
+        active_flags = cur.fetchall()
+
+    return {
+        "readings": readings,
+        "devices": devices,
+        "next_appointment": appt,
+        "active_flags": active_flags,
+    }

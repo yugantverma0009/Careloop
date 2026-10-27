@@ -1,0 +1,91 @@
+"""
+backend/app/safety.py — CareLoop Deterministic Safety Engine
+
+Core Principle: "The LLM talks. Rules decide. Humans act."
+Emergency guidance and dose-change refusals MUST NEVER wait for or rely on an LLM call.
+"""
+
+from typing import Tuple
+
+# Clinician-approved starter keyword list (English + Hindi)
+EMERGENCY_TERMS = [
+    # English
+    "chest pain",
+    "can't breathe",
+    "cannot breathe",
+    "difficulty breathing",
+    "short of breath",
+    "shortness of breath",
+    "unconscious",
+    "fainted",
+    "heavy bleeding",
+    "severe bleeding",
+    "seizure",
+    "stroke",
+    "heart attack",
+    "choking",
+    "collapsed",
+    # Hindi (Devanagari)
+    "सीने में दर्द",
+    "सांस नहीं",
+    "सांस लेने में तकलीफ",
+    "बेहोश",
+    "बहुत खून",
+    "चक्कर आकर गिर",
+    "दौरा",
+    "दिल का दौरा",
+]
+
+EMERGENCY_GUIDANCE = {
+    "en": "This may be an emergency. Call your local emergency number now or go to the nearest emergency department. Your care team has been alerted.",
+    "hi": "यह आपातकालीन स्थिति हो सकती है। अभी अपने स्थानीय आपातकालीन नंबर पर कॉल करें या नज़दीकी अस्पताल के आपातकालीन विभाग जाएँ। आपकी केयर टीम को सूचित कर दिया गया है।",
+}
+
+DOSE_CHANGE_PATTERNS = [
+    # English
+    "double dose",
+    "double the dose",
+    "doubled my dose",
+    "skip my medicine",
+    "skip the dose",
+    "stop taking",
+    "increase the dose",
+    "decrease the dose",
+    "extra tablet",
+    "extra pill",
+    "change dosage",
+    "change dose",
+    # Hindi
+    "दवा बंद",
+    "दवा छोड़",
+    "दोगुनी खुराक",
+    "खुराक बढ़ा",
+    "खुराक कम",
+    "अतिरिक्त गोली",
+]
+
+DOSE_CHANGE_REFUSAL = {
+    "en": "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team. A follow-up task has been logged for your clinical staff to get in touch with you.",
+    "hi": "मैं दवा की खुराक बदलने, रोकने या समायोजित करने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से संपर्क करें। आपकी क्लीनिकल टीम को आपसे संपर्क करने के लिए सूचित कर दिया गया है।",
+}
+
+
+def has_emergency_term(text: str) -> bool:
+    """
+    Deterministic check for emergency keywords in English and Hindi.
+    Case-insensitive, runs in O(N) string search.
+    """
+    if not text:
+        return False
+    t = text.lower()
+    return any(term in t for term in EMERGENCY_TERMS)
+
+
+def is_dose_change_question(text: str) -> bool:
+    """
+    Deterministic check for questions or statements requesting medication adjustments.
+    """
+    if not text:
+        return False
+    t = text.lower()
+    return any(p in t for p in DOSE_CHANGE_PATTERNS)
