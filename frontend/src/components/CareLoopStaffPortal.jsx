@@ -9,6 +9,7 @@ import {
   reviewSummary,
   logout,
 } from '../services/api';
+import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 
 export default function CareLoopStaffPortal({ user }) {
   const [activeTab, setActiveTab] = useState('triage');
@@ -123,23 +124,20 @@ export default function CareLoopStaffPortal({ user }) {
         zIndex: 100,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #0d9488, #4f46e5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.3">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
-          </div>
+          <img
+            src="/careloop_logo.jpg"
+            alt="CareLoop"
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              objectFit: 'cover',
+              boxShadow: '0 4px 14px rgba(14, 165, 233, 0.35)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+            }}
+          />
           <div>
-            <div style={{ fontWeight: 800, fontSize: '18px', color: '#f8fafc' }}>
+            <div style={{ fontWeight: 800, fontSize: '18px', color: '#f8fafc', letterSpacing: '-0.02em' }}>
               Care<span style={{ color: '#2dd4bf' }}>Loop</span> Clinical Hub
             </div>
             <div style={{ fontSize: '11px', color: '#94a3b8' }}>
@@ -149,35 +147,27 @@ export default function CareLoopStaffPortal({ user }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span style={{
-            background: user.role === 'Doctor' ? '#1e3a8a' : '#4c1d95',
-            color: user.role === 'Doctor' ? '#93c5fd' : '#c4b5fd',
-            fontSize: '11px',
-            fontWeight: 700,
-            padding: '4px 10px',
-            borderRadius: '6px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-          }}>
-            {user.role}
-          </span>
-          <span style={{ fontSize: '13px', color: '#cbd5e1' }}>
-            {user.name}
-          </span>
+          {/* Switch Demo Workspace Component */}
+          <SwitchDemoWorkspace currentUser={user} />
+
           <button
             onClick={logout}
             style={{
-              padding: '6px 14px',
+              padding: '7px 12px',
               borderRadius: '8px',
               border: '1px solid #475569',
               background: '#1e293b',
-              color: '#f8fafc',
+              color: '#94a3b8',
               fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
             }}
+            title="Sign Out"
           >
-            Sign Out
+            <span>🚪</span> Sign Out
           </button>
         </div>
       </header>

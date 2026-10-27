@@ -145,21 +145,18 @@ export default function CareLoopLogin({ onLoginSuccess }) {
         <div style={{ position: 'relative', zIndex: 2, maxWidth: '520px', margin: '40px 0' }}>
           {/* Brand Emblem + Name */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '40px' }}>
-            <div style={{
-              width: '46px',
-              height: '46px',
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 8px 20px rgba(14, 165, 233, 0.3)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-            }}>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-              </svg>
-            </div>
+            <img
+              src="/careloop_logo.jpg"
+              alt="CareLoop Logo"
+              style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                objectFit: 'cover',
+                boxShadow: '0 8px 24px rgba(14, 165, 233, 0.4)',
+                border: '1.5px solid rgba(56, 189, 248, 0.4)',
+              }}
+            />
             <div>
               <div style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '-0.3px', color: '#ffffff' }}>
                 Care<span style={{ color: '#38bdf8' }}>Loop</span>

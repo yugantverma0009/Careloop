@@ -8,6 +8,7 @@ import {
   getChatHistory,
   logout,
 } from '../services/api';
+import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 
 export default function CareLoopPatientPortal({ user }) {
   const [lang, setLang] = useState('en');
@@ -194,21 +195,20 @@ export default function CareLoopPatientPortal({ user }) {
         zIndex: 100,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '38px',
-            height: '38px',
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #0d9488, #0284c7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-            </svg>
-          </div>
+          <img
+            src="/careloop_logo.jpg"
+            alt="CareLoop"
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              objectFit: 'cover',
+              boxShadow: '0 4px 14px rgba(14, 165, 233, 0.35)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+            }}
+          />
           <div>
-            <div style={{ fontWeight: 800, fontSize: '18px', color: '#f8fafc' }}>
+            <div style={{ fontWeight: 800, fontSize: '18px', color: '#f8fafc', letterSpacing: '-0.02em' }}>
               Care<span style={{ color: '#2dd4bf' }}>Loop</span>
             </div>
             <div style={{ fontSize: '11px', color: '#94a3b8' }}>{t.appName}</div>
@@ -256,24 +256,27 @@ export default function CareLoopPatientPortal({ user }) {
             </button>
           </div>
 
-          <div style={{ fontSize: '13px', color: '#cbd5e1' }}>
-            {t.welcome} <strong style={{ color: '#38bdf8' }}>{user.name}</strong>
-          </div>
+          {/* Switch Demo Workspace Component */}
+          <SwitchDemoWorkspace currentUser={user} />
 
           <button
             onClick={logout}
+            title={t.logout}
             style={{
-              padding: '6px 14px',
+              padding: '7px 12px',
               borderRadius: '8px',
               border: '1px solid #475569',
               background: '#1e293b',
-              color: '#f8fafc',
+              color: '#94a3b8',
               fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
             }}
           >
-            {t.logout}
+            <span>🚪</span> {t.logout}
           </button>
         </div>
       </header>
