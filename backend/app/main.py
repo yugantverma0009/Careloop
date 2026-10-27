@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import pymysql
 from .db import get_conn
 from .auth import verify_login, make_token, require_role, current_user
 
@@ -195,3 +196,49 @@ def get_my_staff_profile(user: Dict[str, Any] = Depends(require_role("Doctor", "
         if not staff:
             raise HTTPException(status_code=404, detail="Staff member not found")
     return staff
+
+
+# ─── Device Data Ingestion (Milestone M2) ────────────────────────────────────
+
+class ReadingIn(BaseModel):
+    device_id: str
+    measurement_type: str = Field(pattern="^(Heart_Rate|SpO2)$")
+    value: float
+    unit: str
+    measured_at: int                 # epoch seconds (UTC) from the device
+    quality: str = Field(pattern="^(Good|Questionable|Simulated)$")
+
+
+@app.post("/device/readings")
+def ingest_reading(r: ReadingIn, x_device_key: str = Header(...)):
+    """
+    Idempotent IoT reading ingestion endpoint.
+    - Authenticates device via X-Device-Key header.
+    - Converts UTC epoch seconds to Asia/Kolkata (IST).
+    - Prevents duplicates via UNIQUE (device_id, measurement_type, measured_at).
+    - Triggers in MySQL automatically evaluate approved alert_rules and update heartbeat.
+    """
+    configured_key = os.getenv("DEVICE_API_KEY", "demo-device-key-change-me")
+    if x_device_key != configured_key:
+        raise HTTPException(status_code=401, detail="Bad device key")
+
+    when = datetime.fromtimestamp(r.measured_at, tz=IST).replace(tzinfo=None)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT patient_id FROM devices WHERE device_id=%s", (r.device_id,))
+        dev = cur.fetchone()
+        if not dev:
+            raise HTTPException(status_code=404, detail=f"Unknown device '{r.device_id}'")
+
+        try:
+            cur.execute(
+                """INSERT INTO sensor_readings
+                   (patient_id, device_id, measurement_type, measurement_value, unit, measured_at, quality_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (dev["patient_id"], r.device_id, r.measurement_type, r.value, r.unit, when, r.quality),
+            )
+        except pymysql.err.IntegrityError as e:
+            if e.args[0] == 1062:  # Duplicate key error: retried upload
+                return {"status": "duplicate_ignored"}
+            raise
+
+    return {"status": "stored"}
