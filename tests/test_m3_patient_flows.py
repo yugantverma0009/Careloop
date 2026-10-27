@@ -13,6 +13,7 @@ Tests:
 """
 
 import time
+import pytest
 from datetime import datetime, date, timedelta
 from fastapi.testclient import TestClient
 from backend.app.main import app
@@ -56,6 +57,11 @@ def test_get_today_doses():
     assert "scheduled_for" in dose
     print(f"✅ GET /patient/me/doses returned {len(doses)} dose(s) for Aarav (e.g. {dose['medicine_name']})")
     return doses
+
+
+@pytest.fixture
+def doses():
+    return test_get_today_doses()
 
 
 def test_confirm_dose(doses):

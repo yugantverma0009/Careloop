@@ -9,6 +9,7 @@ Test Milestone M1:
 - Verification that patient_id is strictly extracted from the JWT token and isolated
 """
 
+import pytest
 from fastapi.testclient import TestClient
 from backend.app.main import app
 
@@ -47,6 +48,11 @@ def test_login_all_roles():
         print(f"✅ Login success for {role} ({email}) -> Token received, bound to {expected_name}")
 
     return tokens
+
+
+@pytest.fixture
+def tokens():
+    return test_login_all_roles()
 
 
 def test_invalid_login():

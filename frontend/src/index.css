@@ -252,3 +252,25 @@ input:focus, select:focus, textarea:focus {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* Responsive Split-Screen Login */
+@media (max-width: 960px) {
+  .login-hero-panel {
+    display: none !important;
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+
+.pulse-glow-dot {
+  animation: pulseGlow 2s infinite ease-in-out;
+}
