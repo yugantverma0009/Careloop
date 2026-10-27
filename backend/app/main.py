@@ -14,10 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import pymysql
+import json
 from contextlib import asynccontextmanager
 from .db import get_conn
 from .auth import verify_login, make_token, require_role, current_user
 from .safety import has_emergency_term, EMERGENCY_GUIDANCE
+from .rag import answer as rag_answer
+from .llm import generate
 from . import scheduler
 
 
@@ -68,6 +71,16 @@ class LoginResponse(BaseModel):
     caregiver_id: Optional[int] = None
     staff_id: Optional[int] = None
     name: str
+
+
+class ChatIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    language: Optional[str] = "en"
+
+
+class ReviewSummaryIn(BaseModel):
+    action: str = Field(..., pattern="^(Approve|Reject)$")
+    notes: Optional[str] = None
 
 
 # ─── System & Auth Endpoints ─────────────────────────────────────────────────
@@ -358,6 +371,37 @@ class SymptomIn(BaseModel):
     language: str = Field(default="en", pattern="^(en|hi)$")
 
 
+def extract_and_save_symptom_tags(report_id: int, symptom_text: str):
+    """
+    Extract 1-3 short tags from symptom text using LLM.
+    Convenience feature (C10.4): fails silently if LLM is unavailable.
+    """
+    try:
+        prompt = (
+            "Extract 1 to 3 concise symptom tags describing the patient's complaint. "
+            "Reply strictly with a JSON array of lowercase strings (e.g. [\"headache\", \"mild fever\"]). "
+            "Do not include any diagnosis or explanations.\n\n"
+            f"Patient complaint: {symptom_text}"
+        )
+        out = generate("You are a medical tagger. Return valid JSON only.", prompt)
+        start_idx = out.find("[")
+        end_idx = out.rfind("]")
+        if start_idx != -1 and end_idx != -1:
+            tags = json.loads(out[start_idx : end_idx + 1])
+            if isinstance(tags, list):
+                with get_conn() as conn, conn.cursor() as cur:
+                    for tag in tags[:3]:
+                        tag_clean = str(tag).strip().lower()[:40]
+                        if tag_clean:
+                            cur.execute(
+                                """INSERT IGNORE INTO symptom_report_tags (symptom_report_id, tag, extracted_by)
+                                   VALUES (%s, %s, 'LLM')""",
+                                (report_id, tag_clean),
+                            )
+    except Exception:
+        pass
+
+
 @app.post("/patient/me/symptoms")
 def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient"))):
     """
@@ -368,6 +412,7 @@ def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(requi
       flag (for emergency hit) or Review_Soon flag (if pain_level >= clinician threshold).
     - Writes to audit_log.
     - Emergency guidance is returned immediately without waiting for any LLM call!
+    - Tags extracted asynchronously/inline via LLM.
     """
     pid = user["patient_id"]
     emergency = has_emergency_term(body.text)
@@ -389,6 +434,9 @@ def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(requi
                        JSON_OBJECT('emergency_hit', %s, 'pain_level', %s, 'lang', %s))""",
             (str(user["account_id"]), report_id, emergency, body.pain_level, body.language),
         )
+
+    # Extract tags via LLM
+    extract_and_save_symptom_tags(report_id, body.text)
 
     return {
         "status": "recorded",
@@ -537,3 +585,229 @@ def get_patient_timeline(pid: int, user: Dict[str, Any] = Depends(require_role("
             (pid,),
         )
         return cur.fetchall()
+
+
+# ─── Patient Chat & RAG (Milestone M5) ────────────────────────────────────────
+
+@app.post("/patient/me/chat")
+def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+    """
+    Patient Chat Endpoint with Grounded RAG:
+    - Answers ONLY from clinician-approved discharge document excerpts.
+    - Deterministic emergency phrases show guidance immediately and raise urgent flags.
+    - Dose-change questions are refused deterministically and create staff follow-up tasks.
+    - Links citations to document_chunks via chat_message_sources.
+    - Ungrounded answers create a follow_up_task for clinical staff.
+    """
+    pid = user.get("patient_id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="No patient associated with this account")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # 1. Insert patient message
+            cur.execute(
+                """INSERT INTO chat_messages (patient_id, sender, message_text)
+                   VALUES (%s, 'Patient', %s)""",
+                (pid, body.message),
+            )
+
+        # 2. Compute grounded answer
+        ans, is_grounded, citations = rag_answer(pid, body.message, body.language or "en", conn=conn)
+
+        with conn.cursor() as cur:
+            # 3. Insert AI message
+            cur.execute(
+                """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded)
+                   VALUES (%s, 'AI_Nurse', %s, %s)""",
+                (pid, ans, is_grounded),
+            )
+            ai_msg_id = cur.lastrowid
+
+            # 4. Link citations
+            if citations:
+                for vid in citations:
+                    cur.execute(
+                        "SELECT chunk_id FROM document_chunks WHERE vector_id = %s LIMIT 1",
+                        (vid,),
+                    )
+                    crow = cur.fetchone()
+                    if crow:
+                        cur.execute(
+                            """INSERT IGNORE INTO chat_message_sources (message_id, chunk_id)
+                               VALUES (%s, %s)""",
+                            (ai_msg_id, crow["chunk_id"]),
+                        )
+
+            # 5. Create follow-up task if ungrounded or dose change
+            if not is_grounded:
+                cur.execute(
+                    """SELECT attending_staff_id FROM discharge_records
+                       WHERE patient_id = %s ORDER BY discharge_date DESC LIMIT 1""",
+                    (pid,),
+                )
+                drow = cur.fetchone() or {}
+                assigned_staff = drow.get("attending_staff_id") or 1
+                reason = f"Unanswered patient question: {body.message}"[:255]
+                cur.execute(
+                    """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
+                       VALUES (%s, %s, 'Routine', %s, 'Pending')""",
+                    (pid, assigned_staff, reason),
+                )
+
+            # 6. Audit log
+            cur.execute(
+                """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                   VALUES ('Patient', %s, 'CHAT_QUERY', 'chat_message', %s,
+                           JSON_OBJECT('is_grounded', %s, 'citations_count', %s))""",
+                (str(user["account_id"]), ai_msg_id, is_grounded, len(citations)),
+            )
+
+    return {
+        "response": ans,
+        "is_grounded": is_grounded,
+        "citations": citations,
+    }
+
+
+@app.get("/patient/me/chat/history")
+def get_chat_history(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+    """Returns patient chat history with groundness flags."""
+    pid = user.get("patient_id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="No patient associated with this account")
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT message_id, patient_id, sender, message_text, is_grounded, created_at
+               FROM chat_messages
+               WHERE patient_id = %s
+               ORDER BY created_at ASC LIMIT 100""",
+            (pid,),
+        )
+        return cur.fetchall()
+
+
+# ─── Daily AI Summaries & Clinician Review (Milestone M5) ────────────────────
+
+@app.post("/staff/patients/{pid}/summaries/generate")
+def generate_patient_summary(
+    pid: int,
+    summary_date: Optional[str] = None,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Generate factual daily AI draft summary using sp_daily_report.
+    Strict rule: 'AI draft, not reviewed'. No advice, no interpretation.
+    """
+    target_date = summary_date or datetime.now(IST).strftime("%Y-%m-%d")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.callproc("sp_daily_report", (pid, target_date))
+            pinfo_rows = cur.fetchall()
+            pinfo = pinfo_rows[0] if pinfo_rows else {"full_name": f"Patient {pid}", "patient_id": pid}
+
+            cur.nextset()
+            meds = cur.fetchall()
+            cur.nextset()
+            vitals = cur.fetchall()
+            cur.nextset()
+            symptoms = cur.fetchall()
+            cur.nextset()
+            flags = cur.fetchall()
+
+        # Build fact sheet
+        taken_count = sum(1 for m in meds if m.get("status") == "Taken")
+        fact_sheet = (
+            f"Patient: {pinfo.get('full_name')} (ID: {pid}), Date: {target_date}\n"
+            f"Medications: {len(meds)} doses scheduled, {taken_count} recorded as taken.\n"
+            f"Vitals: {[v['measurement_type'] + ': avg ' + str(v['avg_value']) for v in vitals]}\n"
+            f"Symptoms: {[s['symptom_text'] for s in symptoms]}\n"
+            f"Flags: {[f['severity'] + ': ' + f['reason'] for f in flags]}\n"
+        )
+
+        prompt = (
+            "You are a factual clinical summarizer. Rewrite the provided facts into a concise "
+            "2-3 sentence factual clinical note for staff. DO NOT add advice. DO NOT interpret. "
+            "DO NOT recommend medication changes or diagnoses. State only the recorded facts."
+        )
+        summary_text = generate(prompt, fact_sheet)
+
+        period_start = f"{target_date} 00:00:00"
+        period_end = f"{target_date} 23:59:59"
+        model_name = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO ai_summaries
+                   (patient_id, period_start, period_end, summary_text, model_name, reviewed_by_staff_id, reviewed_at)
+                   VALUES (%s, %s, %s, %s, %s, NULL, NULL)""",
+                (pid, period_start, period_end, summary_text, model_name),
+            )
+            summary_id = cur.lastrowid
+
+            cur.execute(
+                """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                   VALUES ('Staff', %s, 'GENERATE_AI_SUMMARY', 'ai_summary', %s,
+                           JSON_OBJECT('patient_id', %s, 'date', %s))""",
+                (str(user["staff_id"]), summary_id, pid, target_date),
+            )
+
+    return {
+        "summary_id": summary_id,
+        "patient_id": pid,
+        "summary_date": target_date,
+        "summary_text": summary_text,
+        "status": "AI draft, not reviewed",
+        "model_name": model_name,
+    }
+
+
+@app.get("/staff/summaries/pending")
+def get_pending_summaries(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Returns AI draft summaries waiting for clinician review (Query Q15)."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT s.summary_id, s.patient_id, p.full_name AS patient_name,
+                      s.period_start, s.period_end, s.summary_text, s.model_name,
+                      s.generated_at, 'AI draft, not reviewed' AS status
+               FROM ai_summaries s
+               JOIN patients p ON p.patient_id = s.patient_id
+               WHERE s.reviewed_by_staff_id IS NULL
+               ORDER BY s.generated_at DESC"""
+        )
+        return cur.fetchall()
+
+
+@app.post("/staff/summaries/{summary_id}/review")
+def review_summary(
+    summary_id: int,
+    body: ReviewSummaryIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Clinician reviews and approves/rejects an AI draft summary."""
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT summary_id FROM ai_summaries WHERE summary_id = %s", (summary_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Summary not found")
+
+        cur.execute(
+            """UPDATE ai_summaries
+               SET reviewed_by_staff_id = %s, reviewed_at = NOW()
+               WHERE summary_id = %s""",
+            (staff_id, summary_id),
+        )
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'REVIEW_AI_SUMMARY', 'ai_summary', %s,
+                       JSON_OBJECT('action', %s, 'staff_id', %s, 'notes', %s))""",
+            (str(staff_id), summary_id, body.action, staff_id, body.notes),
+        )
+
+    return {
+        "status": f"{body.action}ed",
+        "summary_id": summary_id,
+        "reviewed_by_staff_id": staff_id,
+    }

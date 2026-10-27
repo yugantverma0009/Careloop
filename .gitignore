@@ -3,6 +3,7 @@ env/
 venv/
 __pycache__/
 .DS_Store
-.env
 chroma_db/
+chroma/
+backend/.env
 serviceAccountKey.json
