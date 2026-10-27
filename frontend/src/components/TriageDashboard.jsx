@@ -145,11 +145,6 @@ const TriageDashboard = ({ patientId, messages, setMessages, viewMode, setViewMo
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, viewMode]);
 
-  useEffect(() => {
-    const id = setInterval(() => setOxygen(Math.floor(Math.random() * 3) + 96), 2000);
-    return () => clearInterval(id);
-  }, []);
-
 
   const handleSend = async () => {
     if (!input.trim()) return;

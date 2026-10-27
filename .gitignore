@@ -6,4 +6,5 @@ __pycache__/
 chroma_db/
 chroma/
 backend/.env
+build/
 serviceAccountKey.json
