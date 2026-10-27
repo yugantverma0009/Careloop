@@ -14,6 +14,8 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from .db import get_conn
 
+from .escalation import run_escalations
+
 scheduler: BackgroundScheduler = None
 
 REMINDER_TEXT = {
@@ -88,8 +90,9 @@ def start():
     scheduler = BackgroundScheduler()
     scheduler.add_job(rule_cycle, "interval", minutes=5, id="careloop_rule_cycle", replace_existing=True)
     scheduler.add_job(send_due_reminders, "interval", minutes=1, id="careloop_reminders", replace_existing=True)
+    scheduler.add_job(run_escalations, "interval", minutes=1, id="careloop_escalations", replace_existing=True)
     scheduler.start()
-    print("[Scheduler] ✅ CareLoop BackgroundScheduler active (rule_cycle=5m, reminders=1m)")
+    print("[Scheduler] ✅ CareLoop BackgroundScheduler active (rule_cycle=5m, reminders=1m, escalations=1m)")
 
 
 def shutdown():

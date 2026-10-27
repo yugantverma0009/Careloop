@@ -454,3 +454,86 @@ def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient"))):
         "next_appointment": appt,
         "active_flags": active_flags,
     }
+
+
+# ─── Clinician & Escalation Workflow (Milestone M4) ──────────────────────────
+
+class AcknowledgeIn(BaseModel):
+    note: str = ""
+
+
+@app.get("/staff/triage")
+def get_triage_board(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """
+    Returns the clinician triage board backed by MySQL view v_triage_board.
+    Sorted by severity (Urgent_Review first), then flagged_at.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT patient_id, patient_name, flag_id, severity, source_type,
+                      reason, status, flagged_at, minutes_open, risk_score, risk_level
+               FROM v_triage_board
+               ORDER BY FIELD(severity, 'Urgent_Review', 'Review_Soon', 'Info'), flagged_at"""
+        )
+        return cur.fetchall()
+
+
+@app.post("/staff/flags/{flag_id}/acknowledge")
+def acknowledge_flag(
+    flag_id: int,
+    body: AcknowledgeIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Acknowledge Flag Endpoint:
+    - Calls sp_acknowledge_flag inside an atomic MySQL transaction.
+    - Locks row, marks flag Acknowledged, sets pending escalations Acknowledged,
+      creates a follow-up task, and writes an audit_log entry.
+    - Raises HTTP 409 if flag does not exist or was already acknowledged.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_acknowledge_flag", (flag_id, staff_id, body.note))
+        except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
+            err_msg = str(e)
+            if (
+                "45000" in err_msg
+                or "already acknowledged" in err_msg.lower()
+                or "not in open status" in err_msg.lower()
+            ):
+                raise HTTPException(status_code=409, detail="Flag not found or already acknowledged")
+            raise
+
+    return {"status": "acknowledged", "flag_id": flag_id, "staff_id": staff_id}
+
+
+@app.get("/staff/follow-ups")
+def get_pending_follow_ups(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Returns pending clinical tasks from v_pending_followups view."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT followup_id, patient_id, patient_name, priority, reason,
+                      assigned_to, status, created_at,
+                      ROUND(TIMESTAMPDIFF(MINUTE, created_at, NOW()) / 60.0, 1) AS hours_pending
+               FROM v_pending_followups
+               ORDER BY FIELD(priority, 'Urgent_Review', 'Review_Soon', 'Routine'), created_at ASC"""
+        )
+        return cur.fetchall()
+
+
+@app.get("/staff/patients/{pid}/timeline")
+def get_patient_timeline(pid: int, user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """
+    Returns unified chronological clinical timeline for a patient from v_patient_timeline.
+    Includes readings, symptoms, doses, and flags.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT patient_id, event_time, event_type, summary
+               FROM v_patient_timeline
+               WHERE patient_id = %s
+               ORDER BY event_time DESC LIMIT 200""",
+            (pid,),
+        )
+        return cur.fetchall()
