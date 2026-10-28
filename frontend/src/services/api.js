@@ -99,6 +99,17 @@ export const getMe = () => get('/auth/me');
 
 // ─── Patient Endpoints ──────────────────────────────────────────────────────
 
+export const getPatientToday = () => get('/patient/me/today');
+
+export const markDoseTaken = (logId, takenAt = null) =>
+  post(`/patient/me/doses/${logId}/taken`, { taken_at: takenAt });
+
+export const skipDose = (logId, reason = 'other') =>
+  post(`/patient/me/doses/${logId}/skip`, { reason });
+
+export const undoDose = (logId) =>
+  post(`/patient/me/doses/${logId}/undo`, {});
+
 export const getMyProfile = () => get('/patient/me/profile');
 
 export const getMyDoses = () => get('/patient/me/doses');

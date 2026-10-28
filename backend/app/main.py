@@ -6,7 +6,7 @@ All patient endpoints strictly extract patient_id from the authenticated JWT tok
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
@@ -286,11 +286,489 @@ def ingest_reading(r: ReadingIn, x_device_key: str = Header(...)):
     return {"status": "stored"}
 
 
-# ─── Patient Medication Doses (Milestone M3) ─────────────────────────────────
+# ─── Patient Medication Doses (Milestone M3 / Phase 1 Upgrade) ────────────────
 
 class DoseConfirmIn(BaseModel):
     status: str = Field(pattern="^(Taken_Confirmed|Skipped)$")
     patient_note: Optional[str] = None
+
+
+class DoseTakenIn(BaseModel):
+    taken_at: Optional[str] = None
+
+
+class DoseSkipIn(BaseModel):
+    reason: str = Field(default="other", pattern="^(felt_unwell|ran_out|forgot|side_effects|other)$")
+
+
+DOSE_EARLY_WINDOW_MIN = 60
+UNDO_WINDOW_MIN = 5
+
+
+@app.get("/patient/me/today")
+def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+    """
+    Unified Today Overview endpoint (Brief Section 8.1):
+    Single query payload rendering greeting, day after discharge, banner state,
+    counts, next dose, grouped doses, latest readings, device, next appointment, and week strip.
+    """
+    pid = get_effective_patient_id(user)
+    now_ist = datetime.now(IST)
+    today_ist = now_ist.date()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Patient basic profile & discharge info
+        cur.execute("SELECT full_name FROM patients WHERE patient_id=%s", (pid,))
+        p_row = cur.fetchone()
+        name = p_row["full_name"] if p_row else "Patient"
+
+        cur.execute(
+            """SELECT discharge_date FROM discharge_records
+               WHERE patient_id = %s ORDER BY discharge_date DESC LIMIT 1""",
+            (pid,)
+        )
+        d_row = cur.fetchone()
+        if d_row and d_row.get("discharge_date"):
+            dis_date = d_row["discharge_date"]
+            if isinstance(dis_date, datetime):
+                dis_date = dis_date.date()
+            day_after_discharge = max(1, (today_ist - dis_date).days)
+        else:
+            day_after_discharge = 1
+
+        # 2. Banner state & Needs a look
+        cur.execute(
+            """SELECT flag_id, severity, source_type, reason, created_at, acknowledged_at, status
+               FROM flags
+               WHERE patient_id = %s
+                 AND (
+                   status = 'Open'
+                   OR (status = 'Acknowledged' AND acknowledged_at >= NOW() - INTERVAL 24 HOUR)
+                 )
+               ORDER BY created_at DESC""",
+            (pid,)
+        )
+        flags = cur.fetchall()
+
+        banner_state = "none"
+        banner_msg_key = None
+        banner_raised_at = None
+        needs_a_look = None
+
+        urgent_flag = next((f for f in flags if f["status"] == "Open" and (f["severity"] in ("Urgent_Review", "Immediate_Review") or f["source_type"] == "Emergency")), None)
+        review_flag = next((f for f in flags if f["status"] == "Open" and f["severity"] == "Review_Soon"), None)
+        seen_flag = next((f for f in flags if f["status"] == "Acknowledged"), None)
+
+        if urgent_flag:
+            banner_state = "urgent"
+            banner_msg_key = "urgent_alert"
+            banner_raised_at = urgent_flag["created_at"].isoformat() if urgent_flag.get("created_at") else None
+            needs_a_look = {
+                "item": "Emergency notice" if urgent_flag["source_type"] == "Emergency" else "High-priority clinical update",
+                "raised_at": urgent_flag["created_at"].strftime("%I:%M %p") if urgent_flag.get("created_at") else ""
+            }
+        elif review_flag:
+            banner_state = "review"
+            banner_msg_key = "review_alert"
+            banner_raised_at = review_flag["created_at"].isoformat() if review_flag.get("created_at") else None
+            needs_a_look = {
+                "item": "Reading waiting for care team review",
+                "raised_at": review_flag["created_at"].strftime("%I:%M %p") if review_flag.get("created_at") else ""
+            }
+        elif seen_flag:
+            banner_state = "seen"
+            banner_msg_key = "seen_alert"
+            banner_raised_at = (seen_flag.get("acknowledged_at") or seen_flag.get("created_at")).isoformat() if (seen_flag.get("acknowledged_at") or seen_flag.get("created_at")) else None
+
+        # 3. Today's doses
+        cur.callproc("sp_generate_daily_doses", (today_ist,))
+        cur.execute(
+            """SELECT ml.medication_log_id, m.medicine_name, pr.dose_instructions,
+                      ml.scheduled_for, ml.status, ml.reminder_sent_at, ml.recorded_at, ml.patient_note
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s
+                 AND ml.scheduled_for >= CURDATE()
+                 AND ml.scheduled_for < CURDATE() + INTERVAL 1 DAY
+               ORDER BY ml.scheduled_for ASC""",
+            (pid,)
+        )
+        raw_doses = cur.fetchall()
+
+        morning, afternoon, evening, night = [], [], [], []
+        planned = len(raw_doses)
+        taken = sum(1 for d in raw_doses if d["status"] in ("Taken", "Taken_Confirmed"))
+        skipped = sum(1 for d in raw_doses if d["status"] == "Skipped")
+        not_confirmed = sum(1 for d in raw_doses if d["status"] == "Missed")
+        pending = sum(1 for d in raw_doses if d["status"] == "Unconfirmed")
+
+        next_dose = None
+
+        for d in raw_doses:
+            sched_dt = d["scheduled_for"]
+            if isinstance(sched_dt, datetime) and sched_dt.tzinfo is None:
+                sched_dt = sched_dt.replace(tzinfo=IST)
+            elif isinstance(sched_dt, datetime):
+                sched_dt = sched_dt.astimezone(IST)
+
+            diff_sec = (sched_dt - now_ist).total_seconds()
+            diff_min = int(round(diff_sec / 60))
+
+            if d["status"] in ("Taken", "Taken_Confirmed"):
+                rel = "taken"
+                pill_label = "Taken"
+                pill_color = "green"
+            elif d["status"] == "Skipped":
+                rel = "skipped"
+                pill_label = f"Skipped: {d.get('patient_note') or 'by patient'}"
+                pill_color = "grey"
+            elif d["status"] == "Missed":
+                rel = "not_confirmed"
+                pill_label = "Not confirmed"
+                pill_color = "amber"
+            else:  # Unconfirmed
+                if diff_min > 60:
+                    rel = "upcoming"
+                    pill_label = "Upcoming"
+                    pill_color = "grey"
+                elif 0 <= diff_min <= 60:
+                    rel = f"in_{diff_min}_min"
+                    pill_label = f"In {diff_min} min" if diff_min > 1 else "Due now"
+                    pill_color = "blue"
+                elif -30 <= diff_min < 0:
+                    rel = "due_now"
+                    pill_label = "Due now"
+                    pill_color = "amber"
+                else:
+                    rel = f"{abs(diff_min)}_min_late"
+                    pill_label = f"{abs(diff_min)} min late"
+                    pill_color = "amber"
+
+            dose_obj = {
+                "id": d["medication_log_id"],
+                "medicine": d["medicine_name"],
+                "dose_instructions": d["dose_instructions"] or "Prescribed oral dose",
+                "scheduled_for": d["scheduled_for"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(d["scheduled_for"], datetime) else str(d["scheduled_for"]),
+                "scheduled_time": sched_dt.strftime("%I:%M %p"),
+                "status": d["status"],
+                "relative": rel,
+                "pill_label": pill_label,
+                "pill_color": pill_color,
+                "recorded_at": d["recorded_at"].isoformat() if d.get("recorded_at") else None,
+                "patient_note": d.get("patient_note"),
+            }
+
+            h = sched_dt.hour
+            if h < 12:
+                morning.append(dose_obj)
+            elif h < 17:
+                afternoon.append(dose_obj)
+            elif h < 21:
+                evening.append(dose_obj)
+            else:
+                night.append(dose_obj)
+
+            if next_dose is None and d["status"] in ("Unconfirmed", "Missed"):
+                next_dose = dose_obj
+
+        # 4. Readings
+        cur.execute(
+            """SELECT measurement_type, measurement_value, unit, measured_at, quality_status
+               FROM v_latest_sensor_readings WHERE patient_id=%s""",
+            (pid,)
+        )
+        readings_rows = cur.fetchall()
+        readings = [
+            {
+                "type": r["measurement_type"],
+                "value": round(float(r["measurement_value"]), 1) if r["measurement_value"] is not None else None,
+                "unit": r["unit"],
+                "measured_at": r["measured_at"].strftime("%Y-%m-%d %H:%M:%S") if r.get("measured_at") else None,
+                "measured_time": r["measured_at"].strftime("%I:%M %p") if r.get("measured_at") else None,
+                "quality": r["quality_status"] or "Valid"
+            }
+            for r in readings_rows
+        ]
+
+        # 5. Device
+        cur.execute(
+            """SELECT connectivity_status, last_seen_at FROM v_device_status
+               WHERE patient_id=%s ORDER BY last_seen_at DESC LIMIT 1""",
+            (pid,)
+        )
+        dev = cur.fetchone()
+        device_status = {
+            "status": dev["connectivity_status"] if dev else "Online",
+            "last_seen_at": dev["last_seen_at"].strftime("%I:%M %p") if (dev and dev.get("last_seen_at")) else None
+        }
+
+        # 6. Next appointment
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status, s.full_name AS doctor_name
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id=%s AND a.status='Scheduled' AND a.appointment_date >= NOW()
+               ORDER BY a.appointment_date ASC LIMIT 1""",
+            (pid,)
+        )
+        appt_row = cur.fetchone()
+        next_appt = {
+            "id": appt_row["appointment_id"],
+            "at": appt_row["appointment_date"].strftime("%Y-%m-%d %H:%M:%S"),
+            "formatted_date": appt_row["appointment_date"].strftime("%d %b, %I:%M %p"),
+            "with": appt_row["doctor_name"],
+            "type": appt_row["appointment_type"],
+        } if appt_row else None
+
+        # 7. Week strip (Monday to Sunday)
+        start_of_week = today_ist - timedelta(days=today_ist.weekday())
+        week = []
+        for i in range(7):
+            w_date = start_of_week + timedelta(days=i)
+            cur.execute(
+                """SELECT COUNT(*) AS planned,
+                          SUM(status = 'Taken_Confirmed') AS taken
+                   FROM medication_logs ml
+                   JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+                   WHERE pr.patient_id = %s
+                     AND ml.scheduled_for >= %s AND ml.scheduled_for < %s + INTERVAL 1 DAY""",
+                (pid, w_date, w_date)
+            )
+            w_dose = cur.fetchone() or {"planned": 0, "taken": 0}
+
+            cur.execute(
+                "SELECT 1 FROM appointments WHERE patient_id=%s AND DATE(appointment_date) = %s LIMIT 1",
+                (pid, w_date)
+            )
+            has_appt = bool(cur.fetchone())
+
+            cur.execute(
+                "SELECT 1 FROM symptom_reports WHERE patient_id=%s AND DATE(reported_at) = %s LIMIT 1",
+                (pid, w_date)
+            )
+            has_checkin = bool(cur.fetchone())
+
+            week.append({
+                "date": w_date.strftime("%Y-%m-%d"),
+                "day_name": w_date.strftime("%a"),
+                "day_initial": w_date.strftime("%a")[0],
+                "day_num": w_date.strftime("%d"),
+                "is_today": w_date == today_ist,
+                "planned": int(w_dose["planned"] or 0),
+                "taken": int(w_dose["taken"] or 0),
+                "appointment": has_appt,
+                "checkin": has_checkin,
+            })
+
+    return {
+        "date": today_ist.strftime("%Y-%m-%d"),
+        "formatted_date": now_ist.strftime("%A, %d %B %Y"),
+        "name": name,
+        "day_after_discharge": day_after_discharge,
+        "banner": {
+            "state": banner_state,
+            "message_key": banner_msg_key,
+            "raised_at": banner_raised_at,
+        },
+        "needs_a_look": needs_a_look,
+        "counts": {
+            "planned": planned,
+            "taken": taken,
+            "skipped": skipped,
+            "not_confirmed": not_confirmed,
+            "pending": pending,
+        },
+        "next_dose": next_dose,
+        "doses": {
+            "morning": morning,
+            "afternoon": afternoon,
+            "evening": evening,
+            "night": night,
+        },
+        "all_doses": morning + afternoon + evening + night,
+        "readings": readings,
+        "device": device_status,
+        "next_appointment": next_appt,
+        "week": week,
+    }
+
+
+@app.post("/patient/me/doses/{log_id}/taken")
+def mark_dose_taken(
+    log_id: int,
+    body: DoseTakenIn = DoseTakenIn(),
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Mark dose as Taken (Brief Section 6.2, 8.2).
+    - Checks 60-min early window (>60 min ahead returns 409).
+    - Idempotent on repeated taps.
+    - Writes immutable audit log.
+    """
+    pid = get_effective_patient_id(user)
+    actor_role = user["role"]
+    now_ist = datetime.now(IST)
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Verify ownership
+        cur.execute(
+            """SELECT ml.medication_log_id, ml.scheduled_for, ml.status, m.medicine_name
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE ml.medication_log_id = %s AND pr.patient_id = %s""",
+            (log_id, pid),
+        )
+        dose = cur.fetchone()
+        if not dose:
+            raise HTTPException(status_code=404, detail="Medication dose log not found for this patient")
+
+        # Idempotent if already taken
+        if dose["status"] == "Taken_Confirmed":
+            return {"status": "updated", "dose_id": log_id, "recorded_status": "Taken_Confirmed"}
+
+        # Check early window (>60 min in future)
+        sched_dt = dose["scheduled_for"]
+        if isinstance(sched_dt, datetime) and sched_dt.tzinfo is None:
+            sched_dt = sched_dt.replace(tzinfo=IST)
+        diff_sec = (sched_dt - now_ist).total_seconds()
+        if diff_sec > DOSE_EARLY_WINDOW_MIN * 60:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This dose is scheduled for {sched_dt.strftime('%I:%M %p')}. You can mark it starting 1 hour before.",
+            )
+
+        # Update dose
+        cur.execute(
+            """UPDATE medication_logs
+               SET status = 'Taken_Confirmed', recorded_at = NOW(), recorded_by = %s, patient_note = NULL
+               WHERE medication_log_id = %s""",
+            (actor_role, log_id),
+        )
+
+        # Audit log
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES (%s, %s, 'TAKE_DOSE', 'medication_log', %s,
+                       JSON_OBJECT('status', 'Taken_Confirmed', 'medicine', %s, 'patient_id', %s))""",
+            (actor_role, str(user["account_id"]), log_id, dose["medicine_name"], pid),
+        )
+
+    return {"status": "updated", "dose_id": log_id, "recorded_status": "Taken_Confirmed"}
+
+
+@app.post("/patient/me/doses/{log_id}/skip")
+def skip_dose(
+    log_id: int,
+    body: DoseSkipIn,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Skip dose with patient-provided reason (Brief Section 6.2, 8.2).
+    - Preserves distinction between user-skipped and system unconfirmed.
+    - Writes immutable audit log.
+    """
+    pid = get_effective_patient_id(user)
+    actor_role = user["role"]
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Verify ownership
+        cur.execute(
+            """SELECT ml.medication_log_id, ml.status, m.medicine_name
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE ml.medication_log_id = %s AND pr.patient_id = %s""",
+            (log_id, pid),
+        )
+        dose = cur.fetchone()
+        if not dose:
+            raise HTTPException(status_code=404, detail="Medication dose log not found for this patient")
+
+        # Update dose
+        cur.execute(
+            """UPDATE medication_logs
+               SET status = 'Skipped', recorded_at = NOW(), recorded_by = %s, patient_note = %s
+               WHERE medication_log_id = %s""",
+            (actor_role, body.reason, log_id),
+        )
+
+        # Audit log
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES (%s, %s, 'SKIP_DOSE', 'medication_log', %s,
+                       JSON_OBJECT('status', 'Skipped', 'reason', %s, 'medicine', %s, 'patient_id', %s))""",
+            (actor_role, str(user["account_id"]), log_id, body.reason, dose["medicine_name"], pid),
+        )
+
+    return {"status": "updated", "dose_id": log_id, "recorded_status": "Skipped"}
+
+
+@app.post("/patient/me/doses/{log_id}/undo")
+def undo_dose(
+    log_id: int,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Undo dose action within 5-minute safety window (Brief Section 6.2, 8.2).
+    - Reverts dose to Unconfirmed.
+    - Returns 409 if 5-minute undo window expired.
+    - Writes immutable audit log.
+    """
+    pid = get_effective_patient_id(user)
+    actor_role = user["role"]
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Verify ownership
+        cur.execute(
+            """SELECT ml.medication_log_id, ml.status, m.medicine_name
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE ml.medication_log_id = %s AND pr.patient_id = %s""",
+            (log_id, pid),
+        )
+        dose = cur.fetchone()
+        if not dose:
+            raise HTTPException(status_code=404, detail="Medication dose log not found for this patient")
+
+        if dose["status"] not in ("Taken_Confirmed", "Skipped"):
+            raise HTTPException(status_code=409, detail="Dose is not currently marked as taken or skipped.")
+
+        # Check undo window against last audit_log entry
+        cur.execute(
+            """SELECT created_at FROM audit_log
+               WHERE entity_type = 'medication_log' AND entity_id = %s
+                 AND action IN ('TAKE_DOSE', 'SKIP_DOSE', 'CONFIRM_DOSE')
+               ORDER BY created_at DESC LIMIT 1""",
+            (log_id,),
+        )
+        alog = cur.fetchone()
+        if not alog:
+            raise HTTPException(status_code=409, detail="No recent action found to undo.")
+
+        elapsed = (datetime.now() - alog["created_at"]).total_seconds()
+        if elapsed > UNDO_WINDOW_MIN * 60:
+            raise HTTPException(status_code=409, detail="Undo window of 5 minutes has expired.")
+
+        # Reset dose to Unconfirmed
+        cur.execute(
+            """UPDATE medication_logs
+               SET status = 'Unconfirmed', recorded_at = NULL, recorded_by = NULL, patient_note = NULL
+               WHERE medication_log_id = %s""",
+            (log_id,),
+        )
+
+        # Audit log
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES (%s, %s, 'UNDO_DOSE', 'medication_log', %s,
+                       JSON_OBJECT('status', 'Unconfirmed', 'medicine', %s, 'patient_id', %s))""",
+            (actor_role, str(user["account_id"]), log_id, dose["medicine_name"], pid),
+        )
+
+    return {"status": "updated", "dose_id": log_id, "recorded_status": "Unconfirmed"}
 
 
 @app.get("/patient/me/doses")
