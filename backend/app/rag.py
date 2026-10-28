@@ -22,9 +22,14 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 load_dotenv(".env")
 logger = logging.getLogger(__name__)
 from .llm import generate
-from .safety import is_dose_change_question, has_emergency_term, EMERGENCY_GUIDANCE
+from .safety import is_dose_change_question, has_emergency_term, EMERGENCY_GUIDANCE, DOSE_CHANGE_REFUSAL
 
 logger = logging.getLogger(__name__)
+
+NOT_FOUND_MSG = {
+    "en": "I could not find this in your discharge papers. I have asked your care team to reply.",
+    "hi": "यह आपके डिस्चार्ज पेपर्स में नहीं मिला। मैंने आपकी केयर टीम से जवाब देने को कहा है।",
+}
 
 SYSTEM = (
     "You are a post-discharge assistant. Answer ONLY from the CONTEXT. "
@@ -92,10 +97,7 @@ def answer(
 
     # 2. Deterministic dose change check (instant refusal)
     if is_dose_change_question(question):
-        refusal = (
-            "I cannot advise on changing doses. Please contact your care team. "
-            "I have asked them to get in touch with you."
-        )
+        refusal = DOSE_CHANGE_REFUSAL.get(lang, DOSE_CHANGE_REFUSAL["en"])
         return refusal, False, []
 
     # 3. Retrieve relevant discharge document chunks
@@ -123,7 +125,7 @@ def answer(
         except Exception as e:
             logger.error(f"Failed to access Chroma collection discharge_{discharge_id}: {e}")
             return (
-                "I could not find this in your discharge documents. I have asked your care team to reply.",
+                NOT_FOUND_MSG.get(lang, NOT_FOUND_MSG["en"]),
                 False,
                 [],
             )
@@ -138,7 +140,7 @@ def answer(
 
     if not docs:
         return (
-            "I could not find this in your discharge documents. I have asked your care team to reply.",
+            NOT_FOUND_MSG.get(lang, NOT_FOUND_MSG["en"]),
             False,
             [],
         )
@@ -150,9 +152,14 @@ def answer(
 
     if not out or "NOT_IN_DOCUMENTS" in out:
         return (
-            "I could not find this in your discharge documents. I have asked your care team to reply.",
+            NOT_FOUND_MSG.get(lang, NOT_FOUND_MSG["en"]),
             False,
             [],
         )
 
-    return out.strip(), True, ids
+    ans = out.strip()
+    prefix = "From your discharge summary: " if lang == "en" else "आपके डिस्चार्ज पेपर्स के अनुसार: "
+    if not ans.startswith(prefix):
+        ans = f"{prefix}{ans}"
+
+    return ans, True, ids

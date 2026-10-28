@@ -28,8 +28,8 @@ def test_health():
 
 def test_login_all_roles():
     roles_and_emails = [
-        ("Patient", "aarav.demo@example.test", "Aarav Demo", 1),
-        ("Caregiver", "caregiver1.demo@example.test", "Demo Caregiver One", None),
+        ("Patient", "aarav.demo@example.test", "Aarav Patel", 1),
+        ("Caregiver", "caregiver1.demo@example.test", "Aarav's Caregiver", None),
         ("Doctor", "ananya.demo@example.test", "Dr. Ananya Sharma", None),
         ("Nurse", "priya.demo@example.test", "Priya Nair", None),
     ]
@@ -72,7 +72,7 @@ def test_role_enforcement_and_isolation(tokens):
     assert res.status_code == 200, res.text
     patient_data = res.json()
     assert patient_data["profile"]["patient_id"] == 1
-    assert patient_data["profile"]["full_name"] == "Aarav Demo"
+    assert patient_data["profile"]["full_name"] == "Aarav Patel"
     print("✅ Patient profile successfully retrieved using JWT claims (Patient ID=1)")
 
     # 2. Patient profile is FORBIDDEN for Doctor and Nurse tokens (HTTP 403)
@@ -102,7 +102,7 @@ def test_role_enforcement_and_isolation(tokens):
     # 4. Caregiver profile works for Caregiver, blocked for Patient
     res_cg = client.get("/caregiver/me/profile", headers=caregiver_headers)
     assert res_cg.status_code == 200, res_cg.text
-    assert res_cg.json()["full_name"] == "Demo Caregiver One"
+    assert res_cg.json()["full_name"] == "Aarav's Caregiver"
     print("✅ Caregiver profile successfully retrieved")
 
     res_pat_on_cg = client.get("/caregiver/me/profile", headers=patient_headers)

@@ -82,8 +82,17 @@ const post = (path, body) =>
 export const login = async (email, password) => {
   const data = await post('/auth/login', { email, password });
   setToken(data.access_token);
-  setUser(data);
-  return data;
+  const user = {
+    account_id: data.account_id,
+    email: email,
+    role: data.role,
+    name: data.name,
+    patient_id: data.patient_id,
+    caregiver_id: data.caregiver_id,
+    staff_id: data.staff_id,
+  };
+  setUser(user);
+  return { ...data, user };
 };
 
 export const getMe = () => get('/auth/me');

@@ -152,13 +152,30 @@ def get_current_user_profile(user: Dict[str, Any] = Depends(current_user)):
 
 # ─── Role Verification & Profile Endpoints ────────────────────────────────────
 
+
+def get_effective_patient_id(user: Dict[str, Any]) -> int:
+    """Extract authenticated patient_id from JWT or through authorized Caregiver link."""
+    pid = user.get("patient_id")
+    if pid:
+        return int(pid)
+    if user.get("role") == "Caregiver" and user.get("caregiver_id"):
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT patient_id, consent_granted FROM caregivers WHERE caregiver_id=%s",
+                (user["caregiver_id"],),
+            )
+            cg = cur.fetchone()
+            if cg and cg.get("consent_granted"):
+                return int(cg["patient_id"])
+    raise HTTPException(status_code=403, detail="No authorized patient associated with this account")
+
 @app.get("/patient/me/profile")
-def get_my_patient_profile(user: Dict[str, Any] = Depends(require_role("Patient"))):
+def get_my_patient_profile(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
     """
     Patient profile access.
     PATIENT_ID IS SOLELY EXTRACTED FROM THE JWT. NEVER ACCEPTED VIA URL.
     """
-    pid = user["patient_id"]
+    pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT patient_id, full_name, phone, date_of_birth, preferred_language, consent_status, created_at
@@ -277,12 +294,12 @@ class DoseConfirmIn(BaseModel):
 
 
 @app.get("/patient/me/doses")
-def get_my_doses(user: Dict[str, Any] = Depends(require_role("Patient"))):
+def get_my_doses(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
     """
     Returns today's scheduled medication doses for the authenticated patient.
     PATIENT_ID IS STRICTLY EXTRACTED FROM JWT.
     """
-    pid = user["patient_id"]
+    pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
         # Generate daily doses if not yet generated
         cur.callproc("sp_generate_daily_doses", (datetime.now(IST).date(),))
@@ -403,7 +420,7 @@ def extract_and_save_symptom_tags(report_id: int, symptom_text: str):
 
 
 @app.post("/patient/me/symptoms")
-def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient"))):
+def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
     """
     Symptom Check-in Endpoint:
     - Runs deterministic emergency keyword check (English + Hindi) instantly.
@@ -414,7 +431,7 @@ def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(requi
     - Emergency guidance is returned immediately without waiting for any LLM call!
     - Tags extracted asynchronously/inline via LLM.
     """
-    pid = user["patient_id"]
+    pid = get_effective_patient_id(user)
     emergency = has_emergency_term(body.text)
     guidance = EMERGENCY_GUIDANCE.get(body.language, EMERGENCY_GUIDANCE["en"]) if emergency else None
 
@@ -449,7 +466,7 @@ def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(requi
 # ─── Patient Status Page (Milestone M3) ──────────────────────────────────────
 
 @app.get("/patient/me/status")
-def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient"))):
+def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
     """
     Patient Status Page:
     - Latest readings with quality label from v_latest_sensor_readings.
@@ -458,7 +475,7 @@ def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient"))):
     - Active clinical flags.
     Never shows missing data as 0 or normal!
     """
-    pid = user["patient_id"]
+    pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
         # 1. Latest readings
         cur.execute(
@@ -599,9 +616,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_rol
     - Links citations to document_chunks via chat_message_sources.
     - Ungrounded answers create a follow_up_task for clinical staff.
     """
-    pid = user.get("patient_id")
-    if not pid:
-        raise HTTPException(status_code=400, detail="No patient associated with this account")
+    pid = get_effective_patient_id(user)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -673,9 +688,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_rol
 @app.get("/patient/me/chat/history")
 def get_chat_history(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
     """Returns patient chat history with groundness flags."""
-    pid = user.get("patient_id")
-    if not pid:
-        raise HTTPException(status_code=400, detail="No patient associated with this account")
+    pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT message_id, patient_id, sender, message_text, is_grounded, created_at

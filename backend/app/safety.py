@@ -37,8 +37,8 @@ EMERGENCY_TERMS = [
 ]
 
 EMERGENCY_GUIDANCE = {
-    "en": "This may be an emergency. Call your local emergency number now or go to the nearest emergency department. Your care team has been alerted.",
-    "hi": "यह आपातकालीन स्थिति हो सकती है। अभी अपने स्थानीय आपातकालीन नंबर पर कॉल करें या नज़दीकी अस्पताल के आपातकालीन विभाग जाएँ। आपकी केयर टीम को सूचित कर दिया गया है।",
+    "en": "This may be an emergency. If you have severe chest pain or trouble breathing, call 112 now. Your care team has been told.",
+    "hi": "यह आपातकालीन स्थिति हो सकती है। अगर सीने में तेज़ दर्द हो या सांस लेने में परेशानी हो, तो तुरंत 112 पर कॉल करें। आपकी केयर टीम को सूचित कर दिया गया है।",
 }
 
 DOSE_CHANGE_PATTERNS = [
@@ -78,8 +78,8 @@ DOSE_CHANGE_PATTERNS = [
 ]
 
 DOSE_CHANGE_REFUSAL = {
-    "en": "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team. A follow-up task has been logged for your clinical staff to get in touch with you.",
-    "hi": "मैं दवा की खुराक बदलने, रोकने या समायोजित करने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से संपर्क करें। आपकी क्लीनिकल टीम को आपसे संपर्क करने के लिए सूचित कर दिया गया है।",
+    "en": "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team. A note has been sent to your team to follow up.",
+    "hi": "मैं दवा की खुराक बदलने, रोकने या बदलने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से बात करें। आपकी टीम को सूचित कर दिया गया है।",
 }
 
 

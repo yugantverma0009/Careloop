@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider } from './ThemeContext';
+import LandingPage from './components/Landingpage';
 import CareLoopLogin from './components/CareLoopLogin';
 import CareLoopPatientPortal from './components/CareLoopPatientPortal';
 import CareLoopStaffPortal from './components/CareLoopStaffPortal';
@@ -23,56 +25,55 @@ export default function App() {
   const isLoggedIn = Boolean(getToken() && currentUser);
 
   return (
-    <Router>
-      <Routes>
-        <Route
-          path="/login"
-          element={
-            !isLoggedIn ? (
-              <CareLoopLogin onLoginSuccess={handleLoginSuccess} />
-            ) : currentUser.role === 'Patient' || currentUser.role === 'Caregiver' ? (
-              <Navigate to="/patient" replace />
-            ) : (
-              <Navigate to="/staff" replace />
-            )
-          }
-        />
+    <ThemeProvider>
+      <Router>
+        <Routes>
+          {/* Public Landing Page */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/landing" element={<LandingPage />} />
 
-        <Route
-          path="/patient"
-          element={
-            isLoggedIn ? (
-              <CareLoopPatientPortal user={currentUser} />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+          {/* Login Page */}
+          <Route
+            path="/login"
+            element={
+              !isLoggedIn ? (
+                <CareLoopLogin onLoginSuccess={handleLoginSuccess} />
+              ) : currentUser.role === 'Patient' || currentUser.role === 'Caregiver' ? (
+                <Navigate to="/patient" replace />
+              ) : (
+                <Navigate to="/staff" replace />
+              )
+            }
+          />
 
-        <Route
-          path="/staff"
-          element={
-            isLoggedIn ? (
-              <CareLoopStaffPortal user={currentUser} />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+          {/* Authenticated Patient Recovery Workspace */}
+          <Route
+            path="/patient"
+            element={
+              isLoggedIn ? (
+                <CareLoopPatientPortal user={currentUser} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
 
-        <Route
-          path="*"
-          element={
-            !isLoggedIn ? (
-              <Navigate to="/login" replace />
-            ) : currentUser.role === 'Patient' || currentUser.role === 'Caregiver' ? (
-              <Navigate to="/patient" replace />
-            ) : (
-              <Navigate to="/staff" replace />
-            )
-          }
-        />
-      </Routes>
-    </Router>
+          {/* Authenticated Clinician Staff Command Hub */}
+          <Route
+            path="/staff"
+            element={
+              isLoggedIn ? (
+                <CareLoopStaffPortal user={currentUser} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </ThemeProvider>
   );
 }

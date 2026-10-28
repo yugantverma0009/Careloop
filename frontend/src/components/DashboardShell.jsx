@@ -409,11 +409,11 @@ const DashboardShell = ({
     <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* ── Sidebar ── */}
       <aside className="ds-sidebar" role="navigation" aria-label="Dashboard navigation">
-        <Link to="/" className="ds-sidebar-logo" aria-label="AgenticNurse home">
+        <Link to="/" className="ds-sidebar-logo" aria-label="CareLoop home">
           <DsLogo />
           <div>
-            <div className="ds-logo-text">Agentic<span>Nurse</span></div>
-            <div className="ds-logo-sub">Clinical AI</div>
+            <div className="ds-logo-text">Care<span>Loop</span></div>
+            <div className="ds-logo-sub">Follow-up after discharge</div>
           </div>
         </Link>
 

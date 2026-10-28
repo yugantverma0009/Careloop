@@ -1,5 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { login, getUser } from '../services/api';
+import {
+  IconStethoscope,
+  IconNurse,
+  IconPatient,
+  IconCaregiver,
+  IconBell,
+  IconChevronDown,
+  IconCheck,
+  IconShieldCheck,
+} from './Icons';
 
 const DEMO_WORKSPACES = [
   {
@@ -8,11 +18,12 @@ const DEMO_WORKSPACES = [
     initials: 'DR',
     title: 'Attending Physician',
     name: 'Dr. Ananya Rao',
-    department: 'Cardiology & Surgical Recovery',
+    department: 'Cardiology & Clinical Escalations',
     email: 'ananya.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/staff',
-    badgeColor: '#0284c7',
+    badgeColor: 'var(--accent-blue)',
+    IconComponent: IconStethoscope,
   },
   {
     id: 'nurse',
@@ -20,11 +31,12 @@ const DEMO_WORKSPACES = [
     initials: 'PN',
     title: 'Triage Nurse',
     name: 'Nurse Priya Sharma',
-    department: 'Post-Op Triage & Flag Response',
+    department: 'Triage Board & Flag Acknowledgment',
     email: 'priya.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/staff',
-    badgeColor: '#7c3aed',
+    badgeColor: 'var(--accent-teal)',
+    IconComponent: IconNurse,
   },
   {
     id: 'patient',
@@ -32,11 +44,12 @@ const DEMO_WORKSPACES = [
     initials: 'AP',
     title: 'Recovering Patient',
     name: 'Aarav Patel',
-    department: 'Post-CABG Day 3 Telemetry',
+    department: 'Post-CABG Day 3 Telemetry & Doses',
     email: 'aarav.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/patient',
-    badgeColor: '#059669',
+    badgeColor: 'var(--success-green)',
+    IconComponent: IconPatient,
   },
   {
     id: 'caregiver',
@@ -44,11 +57,12 @@ const DEMO_WORKSPACES = [
     initials: 'SP',
     title: 'Family Caregiver',
     name: 'Sunita Patel',
-    department: 'Proxy Medication & Vitals Guardian',
+    department: 'Proxy Medication & Adherence Guardian',
     email: 'caregiver1.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/patient',
-    badgeColor: '#d97706',
+    badgeColor: 'var(--warning-amber)',
+    IconComponent: IconCaregiver,
   },
 ];
 
@@ -72,9 +86,10 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
   const activeRole = activeUser.role || 'Patient';
 
   // Determine active workspace metadata
-  const currentWorkspace = DEMO_WORKSPACES.find(
-    (w) => w.role.toLowerCase() === activeRole.toLowerCase()
-  ) || DEMO_WORKSPACES[2];
+  const currentWorkspace =
+    DEMO_WORKSPACES.find(
+      (w) => w.role.toLowerCase() === activeRole.toLowerCase()
+    ) || DEMO_WORKSPACES[2];
 
   const handleSelectWorkspace = async (workspace) => {
     if (workspace.email === activeUser.email && !switching) {
@@ -88,7 +103,6 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
       if (onSwitchSuccess) {
         onSwitchSuccess(data);
       }
-      // Navigate to target route
       if (window.location.pathname !== workspace.targetRoute) {
         window.location.href = workspace.targetRoute;
       } else {
@@ -96,48 +110,45 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
       }
     } catch (err) {
       console.error('Failed to switch workspace', err);
-      alert(`Could not switch demo workspace: ${err.message}`);
+      alert(`Could not switch role: ${err.message}`);
     } finally {
       setSwitching(false);
     }
   };
 
+  const ActiveIcon = currentWorkspace.IconComponent || IconPatient;
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }} ref={menuRef}>
-      {/* Notification Bell with alert dot */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }} ref={menuRef}>
+      {/* Notification Bell with pulse indicator */}
       <div
         style={{
-          width: '38px',
-          height: '38px',
-          borderRadius: '10px',
-          border: '1px solid rgba(226, 232, 240, 0.4)',
-          background: 'rgba(255, 255, 255, 0.08)',
-          backdropFilter: 'blur(8px)',
+          width: '36px',
+          height: '36px',
+          borderRadius: '9px',
+          border: '1px solid var(--border-subtle)',
+          background: 'var(--bg-card)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           position: 'relative',
           cursor: 'pointer',
-          color: '#cbd5e1',
-          transition: 'all 0.2s',
+          color: 'var(--text-secondary)',
+          boxShadow: 'var(--shadow-sm)',
         }}
-        title="Active Clinical Alerts"
+        title="Alerts and notifications active"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
-        {/* Red pulse notification dot */}
+        <IconBell width={16} height={16} />
         <span
+          className="pulse-dot"
           style={{
             position: 'absolute',
-            top: '8px',
-            right: '8px',
-            width: '8px',
-            height: '8px',
+            top: '7px',
+            right: '7px',
+            width: '7px',
+            height: '7px',
             borderRadius: '50%',
-            background: '#ef4444',
-            boxShadow: '0 0 0 2px #0f172a',
+            background: 'var(--alert-red)',
           }}
         />
       </div>
@@ -150,61 +161,56 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
+          gap: '9px',
           padding: '5px 12px 5px 6px',
-          borderRadius: '10px',
-          border: isOpen ? '1.5px solid #0284c7' : '1px solid rgba(226, 232, 240, 0.25)',
-          background: isOpen ? 'rgba(2, 132, 199, 0.15)' : 'rgba(255, 255, 255, 0.08)',
-          backdropFilter: 'blur(8px)',
-          cursor: switching ? 'not-allowed' : 'pointer',
-          color: '#ffffff',
-          transition: 'all 0.2s ease',
-          outline: 'none',
+          borderRadius: '24px',
+          border: '1px solid var(--border-subtle)',
+          background: 'var(--bg-card)',
+          color: 'var(--text-primary)',
+          cursor: 'pointer',
+          boxShadow: 'var(--shadow-sm)',
+          transition: 'all 0.15s ease',
         }}
       >
-        {/* Avatar box with initials */}
+        {/* Role Avatar Badge */}
         <div
           style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '8px',
-            background: currentWorkspace.badgeColor,
-            color: '#ffffff',
+            width: '28px',
+            height: '28px',
+            borderRadius: '50%',
+            background: 'var(--accent-teal-soft)',
+            color: 'var(--accent-teal)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '13px',
-            fontWeight: 800,
-            letterSpacing: '0.02em',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+            fontWeight: 700,
+            fontSize: '11px',
           }}
         >
-          {currentWorkspace.initials}
+          <ActiveIcon width={15} height={15} />
         </div>
 
-        {/* User Info Label */}
-        <div style={{ textAlign: 'left', lineHeight: 1.25 }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc', whiteSpace: 'nowrap' }}>
-            {currentWorkspace.name}
+        <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {activeUser.name ? activeUser.name.split(' ')[0] : currentWorkspace.name.split(' ')[0]}
           </div>
-          <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
             {currentWorkspace.title}
           </div>
         </div>
 
-        {/* Chevron Icon */}
-        <div style={{
-          color: '#94a3b8',
-          fontSize: '11px',
-          marginLeft: '4px',
-          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-          transition: 'transform 0.2s ease',
-        }}>
-          ▼
-        </div>
+        <IconChevronDown
+          width={13}
+          height={13}
+          style={{
+            color: 'var(--text-muted)',
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s ease',
+          }}
+        />
       </button>
 
-      {/* ─── DROPDOWN POPOVER (Exact BhoomiSetu Style) ─────────────────── */}
+      {/* Dropdown Menu */}
       {isOpen && (
         <div
           style={{
@@ -212,135 +218,157 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
             top: 'calc(100% + 8px)',
             right: 0,
             width: '320px',
-            background: '#ffffff',
             borderRadius: '14px',
-            boxShadow: '0 20px 45px -10px rgba(15, 23, 42, 0.25), 0 4px 12px rgba(0, 0, 0, 0.08)',
-            border: '1px solid #e2e8f0',
-            padding: '14px',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: 'var(--shadow-lg)',
             zIndex: 1000,
-            animation: 'fadeIn 0.18s ease-out',
+            padding: '8px',
+            overflow: 'hidden',
           }}
         >
-          {/* Header Title */}
+          {/* Header */}
           <div
             style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-              color: '#64748b',
-              padding: '4px 8px 10px 8px',
-              borderBottom: '1px solid #f1f5f9',
-              marginBottom: '8px',
+              padding: '10px 12px 8px',
+              borderBottom: '1px solid var(--border-subtle)',
+              marginBottom: '6px',
             }}
           >
-            SWITCH DEMO WORKSPACE
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+                Switch Role
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  background: 'var(--accent-teal-soft)',
+                  color: 'var(--accent-teal-text)',
+                  fontWeight: 600,
+                }}
+              >
+                Quick Switch
+              </span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Switch roles quickly to review different views
+            </div>
           </div>
 
-          {/* List of Roles */}
+          {/* List of Workspaces */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {DEMO_WORKSPACES.map((workspace) => {
-              const isActive =
-                activeUser.email === workspace.email ||
-                activeRole.toLowerCase() === workspace.role.toLowerCase();
+            {DEMO_WORKSPACES.map((w) => {
+              const isCurrent =
+                w.email.toLowerCase() === (activeUser.email || '').toLowerCase() ||
+                w.role.toLowerCase() === activeRole.toLowerCase();
+              const RoleIcon = w.IconComponent;
 
               return (
-                <div
-                  key={workspace.id}
-                  onClick={() => handleSelectWorkspace(workspace)}
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => handleSelectWorkspace(w)}
+                  disabled={switching}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
-                    borderRadius: '10px',
-                    cursor: switching ? 'not-allowed' : 'pointer',
-                    background: isActive ? '#f0fdf4' : 'transparent',
-                    border: isActive ? '1px solid #bbf7d0' : '1px solid transparent',
+                    gap: '10px',
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: '8px',
+                    border: isCurrent ? '1px solid var(--accent-teal)' : '1px solid transparent',
+                    background: isCurrent ? 'var(--accent-teal-soft)' : 'transparent',
+                    cursor: 'pointer',
+                    textAlign: 'left',
                     transition: 'all 0.15s ease',
                   }}
                   onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.background = '#f8fafc';
+                    if (!isCurrent) e.currentTarget.style.background = 'var(--bg-card-hover)';
                   }}
                   onMouseLeave={(e) => {
-                    if (!isActive) e.currentTarget.style.background = 'transparent';
+                    if (!isCurrent) e.currentTarget.style.background = 'transparent';
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {/* Initials Badge */}
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: w.badgeColor,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <RoleIcon width={16} height={16} />
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {w.title}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        · {w.role}
+                      </span>
+                    </div>
                     <div
                       style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '8px',
-                        background: isActive ? '#dcfce7' : '#f1f5f9',
-                        color: isActive ? '#15803d' : '#0284c7',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '12px',
-                        fontWeight: 800,
-                        flexShrink: 0,
+                        fontSize: '11px',
+                        color: 'var(--text-secondary)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                       }}
                     >
-                      {workspace.initials}
+                      {w.name}
                     </div>
-
-                    {/* Role Details */}
-                    <div>
-                      <div style={{
-                        fontSize: '13px',
-                        fontWeight: 700,
-                        color: isActive ? '#166534' : '#0f172a',
-                        lineHeight: 1.25,
-                      }}>
-                        {workspace.title}
-                      </div>
-                      <div style={{
-                        fontSize: '11px',
-                        color: '#64748b',
-                        lineHeight: 1.25,
-                        marginTop: '2px',
-                      }}>
-                        {workspace.name} · {workspace.role}
-                      </div>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        color: 'var(--text-muted)',
+                        marginTop: '1px',
+                      }}
+                    >
+                      {w.department}
                     </div>
                   </div>
 
-                  {/* Active Indicator Shield */}
-                  {isActive && (
-                    <div
-                      style={{
-                        color: '#16a34a',
-                        display: 'flex',
-                        alignItems: 'center',
-                        marginLeft: '8px',
-                      }}
-                      title="Currently active demo workspace"
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                        <path d="M9 12l2 2 4-4" />
-                      </svg>
+                  {isCurrent && (
+                    <div style={{ color: 'var(--accent-teal)', flexShrink: 0 }}>
+                      <IconCheck width={15} height={15} />
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
 
-          {/* Quick Helper Note */}
+          {/* Footer note */}
           <div
             style={{
-              marginTop: '10px',
-              paddingTop: '8px',
-              borderTop: '1px solid #f1f5f9',
-              fontSize: '11px',
-              color: '#94a3b8',
-              textAlign: 'center',
+              marginTop: '6px',
+              padding: '8px 10px 4px',
+              borderTop: '1px solid var(--border-subtle)',
+              fontSize: '10px',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
-            {switching ? 'Switching workspace...' : 'Click any role to switch workspace instantly'}
+            <IconShieldCheck width={12} height={12} style={{ color: 'var(--accent-teal)' }} />
+            <span>Access is protected by role-based rules.</span>
           </div>
         </div>
       )}

@@ -1,343 +1,952 @@
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { seedDemoPatient } from "../services/api";
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  IconLogo,
+  IconShieldCheck,
+  IconArrowRight,
+  IconCheck,
+  IconActivity,
+} from './Icons';
 
-export default function LandingPage({ onSeedDemo }) {
+export default function LandingPage() {
   const navigate = useNavigate();
-  const [loadingDemo, setLoadingDemo] = useState(false);
-  const [demoStatus, setDemoStatus] = useState(null);
-
-  const handleQuickLaunchDemo = async () => {
-    setLoadingDemo(true);
-    setDemoStatus(null);
-    try {
-      const res = await seedDemoPatient();
-      if (res && res.patient_id) {
-        setDemoStatus("Patient Eleanor Vance initialized successfully. Redirecting to recovery portal...");
-        if (onSeedDemo) onSeedDemo();
-        setTimeout(() => {
-          navigate("/patient", { state: { patientId: res.patient_id } });
-        }, 600);
-      }
-    } catch (err) {
-      setDemoStatus("Note: Using local fallback patient.");
-      navigate("/patient");
-    } finally {
-      setLoadingDemo(false);
-    }
-  };
-
-  const clinicalPortals = [
-    {
-      title: "Nurse Station",
-      path: "/nurse",
-      icon: "local_hospital",
-      badge: "Admission & Ingestion",
-      badgeColor: "badge-teal",
-      headline: "Post-Discharge Patient Admission",
-      description: "Upload discharge summary PDFs. Autonomous extraction extracts medication routines, dietary restrictions, warning thresholds, and builds patient-specific vector knowledge bases.",
-      features: ["PDF RAG Knowledge Base Ingestion", "Automated Daily Routine Generation", "Twilio Automated SMS Reminders"],
-      cta: "Open Nurse Station",
-    },
-    {
-      title: "Doctor Portal",
-      path: "/doctor",
-      icon: "medical_services",
-      badge: "Triage & Telemetry",
-      badgeColor: "badge-amber",
-      headline: "Physician Clinical Dashboard",
-      description: "Real-time alert prioritization engine. Surfaces only actionable escalations (risk score ≥ 40) with patient history, telemetry trends, and ESP32 biometric deviations.",
-      features: ["Priority Risk Alert Stream", "ESP32 Pulse & SpO2 Real-Time Graph", "One-Click Resolution & Emergency Escalation"],
-      cta: "Launch Doctor Portal",
-    },
-    {
-      title: "Patient Recovery",
-      path: "/patient",
-      icon: "personal_injury",
-      badge: "Autonomous Triage",
-      badgeColor: "badge-blue",
-      headline: "AI Recovery Companion & Chat",
-      description: "24/7 empathetic conversational AI companion grounded in patient discharge instructions. Supports voice triage, wound photo analysis, and daily medication completion.",
-      features: ["Multimodal Voice & Text Check-Ins", "Wound Infection Vision Analysis", "Interactive Daily Routine Checklist"],
-      cta: "Open Recovery Room",
-    },
-  ];
-
-  const agentArchitecture = [
-    {
-      role: "Intake & Knowledge Extraction",
-      agent: "Discharge Ingestion Agent",
-      tech: "LangChain + Gemini Flash",
-      desc: "Parses complex clinical discharge PDFs into structured JSON profiles (medications, timings, emergency contacts, warning signs) and builds ChromaDB vector embeddings.",
-    },
-    {
-      role: "Continuous Biosensing",
-      agent: "IoT Telemetry Agent",
-      tech: "ESP32 · MAX30102 · WebSockets",
-      desc: "Captures photoplethysmogram (PPG) vitals (Heart Rate & Blood Oxygen SpO2) and 3-axis accelerometer fall detection, streaming to live clinical dashboards.",
-    },
-    {
-      role: "Clinical Decision Support",
-      agent: "Multimodal Triage Agent",
-      tech: "Gemini Vision + Deepgram STT",
-      desc: "Evaluates patient symptoms, audio cadence, and wound photos against clinical protocols. Computes a dynamic risk score (0-100) and recommends deterministic actions.",
-    },
-    {
-      role: "Closed-Loop Escalation",
-      agent: "Twilio Telephony Dispatcher",
-      tech: "Twilio Voice + SMS",
-      desc: "Sends scheduled medication prompts and initiates priority emergency physician calls and caregiver SMS notifications when critical thresholds are breached.",
-    },
-  ];
 
   return (
-    <div className="w-full pb-20">
-      {/* ── HERO COMMAND CENTER ── */}
-      <section className="relative overflow-hidden border-b border-[var(--border)] bg-[var(--bg-surface)] py-14 px-4 sm:px-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Status badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--accent-dim)] border border-[var(--accent)] text-xs font-semibold text-[var(--accent)] mb-6">
-            <span className="material-icons-round text-sm">verified_user</span>
-            <span>Autonomous Post-Discharge Clinical Triage & Telemetry Platform</span>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#ffffff',
+        color: '#0f172a',
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+      }}
+    >
+      {/* ======================================================== */}
+      {/* 1. TOP NAVIGATION BAR (BhoomiSetu Style)                 */}
+      {/* ======================================================== */}
+      <header
+        style={{
+          height: '70px',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 48px',
+          background: '#ffffff',
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+        }}
+      >
+        {/* Brand */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <IconLogo size={38} />
+          <div>
+            <div
+              style={{
+                fontSize: '18px',
+                fontWeight: 800,
+                color: '#0f172a',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              CareLoop
+            </div>
+            <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600 }}>
+              Follow-up after discharge
+            </div>
+          </div>
+        </div>
+
+        {/* Center Links */}
+        <nav style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
+          {[
+            { label: 'Platform', id: 'platform' },
+            { label: 'Capabilities', id: 'capabilities' },
+            { label: 'Impact', id: 'impact' },
+            { label: 'Public Transparency', id: 'transparency' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                const el = document.getElementById(item.id);
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '4px 8px',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: '#475569',
+                cursor: 'pointer',
+                transition: 'color 0.15s ease',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = '#0284c7')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = '#475569')}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Right CTA */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#0f172a',
+              cursor: 'pointer',
+            }}
+          >
+            Sign in
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/patient')}
+            style={{
+              padding: '9px 18px',
+              borderRadius: '24px',
+              background: '#0b1528',
+              color: '#ffffff',
+              border: 'none',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'background 0.15s ease',
+            }}
+          >
+            <span>See care team view</span>
+            <IconArrowRight width={14} height={14} />
+          </button>
+        </div>
+      </header>
+
+      {/* ======================================================== */}
+      {/* 2. HERO SECTION WITH GRID & FLOATING DASHBOARD MOCKUP    */}
+      {/* ======================================================== */}
+      <section
+        className="bg-grid-bhoomi"
+        style={{
+          padding: '60px 48px 80px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          maxWidth: '1360px',
+          margin: '0 auto',
+          position: 'relative',
+        }}
+      >
+        {/* Left Hero Column */}
+        <div style={{ maxWidth: '580px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '5px 12px',
+              borderRadius: '16px',
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#0284c7',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: '24px',
+            }}
+          >
+            <IconShieldCheck width={14} height={14} />
+            <span>POST-DISCHARGE FOLLOW-UP</span>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-            <div className="lg:col-span-7">
-              <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black text-[var(--text-1)] tracking-tight leading-[1.15] mb-5">
-                Autonomous Clinical Post-Discharge Triage & Patient Monitoring
-              </h1>
-              <p className="text-base sm:text-lg text-[var(--text-2)] leading-relaxed mb-8 max-w-2xl">
-                An open, agentic clinical intelligence system that transforms discharge summaries into personalized recovery roadmaps, tracks real-time wearable telemetry, and delivers closed-loop escalation for post-op safety.
-              </p>
+          <h1
+            style={{
+              fontSize: '48px',
+              fontWeight: 800,
+              lineHeight: 1.12,
+              letterSpacing: '-0.035em',
+              color: '#0b1528',
+              marginBottom: '20px',
+            }}
+          >
+            Recovering at home, with your care team in the loop.
+          </h1>
 
-              {/* Action buttons */}
-              <div className="flex flex-wrap items-center gap-4">
-                <button
-                  onClick={handleQuickLaunchDemo}
-                  disabled={loadingDemo}
-                  className="btn-primary text-base py-3 px-6 shadow-lg flex items-center gap-2"
-                >
-                  <span className="material-icons-round text-xl">play_circle_filled</span>
-                  <span>{loadingDemo ? "Loading Patient..." : "1-Click Launch Demo Patient"}</span>
-                </button>
+          <p
+            style={{
+              fontSize: '15px',
+              lineHeight: 1.6,
+              color: '#475569',
+              marginBottom: '32px',
+            }}
+          >
+            CareLoop helps patients follow their discharge plan, and shows nurses and doctors who needs attention first, with the reason for every alert.
+          </p>
 
-                <Link
-                  to="/nurse"
-                  className="btn-secondary text-base py-3 px-6 flex items-center gap-2"
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '28px' }}>
+            <button
+              type="button"
+              onClick={() => navigate('/patient')}
+              style={{
+                padding: '12px 24px',
+                borderRadius: '8px',
+                background: '#0b1528',
+                color: '#ffffff',
+                border: 'none',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <span>See the care-team view</span>
+              <IconArrowRight width={15} height={15} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              style={{
+                padding: '12px 22px',
+                borderRadius: '8px',
+                background: '#ffffff',
+                color: '#0b1528',
+                border: '1px solid #cbd5e1',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Sign in
+            </button>
+          </div>
+
+          {/* 3 Checkpoints */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {['A separate view for each role', 'Sample patient records', 'Wearable readings (watch)'].map((item, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  style={{
+                    width: '16px',
+                    height: '16px',
+                    borderRadius: '50%',
+                    border: '1px solid #0d9488',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#0d9488',
+                  }}
                 >
-                  <span className="material-icons-round text-xl">upload_file</span>
-                  <span>Admit via Discharge PDF</span>
-                </Link>
+                  <IconCheck width={10} height={10} />
+                </span>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>{item}</span>
               </div>
+            ))}
+          </div>
+        </div>
 
-              {demoStatus && (
-                <div className="mt-4 p-3 rounded-lg bg-[var(--accent-dim)] border border-[var(--accent)] text-xs font-medium text-[var(--accent)] flex items-center gap-2">
-                  <span className="material-icons-round text-sm">check_circle</span>
-                  <span>{demoStatus}</span>
-                </div>
-              )}
+        {/* Right Floating Dashboard Mockup matching Image 2 */}
+        <div style={{ position: 'relative', width: '560px' }}>
+          {/* Top Floating Pill */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '-18px',
+              right: '24px',
+              background: '#ffffff',
+              borderRadius: '10px',
+              padding: '8px 14px',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.08)',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              zIndex: 10,
+            }}
+          >
+            <div
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                background: '#fef3c7',
+                color: '#d97706',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <IconActivity width={15} height={15} />
+            </div>
+            <div>
+              <div style={{ fontSize: '9px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+                Flags raised
+              </div>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a' }}>
+                12 open flags
+              </div>
+            </div>
+          </div>
+
+          {/* Main Card Mockup */}
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 20px 40px -10px rgba(15, 23, 42, 0.1)',
+              padding: '24px',
+            }}
+          >
+            <div style={{ fontSize: '10px', fontWeight: 800, color: '#0284c7', textTransform: 'uppercase', marginBottom: '4px' }}>
+              CARE OVERVIEW
+            </div>
+            <div style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a', marginBottom: '16px' }}>
+              Recovery overview
             </div>
 
-            {/* Quick System Telemetry Card */}
-            <div className="lg:col-span-5">
-              <div className="clinical-card p-6 border-2 border-[var(--border)] shadow-xl bg-[var(--bg-elevated)]">
-                <div className="flex items-center justify-between pb-4 border-b border-[var(--border)] mb-5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--accent-dim)] border border-[var(--accent)] flex items-center justify-center">
-                      <span className="material-icons-round text-base" style={{ color: "var(--accent)" }}>
-                        sensors
-                      </span>
-                    </div>
-                    <span className="font-display font-bold text-sm text-[var(--text-1)]">
-                      System Operational Status
-                    </span>
-                  </div>
-                  <span className="badge-clinical badge-green">LIVE ONLINE</span>
-                </div>
+            {/* Sub-cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>ACTIVE PATIENTS</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>12</div>
+                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Monitored now</div>
+              </div>
 
-                <div className="space-y-3.5">
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
-                    <div className="flex items-center gap-2.5">
-                      <span className="material-icons-round text-lg text-[var(--accent)]">memory</span>
-                      <span className="text-xs font-semibold text-[var(--text-1)]">FastAPI Backend & Agents</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-[var(--green)]">Port 8000 · Healthy</span>
-                  </div>
+              <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>READINGS RECEIVED</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>98.2%</div>
+                <div style={{ fontSize: '9px', color: '#0284c7', fontWeight: 600 }}>From watch</div>
+              </div>
 
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
-                    <div className="flex items-center gap-2.5">
-                      <span className="material-icons-round text-lg text-[var(--blue)]">storage</span>
-                      <span className="text-xs font-semibold text-[var(--text-1)]">MongoDB Medical Datastore</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-[var(--green)]">Connected · 27017</span>
-                  </div>
+              <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>DOSES CONFIRMED</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>83.6%</div>
+                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Self-reported</div>
+              </div>
+            </div>
 
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
-                    <div className="flex items-center gap-2.5">
-                      <span className="material-icons-round text-lg text-[var(--purple)]">psychology</span>
-                      <span className="text-xs font-semibold text-[var(--text-1)]">Gemini Clinical Reasoning</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-[var(--accent)]">Active Model</span>
+            {/* Simulated progress area (FIXED: Bar chart aligned to bottom baseline) */}
+            <div
+              style={{
+                height: '136px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px dashed #cbd5e1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'column',
+                padding: '12px 16px 8px',
+                gap: '8px',
+              }}
+            >
+              {/* Bars container aligned to bottom baseline */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  justifyContent: 'center',
+                  height: '80px',
+                  gap: '10px',
+                  width: '100%',
+                  borderBottom: '2px solid #e2e8f0',
+                  paddingBottom: '2px',
+                }}
+              >
+                {[
+                  { h: 36, label: '08:00' },
+                  { h: 48, label: '10:00' },
+                  { h: 62, label: '12:00' },
+                  { h: 44, label: '14:00' },
+                  { h: 72, label: '16:00' },
+                  { h: 80, label: '18:00' },
+                  { h: 68, label: '20:00' },
+                  { h: 76, label: '22:00' },
+                ].map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '18px',
+                        height: `${item.h}px`,
+                        borderRadius: '4px 4px 0 0',
+                        background: 'linear-gradient(to top, #0284c7, #38bdf8)',
+                        transition: 'height 0.3s ease',
+                      }}
+                    />
                   </div>
+                ))}
+              </div>
+              <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                <span>Heart rate and oxygen readings (not a diagnosis)</span>
+              </div>
+            </div>
+          </div>
 
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
-                    <div className="flex items-center gap-2.5">
-                      <span className="material-icons-round text-lg text-[var(--amber)]">watch</span>
-                      <span className="text-xs font-semibold text-[var(--text-1)]">ESP32 Wearable Telemetry</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-[var(--text-2)]">WS Ready</span>
-                  </div>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--text-3)]">
-                  <span>Simulated Patient: Eleanor Vance</span>
-                  <span className="font-semibold text-[var(--text-1)]">CABG Post-Op Day 4</span>
-                </div>
+          {/* Bottom Floating Pill */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '-16px',
+              left: '20px',
+              background: '#ffffff',
+              borderRadius: '10px',
+              padding: '8px 14px',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.08)',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              zIndex: 10,
+            }}
+          >
+            <div
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                background: '#f0fdf4',
+                color: '#15803d',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <IconCheck width={15} height={15} />
+            </div>
+            <div>
+              <div style={{ fontSize: '9px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+                Quality check
+              </div>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a' }}>
+                Every reading carries a quality label
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── CLINICAL PORTALS DIRECT LAUNCHPAD ── */}
-      <section className="py-14 px-4 sm:px-8 max-w-7xl mx-auto">
-        <div className="mb-10 text-center sm:text-left">
-          <div className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-[var(--accent)] uppercase tracking-wider mb-2">
-            <span className="material-icons-round text-sm">hub</span>
-            <span>Clinical Workstations</span>
+      {/* ======================================================== */}
+      {/* 3. AT A GLANCE BANNER                                    */}
+      {/* ======================================================== */}
+      <section
+        style={{
+          background: '#070e1c',
+          color: '#ffffff',
+          padding: '40px 48px',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '1360px',
+            margin: '0 auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ maxWidth: '340px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 800, color: '#38bdf8', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              AT A GLANCE
+            </div>
+            <div style={{ fontSize: '18px', fontWeight: 800, lineHeight: 1.3, marginTop: '4px' }}>
+              One record for patients, family helpers, nurses and doctors.
+            </div>
           </div>
-          <h2 className="font-display text-2xl sm:text-3xl font-black text-[var(--text-1)]">
-            Direct Access to Hospital Portals
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '64px' }}>
+            <div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>12</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Monitored patients</div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>98.2%</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Readings received</div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>83.6%</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Doses confirmed</div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>3-Tier</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>3-step escalation ladder</div>
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '16px' }}>
+          Figures shown are sample data.
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 4. PLATFORM SECTION (#platform)                          */}
+      {/* ======================================================== */}
+      <section
+        id="platform"
+        style={{
+          padding: '80px 48px',
+          maxWidth: '1360px',
+          margin: '0 auto',
+          borderBottom: '1px solid #e2e8f0',
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 12px',
+              borderRadius: '12px',
+              background: '#f0f9ff',
+              color: '#0284c7',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: '12px',
+            }}
+          >
+            How CareLoop Works
+          </div>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
+            "The LLM talks. Rules decide. Humans act."
           </h2>
-          <p className="text-sm sm:text-base text-[var(--text-2)] mt-1.5 max-w-2xl">
-            Choose a workstation to review patient status, ingest new records, or interact with recovery agents.
+          <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
+            CareLoop separates medical rules from conversational AI. Clinical safety rules trigger alerts while care teams keep full oversight.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {clinicalPortals.map((portal) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+          {[
+            {
+              title: 'Safety Rules Engine',
+              desc: 'Safety thresholds check oxygen and pulse readings. The AI assistant never creates medical flags on its own.',
+              tag: 'Rule-Based Safety',
+              color: '#0284c7',
+              bg: '#f0f9ff',
+            },
+            {
+              title: 'Permanent Audit Trail',
+              desc: 'Every dose confirmation, flag alert, and staff review is saved permanently in an audit log.',
+              tag: 'Tamper Evident',
+              color: '#059669',
+              bg: '#ecfdf5',
+            },
+            {
+              title: 'Wearable Readings Check',
+              desc: 'Automatic checks filter out impossible sensor readings before alerts are created.',
+              tag: 'Hardware-Verified',
+              color: '#d97706',
+              bg: '#fffbeb',
+            },
+            {
+              title: 'Discharge Notes Assistant',
+              desc: 'Answers questions using only your discharge notes, citing the exact sections.',
+              tag: 'Cited Evidence',
+              color: '#7c3aed',
+              bg: '#f5f3ff',
+            },
+          ].map((item, idx) => (
             <div
-              key={portal.title}
-              className="clinical-card p-6 flex flex-col justify-between border-2 border-[var(--border)] hover:border-[var(--accent)] transition-all hover:-translate-y-1"
+              key={idx}
+              style={{
+                padding: '28px',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                background: '#ffffff',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = '0 12px 20px -2px rgba(15, 23, 42, 0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
+              }}
             >
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center border"
-                    style={{
-                      backgroundColor: "var(--accent-dim)",
-                      borderColor: "var(--accent)",
-                      color: "var(--accent)",
-                    }}
-                  >
-                    <span className="material-icons-round text-2xl">{portal.icon}</span>
-                  </div>
-                  <span className={`badge-clinical ${portal.badgeColor}`}>
-                    {portal.badge}
-                  </span>
-                </div>
-
-                <h3 className="font-display text-xl font-bold text-[var(--text-1)] mb-1">
-                  {portal.title}
-                </h3>
-                <h4 className="text-xs font-semibold text-[var(--accent)] uppercase tracking-wider mb-3 font-mono">
-                  {portal.headline}
-                </h4>
-                <p className="text-sm text-[var(--text-2)] leading-relaxed mb-5">
-                  {portal.description}
-                </p>
-
-                <div className="space-y-2 mb-6">
-                  {portal.features.map((feat) => (
-                    <div key={feat} className="flex items-center gap-2 text-xs font-medium text-[var(--text-1)]">
-                      <span className="material-icons-round text-sm text-[var(--green)]">check</span>
-                      <span>{feat}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Link
-                to={portal.path}
-                className="btn-primary w-full text-center text-sm py-2.5 flex items-center justify-center gap-2"
+              <span
+                style={{
+                  display: 'inline-block',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  color: item.color,
+                  background: item.bg,
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  marginBottom: '16px',
+                  textTransform: 'uppercase',
+                }}
               >
-                <span>{portal.cta}</span>
-                <span className="material-icons-round text-base">arrow_forward</span>
-              </Link>
+                {item.tag}
+              </span>
+              <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                {item.title}
+              </h3>
+              <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
+                {item.desc}
+              </p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ── AGENTIC SYSTEM ARCHITECTURE ── */}
-      <section className="py-14 px-4 sm:px-8 bg-[var(--bg-elevated)] border-y border-[var(--border)]">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-10 text-center sm:text-left">
-            <div className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-[var(--purple)] uppercase tracking-wider mb-2">
-              <span className="material-icons-round text-sm">account_tree</span>
-              <span>System Pipeline</span>
+      {/* ======================================================== */}
+      {/* 5. CAPABILITIES SECTION (#capabilities)                  */}
+      {/* ======================================================== */}
+      <section
+        id="capabilities"
+        style={{
+          padding: '80px 48px',
+          maxWidth: '1360px',
+          margin: '0 auto',
+          borderBottom: '1px solid #e2e8f0',
+          background: '#f8fafc',
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 12px',
+              borderRadius: '12px',
+              background: '#ecfdf5',
+              color: '#059669',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: '12px',
+            }}
+          >
+            Portals for Each Role
+          </div>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
+            Explore Portals & Live Dashboards
+          </h2>
+          <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
+            Each member accesses a portal made for their role with protected access.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+          {[
+            {
+              role: 'Doctor',
+              title: "Doctor's View",
+              email: 'ananya.demo@example.test',
+              desc: 'Triage list sorted by priority, symptom trends, and one-click review for daily summaries.',
+              badge: 'Doctor',
+              badgeColor: '#0284c7',
+            },
+            {
+              role: 'Nurse',
+              title: "Nurse's View",
+              email: 'priya.demo@example.test',
+              desc: 'Alert ladder queue, follow-up task dispatching, and quick vitals acknowledgement.',
+              badge: 'Nurse',
+              badgeColor: '#059669',
+            },
+            {
+              role: 'Patient',
+              title: 'Patient Portal',
+              email: 'aarav.demo@example.test',
+              desc: 'Daily medicine checklist, live watch vitals, Hindi/English emergency guidance, and discharge chat.',
+              badge: 'Patient',
+              badgeColor: '#7c3aed',
+            },
+            {
+              role: 'Caregiver',
+              title: 'Family Helper View',
+              email: 'caregiver1.demo@example.test',
+              desc: 'Readings with patient consent, text notifications, and daily milestones.',
+              badge: 'Caregiver',
+              badgeColor: '#d97706',
+            },
+          ].map((card, idx) => (
+            <div
+              key={idx}
+              style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '28px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: card.badgeColor,
+                      background: '#f1f5f9',
+                      padding: '4px 10px',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    {card.badge}
+                  </span>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8' }}>Ready</span>
+                </div>
+
+                <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>
+                  {card.title}
+                </h3>
+                <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6, marginBottom: '16px' }}>
+                  {card.desc}
+                </p>
+
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    marginBottom: '20px',
+                  }}
+                >
+                  <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Sign-in details (Password: Demo@12345)
+                  </div>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a', fontFamily: 'monospace' }}>
+                    {card.email}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate('/login')}
+                style={{
+                  width: '100%',
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  background: '#0b1528',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <span>Open {card.role} Portal</span>
+                <IconArrowRight width={14} height={14} />
+              </button>
             </div>
-            <h2 className="font-display text-2xl sm:text-3xl font-black text-[var(--text-1)]">
-              Autonomous Clinical Agent Architecture
-            </h2>
-            <p className="text-sm sm:text-base text-[var(--text-2)] mt-1.5 max-w-2xl">
-              How our multimodal agents collaborate to prevent hospital readmissions without alert fatigue.
+          ))}
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 6. IMPACT SECTION (#impact)                              */}
+      {/* ======================================================== */}
+      <section
+        id="impact"
+        style={{
+          padding: '80px 48px',
+          maxWidth: '1360px',
+          margin: '0 auto',
+          borderBottom: '1px solid #e2e8f0',
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 12px',
+              borderRadius: '12px',
+              background: '#fef3c7',
+              color: '#d97706',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: '12px',
+            }}
+          >
+            Target Outcomes
+          </div>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
+            Clinical Follow-Up Targets
+          </h2>
+          <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
+            Aims to prevent hospital readmissions by sending wearable readings to care teams.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+          {[
+            { metric: '98.2%', label: 'Readings Checked for Errors', detail: 'Sensor check rejects impossible readings to avoid false alarms.' },
+            { metric: '83.6%', label: 'Doses Confirmed by Patients', detail: 'Daily dose check-ins with caregiver and staff alerts when doses are missed.' },
+            { metric: '100%', label: 'Emergency Keyword Detection', detail: 'Immediate safety keyword checks in Hindi and English.' },
+            { metric: '3-Tier', label: '3-Step Escalation Ladder', detail: 'Patient reminder -> Caregiver SMS -> Nurse alert -> Doctor review.' },
+          ].map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                padding: '24px',
+                borderRadius: '12px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ fontSize: '36px', fontWeight: 800, color: '#0284c7', marginBottom: '6px' }}>
+                {item.metric}
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                {item.label}
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.5 }}>
+                {item.detail}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 7. PUBLIC TRANSPARENCY SECTION (#transparency)           */}
+      {/* ======================================================== */}
+      <section
+        id="transparency"
+        style={{
+          padding: '80px 48px',
+          maxWidth: '1360px',
+          margin: '0 auto',
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 12px',
+              borderRadius: '12px',
+              background: '#f3e8ff',
+              color: '#7c3aed',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: '12px',
+            }}
+          >
+            Safety Standards
+          </div>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
+            Safety and Privacy Standards
+          </h2>
+          <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
+            CareLoop is built for clear clinical records. All sample data and limits follow standard guidelines.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+          <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
+            <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              Sample Data Notice
+            </h4>
+            <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
+              All patient records and readings shown here are sample data. No real personal health records are used.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {agentArchitecture.map((item, index) => (
-              <div
-                key={item.agent}
-                className="clinical-card p-5 bg-[var(--bg-surface)] border border-[var(--border)] relative flex flex-col justify-between"
-              >
-                <div>
-                  <div className="text-xs font-mono font-bold text-[var(--text-3)] mb-2">
-                    PHASE 0{index + 1}
-                  </div>
-                  <h3 className="font-display font-bold text-base text-[var(--text-1)] mb-1">
-                    {item.agent}
-                  </h3>
-                  <div className="text-xs font-semibold text-[var(--accent)] mb-3">
-                    {item.tech}
-                  </div>
-                  <p className="text-xs text-[var(--text-2)] leading-relaxed">
-                    {item.desc}
-                  </p>
-                </div>
-                <div className="mt-4 pt-3 border-t border-[var(--border)] text-[11px] font-semibold text-[var(--text-3)] uppercase tracking-wider">
-                  {item.role}
-                </div>
-              </div>
-            ))}
+          <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
+            <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              Permanent Audit Trail
+            </h4>
+            <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
+              Every dose confirmation, alert update, and care team action is saved in a permanent log.
+            </p>
+          </div>
+
+          <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
+            <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              Doctor Makes Final Decision
+            </h4>
+            <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
+              AI drafts are clearly marked until a doctor reviews them. The assistant cannot change medicines.
+            </p>
           </div>
         </div>
       </section>
 
-      {/* ── QUICK EVALUATION FOOTER BAR ── */}
-      <section className="py-10 px-4 sm:px-8 max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div>
-          <h4 className="font-display font-bold text-base text-[var(--text-1)]">
-            Ready to test live triage and wearable biosensing?
-          </h4>
-          <p className="text-xs text-[var(--text-2)]">
-            Zero setup required. Click the button to inspect Eleanor Vance's care plan, vitals, and physician alert queue.
-          </p>
+      {/* ======================================================== */}
+      {/* 8. FOOTER                                                */}
+      {/* ======================================================== */}
+      <footer
+        style={{
+          background: '#0b1528',
+          color: '#94a3b8',
+          padding: '40px 48px',
+          borderTop: '1px solid #1e293b',
+          fontSize: '12px',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '1360px',
+            margin: '0 auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '16px',
+          }}
+        >
+          <div>
+            <span style={{ fontWeight: 700, color: '#ffffff' }}>CareLoop</span> — Follow-up after discharge
+          </div>
+          <div>
+            Sample data. Not medical advice.
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleQuickLaunchDemo}
-            disabled={loadingDemo}
-            className="btn-primary text-sm py-2 px-4 flex items-center gap-1.5"
-          >
-            <span className="material-icons-round text-base">bolt</span>
-            <span>{loadingDemo ? 'Loading...' : 'Launch Eleanor Vance'}</span>
-          </button>
-          <Link to="/doctor" className="btn-secondary text-sm py-2 px-4">
-            View Alerts
-          </Link>
-        </div>
-      </section>
+      </footer>
     </div>
   );
 }
