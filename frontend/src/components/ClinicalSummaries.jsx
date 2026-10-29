@@ -6,6 +6,9 @@ import {
   approveClinicalSummary,
   rejectClinicalSummary,
   generateAllMineSummaries,
+  getRuleProposals,
+  approveRuleProposal,
+  rejectRuleProposal,
 } from '../services/api';
 
 export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
@@ -27,6 +30,59 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
   // New draft patient selector
   const [newDraftPid, setNewDraftPid] = useState(1);
   const [generateLoading, setGenerateLoading] = useState(false);
+
+  // Phase 3: Limit Proposals State
+  const [approvalTab, setApprovalTab] = useState('summaries'); // 'summaries' or 'limits'
+  const [proposals, setProposals] = useState([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [rejectPropModalOpen, setRejectPropModalOpen] = useState(false);
+  const [rejectPropId, setRejectPropId] = useState(null);
+  const [rejectPropReason, setRejectPropReason] = useState('');
+
+  const fetchProposals = async () => {
+    setProposalsLoading(true);
+    try {
+      const data = await getRuleProposals();
+      setProposals(data || []);
+    } catch (err) {
+      console.error('Failed to load rule proposals:', err);
+    } finally {
+      setProposalsLoading(false);
+    }
+  };
+
+  const handleApproveProposal = async (historyId) => {
+    try {
+      await approveRuleProposal(historyId);
+      setActionMsg('Limit change proposal approved and active threshold updated.');
+      setTimeout(() => setActionMsg(''), 4000);
+      await fetchProposals();
+    } catch (err) {
+      alert(`Approval failed: ${err.message || 'Error'}`);
+    }
+  };
+
+  const handleRejectProposalSubmit = async (e) => {
+    e.preventDefault();
+    if (!rejectPropId || !rejectPropReason.trim() || rejectPropReason.trim().length < 3) return;
+    try {
+      await rejectRuleProposal(rejectPropId, rejectPropReason.trim());
+      setRejectPropModalOpen(false);
+      setRejectPropId(null);
+      setRejectPropReason('');
+      setActionMsg('Limit change proposal rejected with clinical reason.');
+      setTimeout(() => setActionMsg(''), 4000);
+      await fetchProposals();
+    } catch (err) {
+      alert(`Rejection failed: ${err.message || 'Error'}`);
+    }
+  };
+
+  useEffect(() => {
+    if (approvalTab === 'limits') {
+      fetchProposals();
+    }
+  }, [approvalTab]);
 
   const fetchSummaries = async () => {
     setLoading(true);
@@ -138,6 +194,249 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
         </div>
       )}
 
+      {/* Top Approvals Navigation Tabs (Phase 3) */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '12px',
+          borderBottom: '2px solid var(--border-subtle, #e2e8f0)',
+          paddingBottom: '8px',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setApprovalTab('summaries')}
+          style={{
+            padding: '8px 18px',
+            borderRadius: '8px',
+            border: 'none',
+            background: approvalTab === 'summaries' ? 'var(--role-doctor, #7c3aed)' : 'transparent',
+            color: approvalTab === 'summaries' ? '#ffffff' : 'var(--text-secondary, #475569)',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>📄 AI Discharge Summaries</span>
+          <span
+            style={{
+              fontSize: '11px',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: approvalTab === 'summaries' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+              color: approvalTab === 'summaries' ? '#ffffff' : '#475569',
+              fontWeight: 800,
+            }}
+          >
+            {summaries.filter((s) => s.status === 'Draft').length} drafts
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setApprovalTab('limits')}
+          style={{
+            padding: '8px 18px',
+            borderRadius: '8px',
+            border: 'none',
+            background: approvalTab === 'limits' ? 'var(--role-doctor, #7c3aed)' : 'transparent',
+            color: approvalTab === 'limits' ? '#ffffff' : 'var(--text-secondary, #475569)',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>🛡️ Rule Limit Proposals</span>
+          <span
+            style={{
+              fontSize: '11px',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: approvalTab === 'limits' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+              color: approvalTab === 'limits' ? '#ffffff' : '#475569',
+              fontWeight: 800,
+            }}
+          >
+            {proposals.length} pending
+          </span>
+        </button>
+      </div>
+
+      {/* SECTION B: LIMIT PROPOSALS (Phase 3 Task 3) */}
+      {approvalTab === 'limits' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '20px 24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                Nurse-Proposed Rule Limit Adjustments ({proposals.length})
+              </h3>
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                Nurses may propose telemetry boundary changes based on clinical observation. Changes require attending physician approval to take effect.
+              </p>
+            </div>
+
+            {proposals.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                ✓ No pending rule limit change proposals from nursing staff.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {proposals.map((pr) => {
+                  const ov = pr.old_values || {};
+                  const nv = pr.new_values || {};
+                  return (
+                    <div
+                      key={pr.history_id}
+                      style={{
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderLeft: '4px solid #d97706',
+                        borderRadius: '8px',
+                        padding: '16px 20px',
+                        background: 'var(--bg-surface, #ffffff)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                              {pr.patient_name}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                              {pr.patient_age} y · {pr.patient_code}
+                            </span>
+                            <span style={{ fontSize: '11px', padding: '1px 7px', borderRadius: '4px', background: 'var(--bg-base, #f1f5f9)', color: '#475569', fontWeight: 600 }}>
+                              {pr.condition_summary || 'Post-Op'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: '#b45309' }}>
+                            Metric: {pr.rule_type} {pr.measurement_type ? `(${pr.measurement_type})` : ''}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ textAlign: 'right', fontSize: '12px' }}>
+                            <div style={{ color: '#64748b' }}>Current limit: <strong>{ov.threshold_value}</strong></div>
+                            <div style={{ color: '#047857', fontWeight: 700 }}>Proposed limit: <strong>{nv.threshold_value}</strong></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ padding: '10px 14px', borderRadius: '6px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #f1f5f9)', fontSize: '12px', color: '#334155' }}>
+                        <strong>Clinical Justification:</strong> &ldquo;{pr.change_reason}&rdquo;
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          Proposed by: <strong>{pr.proposed_by_name} ({pr.proposed_by_role})</strong> on {new Date(pr.changed_at).toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectPropId(pr.history_id);
+                            setRejectPropModalOpen(true);
+                          }}
+                          style={{
+                            padding: '7px 14px',
+                            borderRadius: '6px',
+                            border: '1px solid #fca5a5',
+                            background: '#fef2f2',
+                            color: '#b91c1c',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveProposal(pr.history_id)}
+                          style={{
+                            padding: '7px 18px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: 'var(--role-doctor, #7c3aed)',
+                            color: '#ffffff',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Approve limit
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Reject Limit Proposal Modal */}
+          {rejectPropModalOpen && (
+            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ background: 'var(--bg-surface, #ffffff)', borderRadius: '12px', padding: '24px', maxWidth: '440px', width: '100%', boxShadow: 'var(--shadow-lg)' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 10px 0', color: '#ef4444' }}>
+                  Reject Limit Change Proposal
+                </h3>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 14px 0' }}>
+                  Please state the clinical justification for rejecting the nurse-proposed threshold modification.
+                </p>
+                <form onSubmit={handleRejectProposalSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <textarea
+                    rows={3}
+                    required
+                    placeholder="e.g. Current threshold remains clinically indicated for post-CABG arrhythmia monitoring"
+                    value={rejectPropReason}
+                    onChange={(e) => setRejectPropReason(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRejectPropModalOpen(false);
+                        setRejectPropId(null);
+                      }}
+                      style={{ padding: '7px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', background: 'transparent', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!rejectPropReason.trim() || rejectPropReason.trim().length < 3}
+                      style={{ padding: '7px 16px', borderRadius: '6px', border: 'none', background: '#ef4444', color: '#ffffff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      Confirm Rejection
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SECTION A: AI DISCHARGE SUMMARIES */}
+      {approvalTab === 'summaries' && (
+      <>
       {/* Top Action Bar */}
       <div
         style={{
@@ -676,6 +975,8 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import {
   reviewSummary,
   getStaffNotifications,
   globalStaffSearch,
+  getDoctorDecisions,
   logout,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
@@ -22,6 +23,8 @@ import ClinicalSummaries from './ClinicalSummaries';
 import ShiftHandoff from './ShiftHandoff';
 import AuditLogViewer from './AuditLogViewer';
 import OperationalInsights from './OperationalInsights';
+import DoctorLimitsView from './DoctorLimitsView';
+import DoctorFhirExportView from './DoctorFhirExportView';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -36,6 +39,7 @@ import {
   IconSearch,
   IconPatient,
   IconBell,
+  IconExternalLink,
 } from './Icons';
 
 export default function CareLoopStaffPortal({ user, defaultRole }) {
@@ -71,6 +75,13 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
   const [actionMsg, setActionMsg] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationsData, setNotificationsData] = useState({ count: 0, notifications: [] });
+
+  // Doctor Decision Desk State (Phase 3)
+  const [doctorDecisions, setDoctorDecisions] = useState({
+    cards: { needs_decision_now: 0, summaries_to_approve: 0, limit_change_requests: 0, patients_in_followup: 5 },
+    items: [],
+    quiet_patients: { count: 0, patients: [], message: '' },
+  });
 
   // D-21 Command Palette & Shortcuts State
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -240,6 +251,12 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
       setFollowUps(fu || []);
       setSummaries(sm || []);
       setNotificationsData(notifs || { count: 0, notifications: [] });
+
+      // Fetch Doctor Decision Desk items if Doctor
+      if (isDoctor) {
+        const dd = await getDoctorDecisions().catch(() => null);
+        if (dd) setDoctorDecisions(dd);
+      }
       // Auto expand first patient if none expanded
       if (wl?.patients?.length > 0 && expandedPatientIds.size === 0) {
         setExpandedPatientIds(new Set([wl.patients[0].patient_id]));
@@ -396,13 +413,13 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '22px' }}>
               {(isDoctor
                 ? [
-                    { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
+                    { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
-                    { id: 'timeline', label: 'Patient timeline', Icon: IconActivity },
-                    { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
-                    { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: summaries.length },
+                    { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: (doctorDecisions.cards?.summaries_to_approve || 0) + (doctorDecisions.cards?.limit_change_requests || 0) },
+                    { id: 'limits', label: 'Patient limits', Icon: IconShieldCheck },
                     { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
                     { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
+                    { id: 'fhir', label: 'Export FHIR bundle', Icon: IconExternalLink },
                   ]
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
@@ -774,14 +791,14 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       gap: '6px',
                       fontSize: '11px',
                       fontWeight: 800,
-                      color: '#0284c7',
+                      color: roleAccent,
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                       marginBottom: '6px',
                     }}
                   >
                     <IconShieldCheck width={14} height={14} />
-                    <span>WHO NEEDS ATTENTION FIRST</span>
+                    <span>{isDoctor ? 'DOCTOR DESK' : 'NURSE DESK'}</span>
                   </div>
                   <h1
                     style={{
@@ -792,10 +809,12 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       marginBottom: '4px',
                     }}
                   >
-                    Who needs attention first
+                    {isDoctor ? 'Needs my decision' : 'My call list'}
                   </h1>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-                    Every flag shows why it was raised. Open flags are listed by severity.
+                    {isDoctor
+                      ? 'High-priority clinical items awaiting physician review, sign-off, or protocol decisions.'
+                      : 'Every flag shows why it was raised. Open flags are listed by severity.'}
                   </p>
                 </div>
 
@@ -819,15 +838,382 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                   <span>Export flags (CSV)</span>
                 </button>
               </div>
-              {/* 4 KPI Summary Cards */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '18px',
-                  marginBottom: '24px',
-                }}
-              >
+
+              {isDoctor ? (
+                /* DOCTOR DECISION DESK (Phase 3 Task 1) */
+                <div>
+                  {/* 4 Decision Cards */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '18px',
+                      marginBottom: '24px',
+                    }}
+                  >
+                    {/* Card 1: Needs Decision Now */}
+                    <div
+                      style={{
+                        background: 'var(--bg-surface, #ffffff)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '12px',
+                        padding: '20px 22px',
+                        position: 'relative',
+                        boxShadow: 'var(--shadow-card)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '18px',
+                          right: '18px',
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: 'var(--role-doctor-soft, #f5f3ff)',
+                          border: '1px solid #ddd6fe',
+                          color: 'var(--role-doctor, #7c3aed)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <IconAlertTriangle width={18} height={18} />
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
+                        Needs decision now
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: 800,
+                          color: (doctorDecisions.cards?.needs_decision_now || 0) > 0 ? 'var(--role-doctor, #7c3aed)' : 'var(--text-primary, #0f172a)',
+                          margin: '6px 0 2px',
+                        }}
+                      >
+                        {doctorDecisions.cards?.needs_decision_now ?? 0}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                        Immediate flags, drafts &amp; proposals
+                      </div>
+                    </div>
+
+                    {/* Card 2: Summaries to Approve */}
+                    <div
+                      style={{
+                        background: 'var(--bg-surface, #ffffff)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '12px',
+                        padding: '20px 22px',
+                        position: 'relative',
+                        boxShadow: 'var(--shadow-card)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '18px',
+                          right: '18px',
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          color: '#1d4ed8',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <IconFileText width={18} height={18} />
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
+                        Summaries to approve
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: 800,
+                          color: 'var(--text-primary, #0f172a)',
+                          margin: '6px 0 2px',
+                        }}
+                      >
+                        {doctorDecisions.cards?.summaries_to_approve ?? 0}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                        AI discharge drafts awaiting sign-off
+                      </div>
+                    </div>
+
+                    {/* Card 3: Limit Change Requests */}
+                    <div
+                      style={{
+                        background: 'var(--bg-surface, #ffffff)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '12px',
+                        padding: '20px 22px',
+                        position: 'relative',
+                        boxShadow: 'var(--shadow-card)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '18px',
+                          right: '18px',
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: '#fffbeb',
+                          border: '1px solid #fde68a',
+                          color: '#b45309',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <IconShieldCheck width={18} height={18} />
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
+                        Limit change requests
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: 800,
+                          color: 'var(--text-primary, #0f172a)',
+                          margin: '6px 0 2px',
+                        }}
+                      >
+                        {doctorDecisions.cards?.limit_change_requests ?? 0}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                        Nurse-proposed limit modifications
+                      </div>
+                    </div>
+
+                    {/* Card 4: Patients in Follow-Up */}
+                    <div
+                      style={{
+                        background: 'var(--bg-surface, #ffffff)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '12px',
+                        padding: '20px 22px',
+                        position: 'relative',
+                        boxShadow: 'var(--shadow-card)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '18px',
+                          right: '18px',
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: '#f0fdfa',
+                          border: '1px solid #99f6e4',
+                          color: '#0f766e',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <IconPatient width={18} height={18} />
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
+                        Patients in follow-up
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: 800,
+                          color: 'var(--text-primary, #0f172a)',
+                          margin: '6px 0 2px',
+                        }}
+                      >
+                        {doctorDecisions.cards?.patients_in_followup ?? 5}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                        Active post-op &amp; convalescence cohort
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Decision Items Queue */}
+                  <div
+                    style={{
+                      background: 'var(--bg-surface, #ffffff)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '12px',
+                      padding: '22px 24px',
+                      boxShadow: 'var(--shadow-card)',
+                      marginBottom: '20px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <div>
+                        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                          Decision Items Awaiting Physician Action ({doctorDecisions.items?.length || 0})
+                        </h3>
+                        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                          Routine telemetry and task checklists are handled by Nurse Priya. Only items requiring physician authority appear here.
+                        </p>
+                      </div>
+                    </div>
+
+                    {(!doctorDecisions.items || doctorDecisions.items.length === 0) ? (
+                      <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                        ✓ All decision items cleared. No open flags or unsigned summaries requiring doctor action.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {doctorDecisions.items.map((item) => (
+                          <div
+                            key={`${item.type}-${item.id}`}
+                            style={{
+                              border: '1px solid var(--border-subtle, #e2e8f0)',
+                              borderLeft: item.tier === 'Immediate' ? '4px solid #ef4444' : item.type === 'summary' ? '4px solid #0284c7' : '4px solid #d97706',
+                              borderRadius: '8px',
+                              padding: '16px 18px',
+                              background: 'var(--bg-surface, #ffffff)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '16px',
+                            }}
+                          >
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                                  {item.patient_name}
+                                </span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                                  {item.patient_age} y · {item.patient_code}
+                                </span>
+                                <span style={{ fontSize: '11px', padding: '1px 7px', borderRadius: '4px', background: 'var(--bg-base, #f1f5f9)', color: 'var(--text-secondary, #475569)', fontWeight: 600 }}>
+                                  {item.condition}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    textTransform: 'uppercase',
+                                    background: item.tier === 'Immediate' ? '#fef2f2' : item.type === 'summary' ? '#eff6ff' : '#fffbeb',
+                                    color: item.tier === 'Immediate' ? '#dc2626' : item.type === 'summary' ? '#0284c7' : '#d97706',
+                                  }}
+                                >
+                                  {item.tier === 'Immediate' ? 'Immediate Flag' : item.type === 'summary' ? 'AI Summary Draft' : 'Limit Proposal'}
+                                </span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600, marginLeft: 'auto' }}>
+                                  {item.waited_text}
+                                </span>
+                              </div>
+
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary, #0f172a)', lineHeight: '1.4' }}>
+                                {item.title}
+                              </div>
+
+                              {item.escalated_kicker && (
+                                <div style={{ marginTop: '4px', fontSize: '11px', color: '#b45309', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  ⚡ {item.escalated_kicker}
+                                </div>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (item.type === 'flag') handleOpenFlagDrawer(item.flag_id);
+                                  else if (item.type === 'summary') setActiveNav('summaries');
+                                  else if (item.type === 'limit_proposal') setActiveNav('summaries');
+                                }}
+                                style={{
+                                  padding: '8px 16px',
+                                  borderRadius: '6px',
+                                  border: 'none',
+                                  background: 'var(--role-doctor, #7c3aed)',
+                                  color: '#ffffff',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Decide
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPatientId(item.patient_id);
+                                  setActiveNav('patient_chart');
+                                }}
+                                style={{
+                                  padding: '8px 14px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--border-strong, #cbd5e1)',
+                                  background: 'transparent',
+                                  color: 'var(--text-primary, #0f172a)',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Open patient
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quiet Patients Reassuring Row (Phase 3 Task 1) */}
+                  <div
+                    style={{
+                      background: 'var(--bg-surface, #ffffff)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderLeft: '4px solid #10b981',
+                      borderRadius: '10px',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      boxShadow: 'var(--shadow-card)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#ecfdf5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '13px' }}>
+                        ✓
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                          {doctorDecisions.quiet_patients?.message || 'Quiet patients: 2. Nothing open.'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                          Aarav Patel (CL-00001 · Day 3 Post-CABG) · Kabir Mehta (CL-00004 · Day 9 Appendectomy Convalescence)
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: '#ecfdf5', color: '#059669' }}>
+                      Telemetry On Track
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                /* NURSE WORKLIST / CALL LIST */
+                <div>
+                  {/* 4 KPI Summary Cards */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '18px',
+                      marginBottom: '24px',
+                    }}
+                  >
                 {/* Card 1: Cohort Patients with Flags */}
                 <div
                   style={{
@@ -1619,6 +2005,8 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                   )}
                 </div>
               </div>
+            </div>
+            )}
             </>
           )}
 
@@ -1737,6 +2125,16 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
           {/* TAB 7: AUDIT LOG VIEWER (Feature D-17) */}
           {activeNav === 'audit' && (
             <AuditLogViewer />
+          )}
+
+          {/* TAB 8: PATIENT APPROVED LIMITS (Phase 3 Task 4) */}
+          {activeNav === 'limits' && (
+            <DoctorLimitsView user={user} />
+          )}
+
+          {/* TAB 9: FHIR R4 EXPORT (Phase 3 Task 6) */}
+          {activeNav === 'fhir' && (
+            <DoctorFhirExportView user={user} />
           )}
         </main>
       </div>

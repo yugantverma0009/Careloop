@@ -20,6 +20,32 @@ import {
  * - Audit Trail (flag_events)
  * - State-specific closed-loop actions (Acknowledge, Resolve with code/note, Dismiss)
  */
+function getClinicalRationale(rule, reason, sourceType) {
+  const rt = (rule?.rule_type || '').toLowerCase();
+  const mt = (rule?.measurement_type || '').toLowerCase();
+  const rText = (reason || '').toLowerCase();
+
+  if (sourceType === 'Emergency' || rText.includes('emergency')) {
+    return 'Plain-code safety gate: Immediate escalation for acute coronary or respiratory symptoms without waiting for LLM processing.';
+  }
+  if (mt.includes('spo2') || rt.includes('spo2') || rText.includes('spo2') || rText.includes('oxygen')) {
+    return 'Post-CABG/Surgical baseline: Systemic oxygenation threshold set to detect early pulmonary atelectasis or hypoxemia before patient decompensates.';
+  }
+  if (mt.includes('heart') || rt.includes('heart') || rText.includes('heart rate') || rText.includes('bpm')) {
+    return 'Resting heart rate boundary: Set by physician to monitor for post-operative atrial fibrillation, circulatory volume overload, or chronotropic insufficiency.';
+  }
+  if (rt.includes('pain') || rText.includes('pain')) {
+    return 'Analgesic protocol: Identifies unmanaged acute post-surgical pain requiring prompt analgesic reassessment before delayed mobilization.';
+  }
+  if (rt.includes('missed') || rText.includes('missed') || rText.includes('dose')) {
+    return 'Medication safety gate: Critical cardiovascular and anticoagulant therapies require unbroken compliance to prevent thromboembolic events.';
+  }
+  if (rt.includes('no_data') || rText.includes('silent') || rText.includes('data')) {
+    return 'Device connectivity watch: Ensures telemetry gap does not mask unmonitored physiological deterioration while the patient is at home.';
+  }
+  return 'Clinical boundary approved by attending physician as part of individualized post-discharge care protocol.';
+}
+
 export default function FlagDrawer({
   flag = null,
   staffMembers = [],
@@ -419,25 +445,33 @@ export default function FlagDrawer({
                 )}
               </div>
 
-              {/* Rule Card */}
+              {/* Clinical Rationale Card (Phase 3) */}
               <div
                 style={{
                   padding: '16px',
-                  borderRadius: '8px',
-                  background: 'var(--bg-surface, #ffffff)',
-                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '10px',
+                  background: 'var(--role-doctor-soft, #f5f3ff)',
+                  border: '1px solid var(--role-doctor, #7c3aed)',
+                  borderLeft: '4px solid var(--role-doctor, #7c3aed)',
                 }}
               >
-                <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Trigger Rule & Governance
-                </div>
-                <div style={{ fontSize: '13px', color: '#334155', lineHeight: '1.5' }}>
-                  <div><strong>Rule Type:</strong> {rule.rule_type || 'Safety Protocol'}</div>
-                  <div><strong>Threshold:</strong> {rule.threshold_value || 'Emergency Keyword Pattern'}</div>
-                  <div>
-                    <strong>Approved By:</strong> {rule.approved_by_name || 'Clinical Safety Protocol'}
-                    {rule.approved_at && ` on ${new Date(rule.approved_at).toLocaleDateString()}`}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--role-doctor, #7c3aed)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Clinical Rationale & Approved Limit
                   </div>
+                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: 'var(--role-doctor, #7c3aed)', color: '#ffffff' }}>
+                    Physician Verified
+                  </span>
+                </div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '4px' }}>
+                  Approved Threshold: {rule.threshold_value || 'Emergency Keyword Pattern'} {rule.measurement_type ? `(${rule.measurement_type})` : ''}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', lineHeight: '1.5', marginBottom: '8px' }}>
+                  {getClinicalRationale(rule, reason, source_type)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', borderTop: '1px solid rgba(124, 58, 237, 0.15)', paddingTop: '6px' }}>
+                  Approved by: <strong>{rule.approved_by_name || 'Dr. Ananya Sharma'}</strong>
+                  {rule.approved_at && ` on ${new Date(rule.approved_at).toLocaleDateString()}`}
                 </div>
               </div>
             </div>

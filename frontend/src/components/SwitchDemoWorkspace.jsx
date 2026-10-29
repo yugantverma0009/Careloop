@@ -21,7 +21,7 @@ const DEMO_WORKSPACES = [
     department: 'Attending Physician & Clinical Decisions',
     email: 'ananya.demo@example.test',
     password: 'Demo@12345',
-    targetRoute: '/staff',
+    targetRoute: '/doctor',
     badgeColor: '#7c3aed',
     IconComponent: IconStethoscope,
   },
@@ -34,7 +34,7 @@ const DEMO_WORKSPACES = [
     department: 'Triage Board & Patient Call List',
     email: 'priya.demo@example.test',
     password: 'Demo@12345',
-    targetRoute: '/staff',
+    targetRoute: '/nurse',
     badgeColor: 'var(--accent-blue)',
     IconComponent: IconNurse,
   },
@@ -60,7 +60,7 @@ const DEMO_WORKSPACES = [
     department: 'Family Support & Emergency Contacts',
     email: 'caregiver1.demo@example.test',
     password: 'Demo@12345',
-    targetRoute: '/patient',
+    targetRoute: '/family',
     badgeColor: 'var(--warning-amber)',
     IconComponent: IconCaregiver,
   },
@@ -120,39 +120,6 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }} ref={menuRef}>
-      {/* Notification Bell with pulse indicator */}
-      <div
-        style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: '9px',
-          border: '1px solid var(--border-subtle)',
-          background: 'var(--bg-card)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          position: 'relative',
-          cursor: 'pointer',
-          color: 'var(--text-secondary)',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-        title="Alerts and notifications active"
-      >
-        <IconBell width={16} height={16} />
-        <span
-          className="pulse-dot"
-          style={{
-            position: 'absolute',
-            top: '7px',
-            right: '7px',
-            width: '7px',
-            height: '7px',
-            borderRadius: '50%',
-            background: 'var(--alert-red)',
-          }}
-        />
-      </div>
-
       {/* Demo Switcher Capsule Button */}
       <button
         type="button"

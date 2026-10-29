@@ -450,3 +450,18 @@ export const proposeLimitChange = (ruleId, thresholdValue, reason, windowHours =
     window_hours: windowHours,
     severity,
   });
+
+export const getDoctorDecisions = () =>
+  get('/staff/doctor/decisions');
+
+export const getRuleProposals = () =>
+  get('/staff/rules/proposals');
+
+export const approveRuleProposal = (historyId) =>
+  post(`/staff/rules/proposals/${historyId}/approve`, {});
+
+export const rejectRuleProposal = (historyId, reason) =>
+  post(`/staff/rules/proposals/${historyId}/reject`, { reason });
+
+export const getAllApprovedRules = (patientId = null) =>
+  get(`/staff/rules/all${patientId ? `?patient_id=${patientId}` : ''}`);

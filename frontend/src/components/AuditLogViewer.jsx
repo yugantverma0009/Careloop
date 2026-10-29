@@ -19,7 +19,8 @@ export default function AuditLogViewer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Filters
+  // Filters (Hidden by default per Phase 3)
+  const [showFilters, setShowFilters] = useState(false);
   const [selectedAction, setSelectedAction] = useState('');
   const [selectedStaff, setSelectedStaff] = useState('');
   const [patientQuery, setPatientQuery] = useState('');
@@ -39,7 +40,7 @@ export default function AuditLogViewer() {
         patient_id: patientQuery ? parseInt(patientQuery, 10) || undefined : undefined,
         start_date: startDate || undefined,
         end_date: endDate || undefined,
-        limit: 200,
+        limit: 20,
       });
       setLogs(data.logs || []);
       if (data.actions && !actionsList.length) setActionsList(data.actions);
@@ -166,31 +167,53 @@ export default function AuditLogViewer() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleExportCSV}
-          style={{
-            padding: '8px 16px',
-            borderRadius: '8px',
-            background: 'var(--bg-base, #f1f5f9)',
-            border: '1px solid var(--border-subtle, #cbd5e1)',
-            color: 'var(--text-primary, #0f172a)',
-            fontSize: '13px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span>📥 Export CSV (Audited)</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => setShowFilters(!showFilters)}
+            style={{
+              padding: '8px 14px',
+              borderRadius: '8px',
+              background: showFilters ? 'var(--role-doctor-soft, #f5f3ff)' : 'var(--bg-base, #f1f5f9)',
+              border: `1px solid ${showFilters ? 'var(--role-doctor, #7c3aed)' : 'var(--border-subtle, #cbd5e1)'}`,
+              color: showFilters ? 'var(--role-doctor, #7c3aed)' : 'var(--text-primary, #0f172a)',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <span>🔍 {showFilters ? 'Hide filters' : 'Filter events'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              background: 'var(--bg-base, #f1f5f9)',
+              border: '1px solid var(--border-subtle, #cbd5e1)',
+              color: 'var(--text-primary, #0f172a)',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>📥 Export CSV (Audited)</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Key Metrics Bar */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
         <div style={{ background: 'var(--bg-surface, #ffffff)', padding: '14px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle, #e2e8f0)', boxShadow: 'var(--shadow-card)' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', letterSpacing: '0.05em' }}>Logged Events</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', letterSpacing: '0.05em' }}>Logged Events (Showing 20)</div>
           <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginTop: '4px' }}>{logs.length}</div>
         </div>
 
@@ -210,18 +233,20 @@ export default function AuditLogViewer() {
         </div>
       </div>
 
-      {/* 3. Filter Controls */}
-      <div
-        style={{
-          background: 'var(--bg-surface, #ffffff)',
-          border: '1px solid var(--border-subtle, #e2e8f0)',
-          borderRadius: '12px',
-          padding: '16px 20px',
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '14px',
-          alignItems: 'center',
-        }}
+      {/* 3. Filter Controls (Collapsible, default hidden per Phase 3) */}
+      {showFilters && (
+        <div
+          style={{
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--border-subtle, #e2e8f0)',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '14px',
+            alignItems: 'center',
+          }}
+        >
       >
         <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '180px' }}>
           <div style={{ position: 'relative', width: '100%' }}>
@@ -341,6 +366,7 @@ export default function AuditLogViewer() {
           </button>
         )}
       </div>
+      )}
 
       {error && (
         <div style={{ padding: '12px 16px', borderRadius: '8px', background: '#fee2e2', color: '#b91c1c', fontSize: '13px' }}>

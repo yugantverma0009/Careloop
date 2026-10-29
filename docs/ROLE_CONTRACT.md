@@ -79,3 +79,4 @@ CareLoop operates with four distinct roles. Each role exists to perform a genuin
   - Family tabs: `Today`, `Calendar`, `Contacts`.
 - **Accent Color Hierarchy:**
   - Role Chip and Page Kicker reflect the role accent color (`--role-doctor`, `--role-nurse`, `--role-patient`, `--role-family`).
+

@@ -150,3 +150,4 @@ def can_resolve_flag(
         return True, "Authorized"
 
     return False, f"Role '{role}' is not authorized to resolve clinical flags."
+

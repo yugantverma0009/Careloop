@@ -483,11 +483,11 @@ export default function PatientOverviewTab({
           }}
         >
           {[
-            { id: 'overview', label: 'Clinical Overview', Icon: IconActivity },
-            { id: 'medicines', label: 'Prescriptions & Adherence', Icon: IconPill },
-            { id: 'rules', label: 'Trigger Rules & Limits', Icon: IconShieldCheck },
-            { id: 'timeline', label: 'Upgraded Timeline', Icon: IconClock },
-            { id: 'notes', label: 'Notes & Calls', Icon: IconFileText },
+            { id: 'overview', label: 'Overview', Icon: IconActivity },
+            { id: 'medicines', label: 'Medicines', Icon: IconPill },
+            { id: 'timeline', label: 'Timeline', Icon: IconClock },
+            { id: 'rules', label: 'Limits', Icon: IconShieldCheck },
+            { id: 'notes', label: 'Notes', Icon: IconFileText },
           ].map((tab) => {
             const isActive = subTab === tab.id;
             const TabIcon = tab.Icon;
@@ -1417,35 +1417,108 @@ export default function PatientOverviewTab({
 
               {/* Day Groups with Collapsed Events (D-06) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {(timelineData?.day_groups || []).map((grp) => (
-                  <div
-                    key={grp.date}
-                    style={{
-                      background: 'var(--bg-surface, #ffffff)',
-                      border: '1px solid var(--border-subtle, #e2e8f0)',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      boxShadow: 'var(--shadow-card)',
-                    }}
-                  >
-                    {/* Sticky Day Header */}
+                {(timelineData?.day_groups || []).map((grp, grpIdx) => (
+                  <React.Fragment key={grp.date}>
+                    {/* Explicit Hospital Stay (Days 1–3) vs Home Recovery (Days 4+) Dividing Line (Phase 3) */}
+                    {grp.is_inpatient && (grpIdx === 0 || !(timelineData?.day_groups || [])[grpIdx - 1]?.is_inpatient) && (
+                      <div
+                        style={{
+                          margin: '10px 0',
+                          padding: '14px 20px',
+                          background: 'var(--role-doctor-soft, #f5f3ff)',
+                          border: '1px solid var(--role-doctor, #7c3aed)',
+                          borderLeft: '5px solid var(--role-doctor, #7c3aed)',
+                          borderRadius: '10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          boxShadow: 'var(--shadow-sm)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              background: 'var(--role-doctor, #7c3aed)',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '14px',
+                              fontWeight: 800,
+                            }}
+                          >
+                            ✓
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--role-doctor, #7c3aed)', letterSpacing: '0.02em' }}>
+                              HOSPITAL DISCHARGE TRANSITION (DAYS 1–3 INPATIENT → DAY 4+ HOME RECOVERY)
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                              Inpatient post-operative course completed. Remote telemetry monitoring and physician-approved protocol activated at discharge.
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            background: 'var(--role-doctor, #7c3aed)',
+                            color: '#ffffff',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Physician Cleared
+                        </span>
+                      </div>
+                    )}
+
                     <div
                       style={{
-                        padding: '10px 18px',
-                        background: 'var(--bg-base, #f8fafc)',
-                        borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
-                        fontSize: '12px',
-                        fontWeight: 800,
-                        color: 'var(--text-primary, #0f172a)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
+                        background: 'var(--bg-surface, #ffffff)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        boxShadow: 'var(--shadow-card)',
                       }}
                     >
-                      <span>{grp.display_date}</span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
-                        {grp.events.length} event{grp.events.length === 1 ? '' : 's'}
-                      </span>
-                    </div>
+                      {/* Sticky Day Header */}
+                      <div
+                        style={{
+                          padding: '10px 18px',
+                          background: 'var(--bg-base, #f8fafc)',
+                          borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                          fontSize: '12px',
+                          fontWeight: 800,
+                          color: 'var(--text-primary, #0f172a)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span>{grp.display_date}</span>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              background: grp.is_inpatient ? '#e2e8f0' : 'var(--accent-teal-soft, #f0fdfa)',
+                              color: grp.is_inpatient ? '#475569' : 'var(--accent-teal, #0d9488)',
+                            }}
+                          >
+                            {grp.phase_label || (grp.is_inpatient ? 'Hospital Stay (Days 1–3)' : 'Recovery at Home (Days 4+)')}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
+                          {grp.events.length} event{grp.events.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
 
                     {/* Events List */}
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1522,6 +1595,7 @@ export default function PatientOverviewTab({
                       ))}
                     </div>
                   </div>
+                </React.Fragment>
                 ))}
               </div>
             </div>

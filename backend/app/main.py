@@ -3139,6 +3139,16 @@ def get_patient_timeline(
         if not patient_info:
             raise HTTPException(status_code=404, detail="Patient not found")
 
+        # Discharge details for hospital vs recovery timeline transition
+        cur.execute(
+            """SELECT discharge_date, condition_summary 
+               FROM discharge_records 
+               WHERE patient_id = %s""",
+            (pid,),
+        )
+        dr_info = cur.fetchone() or {}
+        discharge_date = dr_info.get("discharge_date")
+
         # 1. Readings
         cur.execute(
             """SELECT sr.reading_id AS event_id, sr.measured_at AS event_time, 'Reading' AS event_type,
@@ -3299,9 +3309,14 @@ def get_patient_timeline(
                 idx = seen_keys[key]
                 collapsed_items[idx]["repeat_count"] += 1
 
+        is_inpatient = bool(discharge_date is not None and datetime.strptime(day_str, "%Y-%m-%d").date() <= discharge_date)
+        phase_label = "Hospital Stay (Days 1–3)" if is_inpatient else "Recovery at Home (Days 4+)"
+
         grouped_result.append({
             "date": day_str,
             "display_date": datetime.strptime(day_str, "%Y-%m-%d").strftime("%A, %d %b %Y"),
+            "is_inpatient": is_inpatient,
+            "phase_label": phase_label,
             "events": collapsed_items,
         })
 
@@ -3323,6 +3338,7 @@ def get_patient_timeline(
 
     return {
         "patient": patient_info,
+        "discharge_date": discharge_date.strftime("%Y-%m-%d") if discharge_date else None,
         "total_events": len(all_events),
         "day_groups": grouped_result,
         "events": all_events,
@@ -5513,3 +5529,366 @@ def propose_limit_endpoint(
         change_reason=body.change_reason,
     )
     return update_alert_rule(rule_id=body.rule_id, body=update_body, user=user)
+
+
+# ─── Doctor Decision Desk Endpoints (Phase 3) ─────────────────────────────────
+
+@app.get("/staff/doctor/decisions")
+def get_doctor_decisions(
+    user: Dict[str, Any] = Depends(require_doctor),
+):
+    """
+    Doctor Desk: What needs Dr. Sharma's decision? (Phase 3 Task 1)
+    Aggregates:
+    1. Immediate & urgent flags (plus flags escalated by the nurse)
+    2. AI draft summaries awaiting sign-off
+    3. Pending rule limit change proposals
+    4. Quiet patients strip (on-track patients with zero open items)
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Total cohort count
+        cur.execute("SELECT COUNT(*) AS total FROM patients")
+        total_patients = cur.fetchone()["total"]
+
+        # 2. Decision flags (Immediate / Urgent / Escalated)
+        cur.execute(
+            """SELECT f.flag_id, f.patient_id, p.full_name, p.patient_code,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary, f.reason, f.severity,
+                      IF(f.source_type = 'Emergency', 'Immediate', f.severity) AS tier,
+                      f.created_at,
+                      ROUND(TIMESTAMPDIFF(MINUTE, f.created_at, NOW())) AS waited_mins,
+                      (SELECT cs.full_name FROM flag_events fe 
+                       JOIN care_staff cs ON fe.staff_id = cs.staff_id 
+                       WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalated_by
+               FROM flags f
+               JOIN patients p ON f.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE f.status = 'Open'
+                 AND (f.severity = 'Urgent_Review' 
+                      OR f.source_type = 'Emergency'
+                      OR f.flag_id IN (SELECT flag_id FROM flag_events WHERE event_type = 'Escalated'))
+               ORDER BY FIELD(f.source_type, 'Emergency') DESC,
+                        FIELD(f.severity, 'Urgent_Review', 'Review_Soon', 'Info'),
+                        f.created_at ASC"""
+        )
+        flag_rows = cur.fetchall()
+
+        # 3. Draft AI Summaries
+        cur.execute(
+            """SELECT s.summary_id, s.patient_id, p.full_name, p.patient_code,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary, s.status, s.generated_at, s.source_snapshot,
+                      ROUND(TIMESTAMPDIFF(MINUTE, s.generated_at, NOW())) AS waited_mins
+               FROM ai_summaries s
+               JOIN patients p ON s.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE s.status = 'Draft'
+               ORDER BY s.generated_at ASC"""
+        )
+        summary_rows = cur.fetchall()
+        for sm in summary_rows:
+            if isinstance(sm.get("source_snapshot"), str):
+                try:
+                    sm["source_snapshot"] = json.loads(sm["source_snapshot"])
+                except Exception:
+                    sm["source_snapshot"] = {}
+
+        # 4. Pending Limit Proposals
+        cur.execute(
+            """SELECT h.history_id, h.rule_id, h.changed_by_staff_id, h.change_reason,
+                      h.old_values, h.new_values, h.changed_at,
+                      cs.full_name AS proposed_by_name,
+                      ar.patient_id, ar.rule_type, ar.measurement_type,
+                      p.patient_code, p.full_name,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary,
+                      ROUND(TIMESTAMPDIFF(MINUTE, h.changed_at, NOW())) AS waited_mins
+               FROM alert_rules_history h
+               JOIN alert_rules ar ON h.rule_id = ar.rule_id
+               JOIN patients p ON ar.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               LEFT JOIN care_staff cs ON h.changed_by_staff_id = cs.staff_id
+               WHERE JSON_EXTRACT(h.new_values, '$.proposed_only') = true
+                 AND (JSON_EXTRACT(h.new_values, '$.status') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(h.new_values, '$.status')) = 'Pending')
+               ORDER BY h.changed_at ASC"""
+        )
+        proposal_rows = cur.fetchall()
+        for pr in proposal_rows:
+            for f in ("old_values", "new_values"):
+                if isinstance(pr.get(f), str):
+                    try:
+                        pr[f] = json.loads(pr[f])
+                    except Exception:
+                        pr[f] = {}
+
+        # 5. Quiet Patients (Zero open flags and zero draft summaries)
+        cur.execute(
+            """SELECT p.patient_id, p.patient_code, p.full_name, dr.condition_summary,
+                      DATEDIFF(CURDATE(), dr.discharge_date) + 1 AS relative_day
+               FROM patients p
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE p.patient_id NOT IN (SELECT patient_id FROM flags WHERE status = 'Open')
+                 AND p.patient_id NOT IN (SELECT patient_id FROM ai_summaries WHERE status = 'Draft')
+               ORDER BY p.patient_id ASC"""
+        )
+        quiet_rows = cur.fetchall()
+
+        # Combine into unified decision items list
+        decision_items = []
+
+        for fl in flag_rows:
+            waited = f"{fl['waited_mins']}m" if fl['waited_mins'] < 60 else f"{fl['waited_mins'] // 60}h {fl['waited_mins'] % 60}m"
+            tier_label = "Immediate" if fl['tier'] == 'Immediate' else "Urgent Review"
+            escalated_kicker = f"Escalated by Nurse {fl['escalated_by']}" if fl.get('escalated_by') else None
+            decision_items.append({
+                "type": "flag",
+                "id": fl["flag_id"],
+                "flag_id": fl["flag_id"],
+                "patient_id": fl["patient_id"],
+                "patient_name": fl["full_name"],
+                "patient_code": fl["patient_code"],
+                "patient_age": fl["age"],
+                "condition": fl["condition_summary"] or "Recovery",
+                "title": f"{tier_label} flag: {fl['reason']}",
+                "detail": fl["reason"],
+                "tier": fl["tier"],
+                "severity": fl["severity"],
+                "waited_text": f"Waited {waited}",
+                "escalated_kicker": escalated_kicker,
+                "priority_weight": 100 if fl["tier"] == "Immediate" else 80,
+            })
+
+        for sm in summary_rows:
+            waited = f"{sm['waited_mins']}m" if sm['waited_mins'] < 60 else f"{sm['waited_mins'] // 60}h {sm['waited_mins'] % 60}m"
+            decision_items.append({
+                "type": "summary",
+                "id": sm["summary_id"],
+                "summary_id": sm["summary_id"],
+                "patient_id": sm["patient_id"],
+                "patient_name": sm["full_name"],
+                "patient_code": sm["patient_code"],
+                "patient_age": sm["age"],
+                "condition": sm["condition_summary"] or "Recovery",
+                "title": f"Discharge Summary sign-off: AI draft awaiting doctor approval",
+                "detail": "AI-generated clinical draft requiring physician review and sign-off before export.",
+                "tier": "Review_Soon",
+                "waited_text": f"Waited {waited}",
+                "source_snapshot": sm["source_snapshot"],
+                "priority_weight": 60,
+            })
+
+        for pr in proposal_rows:
+            waited = f"{pr['waited_mins']}m" if pr['waited_mins'] < 60 else f"{pr['waited_mins'] // 60}h {pr['waited_mins'] % 60}m"
+            nv = pr.get("new_values") or {}
+            ov = pr.get("old_values") or {}
+            new_th = nv.get("threshold_value")
+            old_th = ov.get("threshold_value")
+            decision_items.append({
+                "type": "limit_proposal",
+                "id": pr["history_id"],
+                "history_id": pr["history_id"],
+                "rule_id": pr["rule_id"],
+                "patient_id": pr["patient_id"],
+                "patient_name": pr["full_name"],
+                "patient_code": pr["patient_code"],
+                "patient_age": pr["age"],
+                "condition": pr["condition_summary"] or "Recovery",
+                "title": f"Limit change request: Proposed {pr['rule_type']} threshold {old_th} → {new_th}",
+                "detail": f"Proposed by {pr['proposed_by_name']}: {pr['change_reason']}",
+                "tier": "Review_Soon",
+                "waited_text": f"Waited {waited}",
+                "proposed_by": pr["proposed_by_name"],
+                "priority_weight": 50,
+            })
+
+        # Sort all decision items by priority weight descending, then id
+        decision_items.sort(key=lambda x: x["priority_weight"], reverse=True)
+
+        return {
+            "cards": {
+                "needs_decision_now": len(decision_items),
+                "summaries_to_approve": len(summary_rows),
+                "limit_change_requests": len(proposal_rows),
+                "patients_in_followup": total_patients,
+            },
+            "items": decision_items,
+            "quiet_patients": {
+                "count": len(quiet_rows),
+                "patients": quiet_rows,
+                "message": f"Quiet patients: {len(quiet_rows)}. Nothing open.",
+            },
+        }
+
+
+class RejectProposalIn(BaseModel):
+    reason: str
+
+
+@app.get("/staff/rules/proposals")
+def get_rule_proposals(user: Dict[str, Any] = Depends(require_doctor)):
+    """Doctor endpoint to retrieve pending rule limit proposals."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT h.history_id, h.rule_id, h.changed_by_staff_id, h.change_reason,
+                      h.old_values, h.new_values, h.changed_at,
+                      cs.full_name AS proposed_by_name, cs.staff_role AS proposed_by_role,
+                      ar.patient_id, ar.rule_type, ar.measurement_type,
+                      p.patient_code, p.full_name AS patient_name,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS patient_age,
+                      dr.condition_summary
+               FROM alert_rules_history h
+               JOIN alert_rules ar ON h.rule_id = ar.rule_id
+               JOIN patients p ON ar.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               LEFT JOIN care_staff cs ON h.changed_by_staff_id = cs.staff_id
+               WHERE JSON_EXTRACT(h.new_values, '$.proposed_only') = true
+                 AND (JSON_EXTRACT(h.new_values, '$.status') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(h.new_values, '$.status')) = 'Pending')
+               ORDER BY h.changed_at DESC"""
+        )
+        rows = cur.fetchall()
+        for r in rows:
+            for f in ('old_values', 'new_values'):
+                if isinstance(r.get(f), str):
+                    try:
+                        r[f] = json.loads(r[f])
+                    except Exception:
+                        pass
+        return rows
+
+
+@app.post("/staff/rules/proposals/{history_id}/approve")
+def approve_rule_proposal(
+    history_id: int,
+    user: Dict[str, Any] = Depends(require_doctor),
+):
+    """Doctor approves nurse-proposed rule limit (Phase 3 Task 3)."""
+    doctor_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT h.history_id, h.rule_id, h.change_reason, h.new_values
+               FROM alert_rules_history h
+               WHERE h.history_id = %s""",
+            (history_id,),
+        )
+        prop = cur.fetchone()
+        if not prop:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+
+        nv = prop["new_values"]
+        if isinstance(nv, str):
+            nv = json.loads(nv)
+
+        new_thresh = nv.get("threshold_value")
+        new_window = nv.get("window_hours")
+        new_sev = nv.get("severity")
+        rule_id = prop["rule_id"]
+
+        cur.execute(
+            """UPDATE alert_rules
+               SET threshold_value = %s,
+                   window_hours = COALESCE(%s, window_hours),
+                   severity = COALESCE(%s, severity),
+                   approved_by_staff_id = %s,
+                   approved_at = NOW()
+               WHERE rule_id = %s""",
+            (new_thresh, new_window, new_sev, doctor_id, rule_id),
+        )
+
+        nv["status"] = "Approved"
+        nv["approved_by_staff_id"] = doctor_id
+        nv["approved_at"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+        cur.execute(
+            """UPDATE alert_rules_history
+               SET new_values = %s
+               WHERE history_id = %s""",
+            (json.dumps(nv), history_id),
+        )
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'RULE_PROPOSAL_APPROVED', 'alert_rule', %s,
+                       JSON_OBJECT('history_id', %s, 'new_threshold', %s, 'doctor_id', %s))""",
+            (str(doctor_id), rule_id, history_id, new_thresh, doctor_id),
+        )
+        conn.commit()
+
+    return {"status": "Approved", "history_id": history_id, "rule_id": rule_id, "approved_by_staff_id": doctor_id}
+
+
+@app.post("/staff/rules/proposals/{history_id}/reject")
+def reject_rule_proposal(
+    history_id: int,
+    body: RejectProposalIn,
+    user: Dict[str, Any] = Depends(require_doctor),
+):
+    """Doctor rejects nurse-proposed rule limit (Phase 3 Task 3)."""
+    if not body.reason or len(body.reason.strip()) < 3:
+        raise HTTPException(status_code=400, detail="A rejection reason of at least 3 characters is required.")
+
+    doctor_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT h.history_id, h.rule_id, h.new_values
+               FROM alert_rules_history h
+               WHERE h.history_id = %s""",
+            (history_id,),
+        )
+        prop = cur.fetchone()
+        if not prop:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+
+        nv = prop["new_values"]
+        if isinstance(nv, str):
+            nv = json.loads(nv)
+
+        nv["status"] = "Rejected"
+        nv["rejected_by_staff_id"] = doctor_id
+        nv["reject_reason"] = body.reason.strip()
+        nv["rejected_at"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+        cur.execute(
+            """UPDATE alert_rules_history
+               SET new_values = %s
+               WHERE history_id = %s""",
+            (json.dumps(nv), history_id),
+        )
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'RULE_PROPOSAL_REJECTED', 'alert_rule', %s,
+                       JSON_OBJECT('history_id', %s, 'reason', %s, 'doctor_id', %s))""",
+            (str(doctor_id), prop["rule_id"], history_id, body.reason.strip(), doctor_id),
+        )
+        conn.commit()
+
+    return {"status": "Rejected", "history_id": history_id, "reason": body.reason.strip()}
+
+
+@app.get("/staff/rules/all")
+def get_all_approved_rules(
+    patient_id: Optional[int] = None,
+    user: Dict[str, Any] = Depends(require_staff),
+):
+    """Doctor and Nurse master table of approved alert rules (Phase 3 Task 4)."""
+    with get_conn() as conn, conn.cursor() as cur:
+        query = """SELECT r.rule_id, r.patient_id, p.full_name, p.patient_code,
+                          TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                          dr.condition_summary,
+                          r.rule_type, r.measurement_type, r.threshold_value,
+                          r.window_hours, r.severity, r.approved_at, r.is_active,
+                          cs.full_name AS approved_by_name
+                   FROM alert_rules r
+                   JOIN patients p ON r.patient_id = p.patient_id
+                   LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+                   LEFT JOIN care_staff cs ON r.approved_by_staff_id = cs.staff_id"""
+        params = []
+        if patient_id:
+            query += " WHERE r.patient_id = %s"
+            params.append(patient_id)
+        query += " ORDER BY p.patient_id ASC, r.rule_id ASC"
+        cur.execute(query, tuple(params))
+        return cur.fetchall()
+
