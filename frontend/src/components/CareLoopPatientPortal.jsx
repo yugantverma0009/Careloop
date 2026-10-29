@@ -11,6 +11,8 @@ import {
   getPatientCheckins,
   sendChatMessage,
   getChatHistory,
+  askCareTeamForChatMessage,
+  submitChatFeedback,
   logout,
 } from '../services/api';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
@@ -31,6 +33,11 @@ import {
   IconClock,
   IconBell,
   IconMic,
+  IconThumbsUp,
+  IconThumbsDown,
+  IconX,
+  IconFileText,
+  IconRefresh,
 } from './Icons';
 
 const SKIP_REASONS = [
@@ -71,6 +78,13 @@ const CHECKIN_TRENDS = [
   { id: 'worse', en: 'Worse', hi: 'खराब' },
 ];
 
+const CHAT_STARTER_CHIPS = [
+  { id: 'next_visit', en: 'When is my next visit?', hi: 'मेरी अगली मुलाक़ात कब है?' },
+  { id: 'today_doses', en: 'What medicines do I take today?', hi: 'मुझे आज कौन सी दवाइयाँ लेनी हैं?' },
+  { id: 'warning_signs', en: 'What warning signs should I watch for?', hi: 'मुझे किन ख़तरे के लक्षणों का ध्यान रखना चाहिए?' },
+  { id: 'course_end', en: 'Until when do I take my medicines?', hi: 'मुझे कब तक दवाइयाँ लेनी हैं?' },
+];
+
 export default function CareLoopPatientPortal({ user }) {
   const [lang, setLang] = useState('en');
   const [, setLoading] = useState(true);
@@ -79,6 +93,13 @@ export default function CareLoopPatientPortal({ user }) {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [conversationId, setConversationId] = useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`
+  );
+  const [selectedSource, setSelectedSource] = useState(null);
+  const [feedbackState, setFeedbackState] = useState({});
+  const [activeFeedbackPromptId, setActiveFeedbackPromptId] = useState(null);
+  const [careTeamContactState, setCareTeamContactState] = useState({});
 
   // Active navigation sidebar tab: 'recovery', 'prescriptions', 'calendar', 'checkin', 'chat'
   const [activeNav, setActiveNav] = useState('recovery');
@@ -133,7 +154,18 @@ export default function CareLoopPatientPortal({ user }) {
         getChatHistory().catch(() => []),
       ]);
       setTodayData(todayRes);
-      setChatMessages(chatRes || []);
+      if (Array.isArray(chatRes)) {
+        setChatMessages(chatRes);
+        const initialFeedback = {};
+        chatRes.forEach((msg) => {
+          if (msg.rating !== null && msg.rating !== undefined && msg.message_id) {
+            initialFeedback[msg.message_id] = { rating: msg.rating, status: 'submitted' };
+          }
+        });
+        if (Object.keys(initialFeedback).length > 0) {
+          setFeedbackState((prev) => ({ ...prev, ...initialFeedback }));
+        }
+      }
     } catch (err) {
       console.error('Error loading patient today data', err);
       setErrorMsg(
@@ -614,46 +646,121 @@ export default function CareLoopPatientPortal({ user }) {
     } catch (e) {}
   };
 
-  // Chat message submit
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim() || chatLoading) return;
+  // Chat message submit (Phase 4 Brief Sec 8)
+  const handleSendMessage = async (e, directText = null) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const userText = (directText || chatInput).trim();
+    if (!userText || chatLoading) return;
 
-    const userText = chatInput.trim();
-    setChatInput('');
+    if (!directText) setChatInput('');
+
+    const tempUserMsgId = `usr-${Date.now()}`;
+    const currConvId = conversationId || `conv-${Date.now()}`;
+    if (!conversationId) setConversationId(currConvId);
+
     setChatMessages((prev) => [
       ...prev,
-      { role: 'user', content: userText, timestamp: new Date().toISOString() },
+      {
+        id: tempUserMsgId,
+        message_id: tempUserMsgId,
+        role: 'user',
+        sender: 'Patient',
+        content: userText,
+        message_text: userText,
+        timestamp: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
     ]);
     setChatLoading(true);
 
     try {
-      const res = await sendChatMessage(userText, lang);
+      const res = await sendChatMessage(userText, lang, currConvId);
+      const asstText = res.answer || res.response || res.reply || res.message;
       setChatMessages((prev) => [
         ...prev,
         {
+          id: res.message_id || `asst-${Date.now()}`,
+          message_id: res.message_id,
           role: 'assistant',
-          content: res.response || res.reply || res.message,
+          sender: 'AI_Assistant',
+          content: asstText,
+          message_text: asstText,
           grounded: res.is_grounded,
+          is_grounded: res.is_grounded,
+          answer_type: res.answer_type || 'grounded',
+          sources: res.sources || [],
+          action_suggested: res.action_suggested,
           timestamp: new Date().toISOString(),
+          created_at: new Date().toISOString(),
         },
       ]);
     } catch (err) {
+      console.error('Chat error', err);
       setChatMessages((prev) => [
         ...prev,
         {
+          id: `err-${Date.now()}`,
           role: 'assistant',
+          sender: 'AI_Assistant',
           content:
             lang === 'hi'
               ? 'कनेक्ट करने में समस्या हुई। कृपया पुनः प्रयास करें या केयर टीम को कॉल करें।'
               : "I couldn't connect right now. Please try again or call your care team.",
           grounded: false,
+          isError: true,
+          failedText: userText,
           timestamp: new Date().toISOString(),
         },
       ]);
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleFeedback = async (messageId, rating, comment = null) => {
+    if (!messageId) return;
+    setFeedbackState((prev) => ({
+      ...prev,
+      [messageId]: { rating, status: 'submitted', comment },
+    }));
+    setActiveFeedbackPromptId(null);
+    try {
+      await submitChatFeedback(messageId, rating, comment);
+    } catch (err) {
+      console.error('Chat feedback error', err);
+    }
+  };
+
+  const handleAskCareTeam = async (messageId) => {
+    if (!messageId) return;
+    setCareTeamContactState((prev) => ({
+      ...prev,
+      [messageId]: { status: 'loading' },
+    }));
+    try {
+      const res = await askCareTeamForChatMessage(messageId);
+      setCareTeamContactState((prev) => ({
+        ...prev,
+        [messageId]: { status: 'sent', taskId: res.task_id },
+      }));
+      setUndoToast(
+        lang === 'hi'
+          ? 'आपकी केयर टीम को संदेश भेज दिया गया है। स्टाफ़ जल्द समीक्षा करेगा।'
+          : 'Request sent to your care team. A nurse will follow up shortly.'
+      );
+    } catch (err) {
+      console.error('Ask care team error', err);
+      setCareTeamContactState((prev) => ({
+        ...prev,
+        [messageId]: { status: 'error' },
+      }));
+    }
+  };
+
+  const handleNewChat = () => {
+    const newConv = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`;
+    setConversationId(newConv);
+    setChatMessages([]);
   };
 
   // Derived telemetry metrics
@@ -3745,7 +3852,7 @@ export default function CareLoopPatientPortal({ user }) {
             </div>
           )}
 
-          {/* ─── 10. TAB: CHAT ASSISTANT (Retained from existing, refined styling) ─── */}
+          {/* ─── 10. TAB: CHAT ASSISTANT (Phase 4 Upgraded Grounded Assistant) ─── */}
           {activeNav === 'chat' && (
             <div
               style={{
@@ -3753,10 +3860,10 @@ export default function CareLoopPatientPortal({ user }) {
                 border: '1px solid var(--border-subtle, #e2e8f0)',
                 borderRadius: '12px',
                 padding: '24px',
-                height: '560px',
+                height: '620px',
                 display: 'flex',
                 flexDirection: 'column',
-                maxWidth: '820px',
+                maxWidth: '860px',
                 boxShadow: 'var(--shadow-card)',
               }}
             >
@@ -3768,72 +3875,503 @@ export default function CareLoopPatientPortal({ user }) {
                   paddingBottom: '14px',
                   borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
                   marginBottom: '16px',
+                  gap: '12px',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <IconSparkles width={20} height={20} style={{ color: 'var(--accent-teal, #0d9488)' }} />
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '10px',
+                      background: 'rgba(13, 148, 136, 0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--accent-teal, #0d9488)',
+                    }}
+                  >
+                    <IconSparkles width={20} height={20} />
+                  </div>
                   <div>
-                    <h2 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>
+                    <h2 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
                       {lang === 'hi' ? 'डिस्चार्ज रिकवरी सहायक' : 'Discharge recovery assistant'}
                     </h2>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
                       {lang === 'hi'
-                        ? 'उत्तर सीधे आपके डिस्चार्ज पेपर्स से लिए जाते हैं'
-                        : 'Answers are taken directly from your discharge papers'}
+                        ? 'उत्तर सीधे आपके डिस्चार्ज पेपर्स और केयर प्लान से प्रमाणित हैं'
+                        : 'Answers are strictly grounded in your hospital discharge papers & care plan'}
                     </div>
                   </div>
                 </div>
-                <span className="status-pill status-pill-blue">
-                  {lang === 'hi' ? 'केवल डिस्चार्ज पेपर्स' : 'Discharge papers only'}
-                </span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={handleNewChat}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      color: 'var(--text-primary, #0f172a)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                    title={lang === 'hi' ? 'नया संवाद शुरू करें' : 'Start a fresh conversation'}
+                  >
+                    <IconRefresh width={13} height={13} />
+                    {lang === 'hi' ? 'नया संवाद' : 'New chat'}
+                  </button>
+                  <span className="status-pill status-pill-blue">
+                    <IconShieldCheck width={12} height={12} style={{ marginRight: '4px' }} />
+                    {lang === 'hi' ? 'प्रमाणित स्रोत' : 'Grounded records'}
+                  </span>
+                </div>
               </div>
 
+              {/* Chat Message Scroll Area */}
               <div
                 style={{
                   flex: 1,
                   overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '12px',
+                  gap: '14px',
                   paddingRight: '6px',
                 }}
               >
                 {chatMessages.length === 0 ? (
-                  <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted, #94a3b8)', fontSize: '13px' }}>
-                    {lang === 'hi'
-                      ? 'अपनी दवाओं, घाव की देखभाल या डॉक्टर की विज़िट के बारे में पूछें।'
-                      : 'Ask about your medicines, wound care, or doctor visits.'}
+                  <div
+                    style={{
+                      margin: 'auto',
+                      maxWidth: '560px',
+                      textAlign: 'center',
+                      padding: '24px 16px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        background: 'rgba(13, 148, 136, 0.1)',
+                        color: 'var(--accent-teal, #0d9488)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 12px auto',
+                      }}
+                    >
+                      <IconSparkles width={26} height={26} />
+                    </div>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
+                      {lang === 'hi' ? 'आज मैं आपकी क्या मदद करूँ?' : 'How can I help you recover?'}
+                    </div>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted, #64748b)', marginBottom: '20px', lineHeight: 1.5 }}>
+                      {lang === 'hi'
+                        ? 'अपनी दवाओं, अगली डॉक्टर विज़िट, घाव की देखभाल या रिकवरी के नियमों के बारे में पूछें। नीचे दिए गए किसी भी सुझाव पर टैप करें:'
+                        : 'Ask any question about your medications, appointments, wound care, or recovery rules. Tap a starter question to begin:'}
+                    </p>
+
+                    {/* Starter Chips Grid (Brief Sec 8.2) */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                        gap: '8px',
+                        textAlign: 'left',
+                      }}
+                    >
+                      {CHAT_STARTER_CHIPS.map((chip) => (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => handleSendMessage(null, chip[lang])}
+                          disabled={chatLoading}
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border-subtle, #cbd5e1)',
+                            background: 'var(--bg-base, #f8fafc)',
+                            color: 'var(--text-primary, #0f172a)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <span>{chip[lang]}</span>
+                          <span style={{ color: 'var(--accent-teal, #0d9488)', marginLeft: '6px' }}>→</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   chatMessages.map((msg, i) => {
                     const isUser = msg.role === 'user' || msg.sender === 'Patient';
+                    const msgId = msg.message_id || msg.id;
+                    const feedback = feedbackState[msgId];
+                    const careTeamState = careTeamContactState[msgId];
+                    const isEmergency = msg.answer_type === 'emergency';
+                    const isRefusal = msg.answer_type === 'refusal_dose';
+                    const isNotFound = msg.answer_type === 'not_found';
+                    const sources = Array.isArray(msg.sources) ? msg.sources : [];
+
                     return (
                       <div
-                        key={i}
+                        key={msgId || i}
                         style={{
                           alignSelf: isUser ? 'flex-end' : 'flex-start',
-                          maxWidth: '80%',
-                          padding: '10px 14px',
-                          borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                          background: isUser ? 'var(--navy-deep, #0b1528)' : 'var(--bg-base, #f1f5f9)',
-                          color: isUser ? '#ffffff' : 'var(--text-primary, #0f172a)',
-                          fontSize: '13px',
-                          lineHeight: 1.5,
+                          maxWidth: '82%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
                         }}
                       >
-                        {msg.content || msg.message_text || msg.text}
+                        {/* Message Bubble */}
+                        <div
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                            background: isUser
+                              ? 'var(--navy-deep, #0b1528)'
+                              : isEmergency
+                              ? 'rgba(239, 68, 68, 0.08)'
+                              : 'var(--bg-base, #f1f5f9)',
+                            border: isEmergency
+                              ? '1.5px solid #ef4444'
+                              : isUser
+                              ? 'none'
+                              : '1px solid var(--border-subtle, #e2e8f0)',
+                            color: isUser ? '#ffffff' : 'var(--text-primary, #0f172a)',
+                            fontSize: '13px',
+                            lineHeight: 1.6,
+                            boxShadow: isUser ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          }}
+                        >
+                          {/* Emergency Banner Styling */}
+                          {isEmergency && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                color: '#b91c1c',
+                                fontWeight: 800,
+                                fontSize: '13px',
+                                marginBottom: '8px',
+                                paddingBottom: '6px',
+                                borderBottom: '1px solid rgba(239, 68, 68, 0.2)',
+                              }}
+                            >
+                              <IconAlertTriangle width={18} height={18} style={{ color: '#ef4444' }} />
+                              <span>{lang === 'hi' ? 'आपातकालीन सूचना - तुरंत 112 पर कॉल करें' : 'Emergency Notice - Call 112 Immediately'}</span>
+                            </div>
+                          )}
+
+                          <div style={{ whiteSpace: 'pre-wrap' }}>
+                            {msg.content || msg.message_text || msg.text}
+                          </div>
+
+                          {/* Emergency Direct Call Button */}
+                          {isEmergency && (
+                            <div style={{ marginTop: '12px' }}>
+                              <a
+                                href="tel:112"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '8px 14px',
+                                  borderRadius: '8px',
+                                  background: '#dc2626',
+                                  color: '#ffffff',
+                                  textDecoration: 'none',
+                                  fontWeight: 700,
+                                  fontSize: '12px',
+                                }}
+                              >
+                                📞 {lang === 'hi' ? '112 पर आपातकालीन कॉल करें' : 'Call 112 Emergency'}
+                              </a>
+                            </div>
+                          )}
+
+                          {/* Refusal / Not Found: Ask My Care Team Action (Brief Sec 8.3 & 8.6) */}
+                          {(isRefusal || isNotFound || msg.action_suggested === 'ask_care_team') && !isUser && (
+                            <div
+                              style={{
+                                marginTop: '12px',
+                                paddingTop: '10px',
+                                borderTop: '1px dashed var(--border-subtle, #cbd5e1)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: '8px',
+                              }}
+                            >
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                                {lang === 'hi'
+                                  ? 'क्या आप चाहते हैं कि डॉक्टर या नर्स आपसे संपर्क करें?'
+                                  : 'Would you like a clinician to review this request?'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleAskCareTeam(msgId)}
+                                disabled={careTeamState?.status === 'loading' || careTeamState?.status === 'sent'}
+                                style={{
+                                  padding: '6px 12px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--accent-teal, #0d9488)',
+                                  background: careTeamState?.status === 'sent' ? 'var(--accent-teal, #0d9488)' : '#ffffff',
+                                  color: careTeamState?.status === 'sent' ? '#ffffff' : 'var(--accent-teal, #0d9488)',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: careTeamState?.status === 'sent' ? 'default' : 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                {careTeamState?.status === 'loading'
+                                  ? (lang === 'hi' ? 'भेजा जा रहा है...' : 'Sending...')
+                                  : careTeamState?.status === 'sent'
+                                  ? (lang === 'hi' ? '✓ अनुरोध भेज दिया गया' : '✓ Request Sent')
+                                  : (lang === 'hi' ? '👨‍⚕️ केयर टीम से पूछें' : '👨‍⚕️ Ask My Care Team')}
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Error Retry Option */}
+                          {msg.isError && msg.failedText && (
+                            <div style={{ marginTop: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleSendMessage(null, msg.failedText)}
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  background: '#ffffff',
+                                  color: 'var(--text-primary, #0f172a)',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <IconRefresh width={11} height={11} />
+                                {lang === 'hi' ? 'पुनः प्रयास करें' : 'Retry'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Grounded Source Pill Chips (Brief Sec 8.3 & 8.4) */}
+                        {!isUser && sources.length > 0 && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: '6px',
+                              alignItems: 'center',
+                              paddingLeft: '4px',
+                            }}
+                          >
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              {lang === 'hi' ? 'स्रोत:' : 'Sources:'}
+                            </span>
+                            {sources.map((src, srcIdx) => {
+                              const label = src.tool_name
+                                ? `${src.tool_name === 'appointments' ? '🗓️ Appointments' : src.tool_name === 'today_doses' ? '💊 Today doses' : src.tool_name === 'medicine_plan' ? '📋 Care plan' : '🩺 Vitals'}`
+                                : `📄 Discharge summary · ${src.section_title || 'General'}${src.page_no ? ` · p.${src.page_no}` : ''}`;
+
+                              return (
+                                <button
+                                  key={srcIdx}
+                                  type="button"
+                                  onClick={() => setSelectedSource(src)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '3px 8px',
+                                    borderRadius: '12px',
+                                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                                    background: 'var(--bg-surface, #ffffff)',
+                                    color: 'var(--text-primary, #0f172a)',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'border-color 0.15s ease',
+                                  }}
+                                  title={lang === 'hi' ? 'स्रोत विवरण देखने के लिए क्लिक करें' : 'Click to inspect source passage'}
+                                >
+                                  <span>{label}</span>
+                                  <span style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '10px' }}>↗</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Assistant Actions Bar: Feedback Thumbs + Timestamp */}
+                        {!isUser && !msg.isError && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              paddingLeft: '6px',
+                              fontSize: '11px',
+                              color: 'var(--text-muted, #94a3b8)',
+                              gap: '8px',
+                            }}
+                          >
+                            {/* Thumbs Up / Down Buttons (Brief Sec 8.3 & 8.5) */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleFeedback(msgId, 1)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: '2px 4px',
+                                  cursor: 'pointer',
+                                  color: feedback?.rating === 1 ? 'var(--accent-teal, #0d9488)' : 'var(--text-muted, #94a3b8)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                }}
+                                title={lang === 'hi' ? 'मददगार लगा' : 'Helpful'}
+                              >
+                                <IconThumbsUp width={13} height={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (activeFeedbackPromptId === msgId) {
+                                    setActiveFeedbackPromptId(null);
+                                  } else {
+                                    setActiveFeedbackPromptId(msgId);
+                                    handleFeedback(msgId, -1);
+                                  }
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: '2px 4px',
+                                  cursor: 'pointer',
+                                  color: feedback?.rating === -1 ? '#ef4444' : 'var(--text-muted, #94a3b8)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                }}
+                                title={lang === 'hi' ? 'मददगार नहीं लगा' : 'Not helpful'}
+                              >
+                                <IconThumbsDown width={13} height={13} />
+                              </button>
+
+                              {feedback?.rating === 1 && (
+                                <span style={{ fontSize: '10px', color: 'var(--accent-teal, #0d9488)' }}>
+                                  {lang === 'hi' ? 'धन्यवाद!' : 'Helpful'}
+                                </span>
+                              )}
+                              {feedback?.rating === -1 && (
+                                <span style={{ fontSize: '10px', color: '#ef4444' }}>
+                                  {lang === 'hi' ? 'फ़ीडबैक दर्ज' : 'Recorded'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Timestamp */}
+                            {msg.timestamp && (
+                              <span style={{ fontSize: '10px' }}>
+                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Optional Inline Comment Prompt for Thumbs Down */}
+                        {activeFeedbackPromptId === msgId && (
+                          <div
+                            style={{
+                              marginTop: '2px',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border-subtle, #cbd5e1)',
+                              background: 'var(--bg-base, #f8fafc)',
+                              fontSize: '11px',
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
+                              {lang === 'hi' ? 'क्या समस्या थी?' : 'What was the issue?'}
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                              {[
+                                { id: 'incorrect', en: 'Incorrect', hi: 'गलत तथ्य' },
+                                { id: 'confusing', en: 'Confusing', hi: 'समझ नहीं आया' },
+                                { id: 'missing', en: 'Missing detail', hi: 'अधूरी जानकारी' },
+                              ].map((opt) => (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => handleFeedback(msgId, -1, opt[lang])}
+                                  style={{
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                                    background: '#ffffff',
+                                    color: 'var(--text-primary, #0f172a)',
+                                    fontSize: '10px',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {opt[lang]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })
                 )}
+
                 {chatLoading && (
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)', padding: '6px' }}>
-                    {lang === 'hi' ? 'आपके पेपर्स चेक किए जा रहे हैं...' : 'Checking your discharge papers...'}
+                  <div
+                    style={{
+                      alignSelf: 'flex-start',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 14px',
+                      borderRadius: '12px',
+                      background: 'var(--bg-base, #f1f5f9)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      fontSize: '12px',
+                      color: 'var(--text-muted, #64748b)',
+                    }}
+                  >
+                    <IconSparkles width={14} height={14} style={{ color: 'var(--accent-teal, #0d9488)' }} />
+                    <span>{lang === 'hi' ? 'आपके पेपर्स व केयर प्लान में खोज रहे हैं...' : 'Checking discharge papers and recovery plan...'}</span>
                   </div>
                 )}
                 <div ref={chatEndRef} />
               </div>
 
+              {/* Chat Input Form */}
               <form
                 onSubmit={handleSendMessage}
                 style={{
@@ -3850,8 +4388,8 @@ export default function CareLoopPatientPortal({ user }) {
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder={
                     lang === 'hi'
-                      ? 'अपनी दवाओं या डिस्चार्ज निर्देशों के बारे में पूछें...'
-                      : 'Ask about your medicines or discharge instructions...'
+                      ? 'अपनी दवाओं, अगली विज़िट या घाव की देखभाल के बारे में पूछें...'
+                      : 'Ask about your medicines, next visit, or wound care...'
                   }
                   style={{
                     flex: 1,
@@ -3861,6 +4399,7 @@ export default function CareLoopPatientPortal({ user }) {
                     fontSize: '13px',
                     background: 'var(--bg-input, #ffffff)',
                     color: 'var(--text-primary, #0f172a)',
+                    outline: 'none',
                   }}
                 />
                 <button
@@ -3872,10 +4411,11 @@ export default function CareLoopPatientPortal({ user }) {
                     border: 'none',
                     background: 'var(--navy-deep, #0b1528)',
                     color: '#ffffff',
-                    cursor: !chatInput.trim() ? 'not-allowed' : 'pointer',
+                    cursor: !chatInput.trim() || chatLoading ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    opacity: !chatInput.trim() || chatLoading ? 0.6 : 1,
                   }}
                 >
                   <IconSend width={15} height={15} />
@@ -3981,6 +4521,161 @@ export default function CareLoopPatientPortal({ user }) {
                 }}
               >
                 {lang === 'hi' ? 'पुष्टि करें (छोड़ें)' : 'Confirm Skip'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 12. SOURCE INSPECTION MODAL DRAWER (Brief Sec 8.4) ─── */}
+      {selectedSource && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 120,
+          }}
+          onClick={() => setSelectedSource(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '14px',
+              padding: '24px',
+              width: '92%',
+              maxWidth: '560px',
+              boxShadow: 'var(--shadow-float)',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '10px',
+                    background: 'rgba(13, 148, 136, 0.12)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-teal, #0d9488)',
+                  }}
+                >
+                  <IconFileText width={20} height={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
+                    {lang === 'hi' ? 'स्रोत रिकॉर्ड विवरण' : 'Source record passage'}
+                  </h3>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                    {lang === 'hi'
+                      ? 'यह उत्तर आपके प्रमाणित मेडिकल रिकॉर्ड से सत्यापित है'
+                      : 'This answer was verified directly against this record'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSource(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted, #94a3b8)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                }}
+              >
+                <IconX width={18} height={18} />
+              </button>
+            </div>
+
+            {/* Badges */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <span className="status-pill status-pill-blue" style={{ fontSize: '11px' }}>
+                📄 {selectedSource.doc_title || (selectedSource.tool_name ? 'Care Plan Database' : 'Discharge Summary')}
+              </span>
+              {selectedSource.section_title && (
+                <span className="status-pill status-pill-neutral" style={{ fontSize: '11px' }}>
+                  🔖 {selectedSource.section_title}
+                </span>
+              )}
+              {selectedSource.page_no && (
+                <span className="status-pill status-pill-neutral" style={{ fontSize: '11px' }}>
+                  Page {selectedSource.page_no}
+                </span>
+              )}
+              {selectedSource.tool_name && (
+                <span className="status-pill status-pill-green" style={{ fontSize: '11px' }}>
+                  Tool: {selectedSource.tool_name}
+                </span>
+              )}
+            </div>
+
+            {/* Snippet / Text Quote */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                background: 'var(--bg-base, #f8fafc)',
+                border: '1px solid var(--border-subtle, #cbd5e1)',
+                borderRadius: '10px',
+                padding: '16px',
+                fontSize: '13px',
+                lineHeight: 1.6,
+                color: 'var(--text-primary, #0f172a)',
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'inherit',
+                maxHeight: '320px',
+              }}
+            >
+              {selectedSource.snippet ||
+                selectedSource.text ||
+                (typeof selectedSource.tool_data === 'object'
+                  ? JSON.stringify(selectedSource.tool_data, null, 2)
+                  : 'No passage text recorded for this citation.')}
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: '8px',
+                borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--accent-teal, #0d9488)', fontWeight: 600 }}>
+                <IconShieldCheck width={14} height={14} />
+                <span>{lang === 'hi' ? 'चिकित्सकीय रूप से प्रमाणित' : 'Grounded hospital record'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSource(null)}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-strong, #cbd5e1)',
+                  background: 'var(--navy-deep, #0b1528)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {lang === 'hi' ? 'बंद करें' : 'Close'}
               </button>
             </div>
           </div>

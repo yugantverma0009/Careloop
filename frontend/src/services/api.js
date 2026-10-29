@@ -174,10 +174,16 @@ export const getPatientCheckins = (days = 14) =>
 
 export const getMyStatus = () => get('/patient/me/status');
 
-export const sendChatMessage = (message, language = 'en') =>
-  post('/patient/me/chat', { message, language });
+export const sendChatMessage = (message, language = 'en', conversation_id = null) =>
+  post('/patient/me/chat', { message, language, conversation_id });
 
 export const getChatHistory = () => get('/patient/me/chat/history');
+
+export const askCareTeamForChatMessage = (messageId) =>
+  post(`/patient/me/chat/${messageId}/ask-care-team`, {});
+
+export const submitChatFeedback = (messageId, rating, comment = null) =>
+  post(`/patient/me/chat/${messageId}/feedback`, { rating, comment });
 
 // ─── Staff & Clinical Workflow Endpoints ─────────────────────────────────────
 

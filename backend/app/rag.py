@@ -78,18 +78,32 @@ def get_embedding_fn():
     return _embedding_fn
 
 
+from .rag_config import USE_UPGRADED_RAG
+from .rag_pipeline import answer_patient_query
+
 def answer(
     patient_id: int,
     question: str,
     lang: str = "en",
     col=None,
     conn=None,
+    conversation_id: Optional[str] = None,
 ) -> Tuple[str, bool, List[str]]:
     """Answer patient questions strictly grounded in discharge documents.
     
     Returns:
         (answer_text, is_grounded, citation_vector_ids)
     """
+    if USE_UPGRADED_RAG:
+        result = answer_patient_query(
+            patient_id=patient_id,
+            question=question,
+            conversation_id=conversation_id,
+            language=lang,
+        )
+        return result["answer"], result["is_grounded"], result["citations"]
+
+    # --- Legacy Assistant Path (when USE_UPGRADED_RAG=False) ---
     # 1. Deterministic emergency check (instant, no LLM)
     if has_emergency_term(question):
         guidance = EMERGENCY_GUIDANCE.get(lang, EMERGENCY_GUIDANCE["en"])

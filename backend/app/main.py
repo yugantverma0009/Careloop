@@ -75,9 +75,20 @@ class LoginResponse(BaseModel):
     name: str
 
 
+from .rag_config import USE_UPGRADED_RAG
+from .rag_pipeline import answer_patient_query
+
+
 class ChatIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
-    language: Optional[str] = "en"
+    message: Optional[str] = Field(None, max_length=1000)
+    question: Optional[str] = Field(None, max_length=1000)
+    conversation_id: Optional[str] = None
+    language: Optional[str] = Field(default="en", pattern="^(en|hi)$")
+
+
+class FeedbackIn(BaseModel):
+    rating: int = Field(..., ge=-1, le=1)
+    comment: Optional[str] = Field(default=None, max_length=255)
 
 
 class ReviewSummaryIn(BaseModel):
@@ -1605,33 +1616,74 @@ def get_patient_timeline(pid: int, user: Dict[str, Any] = Depends(require_role("
 @app.post("/patient/me/chat")
 def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
     """
-    Patient Chat Endpoint with Grounded RAG:
-    - Answers ONLY from clinician-approved discharge document excerpts.
-    - Deterministic emergency phrases show guidance immediately and raise urgent flags.
-    - Dose-change questions are refused deterministically and create staff follow-up tasks.
-    - Links citations to document_chunks via chat_message_sources.
-    - Ungrounded answers create a follow_up_task for clinical staff.
+    Patient Chat Endpoint with Grounded RAG & Tool Routing (Brief Sec 7.2 - 7.12 & 8.6):
+    - When USE_UPGRADED_RAG is true, routes through upgraded RAG pipeline:
+      * Emergency words -> deterministic 112 guidance, no LLM.
+      * Dose-change questions -> deterministic refusal + staff task.
+      * Intent routing -> structured SQL tools (appointment, today doses, plan, vitals).
+      * Hybrid retrieval over discharge chunks -> dense Chroma + keyword MySQL + RRF.
+      * Numeric and citation guard -> enforces strict factual grounding.
+    - Preserves backward compatibility fields (response, is_grounded, citations).
     """
     pid = get_effective_patient_id(user)
+    effective_q = (body.question or body.message or "").strip()
+    if not effective_q:
+        raise HTTPException(400, "Question or message text cannot be empty.")
 
     with get_conn() as conn:
         with conn.cursor() as cur:
             # 1. Insert patient message
             cur.execute(
-                """INSERT INTO chat_messages (patient_id, sender, message_text)
-                   VALUES (%s, 'Patient', %s)""",
-                (pid, body.message),
+                """INSERT INTO chat_messages (patient_id, sender, message_text, conversation_id)
+                   VALUES (%s, 'Patient', %s, %s)""",
+                (pid, effective_q, body.conversation_id),
             )
 
-        # 2. Compute grounded answer
-        ans, is_grounded, citations = rag_answer(pid, body.message, body.language or "en", conn=conn)
+            # Fetch recent conversation history for query rewrite
+            cur.execute(
+                """SELECT sender AS role, message_text AS content
+                   FROM chat_messages
+                   WHERE patient_id = %s AND (conversation_id = %s OR conversation_id IS NULL)
+                   ORDER BY created_at DESC LIMIT 6""",
+                (pid, body.conversation_id),
+            )
+            raw_hist = cur.fetchall()
+            history = [{"role": "user" if r["role"] == "Patient" else "assistant", "content": r["content"]} for r in reversed(raw_hist)]
+
+        # 2. Compute answer
+        if USE_UPGRADED_RAG:
+            rag_res = answer_patient_query(
+                patient_id=pid,
+                question=effective_q,
+                conversation_id=body.conversation_id,
+                language=body.language or "en",
+                history=history,
+            )
+            ans = rag_res["answer"]
+            bullets = rag_res.get("bullets", [])
+            sources = rag_res.get("sources", [])
+            suggestions = rag_res.get("suggestions", [])
+            can_ask = rag_res.get("can_ask_care_team", False)
+            is_grounded = rag_res.get("is_grounded", False)
+            citations = rag_res.get("citations", [])
+            answer_type = rag_res.get("answer_type", "grounded")
+            debug_data = rag_res.get("retrieval_debug", {})
+        else:
+            # Legacy fallback
+            ans, is_grounded, citations = rag_answer(pid, effective_q, body.language or "en", conn=conn)
+            bullets = []
+            sources = []
+            suggestions = []
+            can_ask = not is_grounded
+            answer_type = "grounded" if is_grounded else "not_found"
+            debug_data = {"legacy": True}
 
         with conn.cursor() as cur:
-            # 3. Insert AI message
+            # 3. Insert AI message with answer_type and retrieval_debug
             cur.execute(
-                """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded)
-                   VALUES (%s, 'AI_Nurse', %s, %s)""",
-                (pid, ans, is_grounded),
+                """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded, answer_type, conversation_id, retrieval_debug)
+                   VALUES (%s, 'AI_Nurse', %s, %s, %s, %s, %s)""",
+                (pid, ans, is_grounded, answer_type, body.conversation_id, json.dumps(debug_data, ensure_ascii=False)),
             )
             ai_msg_id = cur.lastrowid
 
@@ -1639,8 +1691,8 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_rol
             if citations:
                 for vid in citations:
                     cur.execute(
-                        "SELECT chunk_id FROM document_chunks WHERE vector_id = %s LIMIT 1",
-                        (vid,),
+                        "SELECT chunk_id FROM document_chunks WHERE vector_id = %s OR chunk_id = %s LIMIT 1",
+                        (str(vid), str(vid)),
                     )
                     crow = cur.fetchone()
                     if crow:
@@ -1650,31 +1702,24 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_rol
                             (ai_msg_id, crow["chunk_id"]),
                         )
 
-            # 5. Create follow-up task if ungrounded or dose change
-            if not is_grounded:
-                cur.execute(
-                    """SELECT attending_staff_id FROM discharge_records
-                       WHERE patient_id = %s ORDER BY discharge_date DESC LIMIT 1""",
-                    (pid,),
-                )
-                drow = cur.fetchone() or {}
-                assigned_staff = drow.get("attending_staff_id") or 1
-                reason = f"Unanswered patient question: {body.message}"[:255]
-                cur.execute(
-                    """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
-                       VALUES (%s, %s, 'Routine', %s, 'Pending')""",
-                    (pid, assigned_staff, reason),
-                )
-
-            # 6. Audit log
+            # 5. Audit log
             cur.execute(
                 """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
                    VALUES ('Patient', %s, 'CHAT_QUERY', 'chat_message', %s,
-                           JSON_OBJECT('is_grounded', %s, 'citations_count', %s))""",
-                (str(user["account_id"]), ai_msg_id, is_grounded, len(citations)),
+                           JSON_OBJECT('answer_type', %s, 'is_grounded', %s, 'citations_count', %s))""",
+                (str(user["account_id"]), ai_msg_id, answer_type, is_grounded, len(citations)),
             )
 
     return {
+        "message_id": ai_msg_id,
+        "conversation_id": body.conversation_id,
+        "answer_type": answer_type,
+        "answer": ans,
+        "bullets": bullets,
+        "sources": sources,
+        "suggestions": suggestions,
+        "can_ask_care_team": can_ask,
+        # Backward compatibility fields:
         "response": ans,
         "is_grounded": is_grounded,
         "citations": citations,
@@ -1683,17 +1728,157 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_rol
 
 @app.get("/patient/me/chat/history")
 def get_chat_history(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
-    """Returns patient chat history with groundness flags."""
+    """
+    Returns patient chat history with answer types, source chips, and feedback ratings (Brief Sec 7.10 & 8.6).
+    """
     pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT message_id, patient_id, sender, message_text, is_grounded, created_at
-               FROM chat_messages
-               WHERE patient_id = %s
-               ORDER BY created_at ASC LIMIT 100""",
+            """SELECT m.message_id, m.patient_id, m.sender, m.message_text,
+                      m.is_grounded, m.created_at, m.answer_type, m.conversation_id,
+                      f.rating AS feedback_rating
+               FROM chat_messages m
+               LEFT JOIN chat_feedback f ON f.message_id = m.message_id
+               WHERE m.patient_id = %s
+               ORDER BY m.created_at ASC LIMIT 100""",
             (pid,),
         )
-        return cur.fetchall()
+        rows = cur.fetchall()
+
+        messages = []
+        for r in rows:
+            msg_id = r["message_id"]
+            created = r["created_at"].strftime("%d %b, %I:%M %p") if isinstance(r["created_at"], datetime) else str(r["created_at"])
+
+            # Fetch sources for AI messages
+            sources = []
+            if r["sender"] == "AI_Nurse":
+                cur.execute(
+                    """SELECT c.chunk_id, c.chunk_text, c.section_title, c.page_no
+                       FROM chat_message_sources s
+                       JOIN document_chunks c ON c.chunk_id = s.chunk_id
+                       WHERE s.message_id = %s""",
+                    (msg_id,),
+                )
+                for s_row in cur.fetchall():
+                    sec = s_row["section_title"] or "Discharge summary"
+                    p_num = s_row["page_no"] or 1
+                    sources.append({
+                        "chunk_id": s_row["chunk_id"],
+                        "label": f"Discharge summary · {sec} · p.{p_num}",
+                        "snippet": s_row["chunk_text"][:160] + "...",
+                        "text": s_row["chunk_text"],
+                    })
+
+            messages.append({
+                "message_id": msg_id,
+                "role": "user" if r["sender"] == "Patient" else "assistant",
+                "sender": r["sender"],
+                "content": r["message_text"],
+                "message_text": r["message_text"],
+                "response": r["message_text"],
+                "is_grounded": bool(r["is_grounded"]),
+                "grounded": bool(r["is_grounded"]),
+                "answer_type": r["answer_type"] or ("grounded" if r["is_grounded"] else "not_found"),
+                "conversation_id": r["conversation_id"],
+                "created_at": created,
+                "timestamp": r["created_at"].isoformat() if isinstance(r["created_at"], datetime) else str(r["created_at"]),
+                "sources": sources,
+                "feedback_rating": r["feedback_rating"],
+            })
+
+        return messages
+
+
+@app.post("/patient/me/chat/{message_id}/ask-care-team")
+def ask_care_team_from_chat(
+    message_id: int,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Creates a clinical follow-up task and writes an audit row when a patient escalates a question (Brief Sec 7.7 & 8.6).
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT message_id, message_text FROM chat_messages
+               WHERE message_id = %s AND patient_id = %s""",
+            (message_id, pid),
+        )
+        msg = cur.fetchone()
+        if not msg:
+            raise HTTPException(404, "Message not found or does not belong to this patient.")
+
+        cur.execute(
+            """SELECT attending_staff_id FROM discharge_records
+               WHERE patient_id = %s ORDER BY discharge_date DESC LIMIT 1""",
+            (pid,),
+        )
+        drow = cur.fetchone() or {}
+        assigned_staff = drow.get("attending_staff_id") or 1
+
+        cur.execute(
+            """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
+               VALUES (%s, %s, 'Routine', %s, 'Pending')""",
+            (pid, assigned_staff, f"Patient asked care team to follow up on: '{msg['message_text'][:200]}'"),
+        )
+        task_id = cur.lastrowid
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Patient', %s, 'ASK_CARE_TEAM', 'chat_message', %s,
+                       JSON_OBJECT('task_id', %s, 'assigned_staff', %s))""",
+            (str(user["account_id"]), message_id, task_id, assigned_staff),
+        )
+
+        return {
+            "ok": True,
+            "status": "task_created",
+            "task_id": task_id,
+            "message": "Your question has been forwarded to your care team.",
+        }
+
+
+@app.post("/patient/me/chat/{message_id}/feedback")
+def submit_chat_feedback(
+    message_id: int,
+    body: FeedbackIn,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Records 👍 (1) or 👎 (-1) rating with optional patient comment (Brief Sec 7.10 & 9.2).
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT message_id FROM chat_messages
+               WHERE message_id = %s AND patient_id = %s""",
+            (message_id, pid),
+        )
+        if not cur.fetchone():
+            raise HTTPException(404, "Message not found or does not belong to this patient.")
+
+        cur.execute(
+            """INSERT INTO chat_feedback (message_id, rating, comment)
+               VALUES (%s, %s, %s)
+               ON DUPLICATE KEY UPDATE rating = VALUES(rating), comment = VALUES(comment)""",
+            (message_id, body.rating, body.comment),
+        )
+        feedback_id = cur.lastrowid
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Patient', %s, 'CHAT_FEEDBACK', 'chat_feedback', %s,
+                       JSON_OBJECT('rating', %s, 'message_id', %s))""",
+            (str(user["account_id"]), feedback_id, body.rating, message_id),
+        )
+
+        return {
+            "status": "feedback_recorded",
+            "feedback_id": feedback_id,
+            "message_id": message_id,
+            "rating": body.rating,
+        }
 
 
 # ─── Daily AI Summaries & Clinician Review (Milestone M5) ────────────────────
