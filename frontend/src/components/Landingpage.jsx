@@ -324,19 +324,19 @@ export default function LandingPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>ACTIVE PATIENTS</div>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>12</div>
-                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Monitored now</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>5</div>
+                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Monitored cohort</div>
               </div>
 
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>READINGS RECEIVED</div>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>98.2%</div>
-                <div style={{ fontSize: '9px', color: '#0284c7', fontWeight: 600 }}>From watch</div>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>TELEMETRY STREAM</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>Active</div>
+                <div style={{ fontSize: '9px', color: '#0284c7', fontWeight: 600 }}>Wearable watch</div>
               </div>
 
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>DOSES CONFIRMED</div>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>83.6%</div>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>DOSES TRACKED</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>Logged</div>
                 <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Self-reported</div>
               </div>
             </div>
@@ -481,23 +481,23 @@ export default function LandingPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '64px' }}>
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>12</div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>5</div>
               <div style={{ fontSize: '11px', color: '#94a3b8' }}>Monitored patients</div>
             </div>
 
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>98.2%</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Readings received</div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>Active</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Telemetry stream</div>
             </div>
 
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>83.6%</div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>Logged</div>
               <div style={{ fontSize: '11px', color: '#94a3b8' }}>Doses confirmed</div>
             </div>
 
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>3-Tier</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>3-step escalation ladder</div>
+              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>4-Step</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Escalation ladder</div>
             </div>
           </div>
         </div>
@@ -564,7 +564,7 @@ export default function LandingPage() {
             {
               title: 'Wearable Readings Check',
               desc: 'Automatic checks filter out impossible sensor readings before alerts are created.',
-              tag: 'Hardware-Verified',
+              tag: 'Quality Guard',
               color: '#d97706',
               bg: '#fffbeb',
             },
@@ -814,16 +814,16 @@ export default function LandingPage() {
             Clinical Follow-Up Targets
           </h2>
           <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
-            Aims to prevent hospital readmissions by sending wearable readings to care teams.
+            Supports post-discharge care coordination through wearable telemetry and clinical escalation ladders.
           </p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
           {[
-            { metric: '98.2%', label: 'Readings Checked for Errors', detail: 'Sensor check rejects impossible readings to avoid false alarms.' },
-            { metric: '83.6%', label: 'Doses Confirmed by Patients', detail: 'Daily dose check-ins with caregiver and staff alerts when doses are missed.' },
-            { metric: '100%', label: 'Emergency Keyword Detection', detail: 'Immediate safety keyword checks in Hindi and English.' },
-            { metric: '3-Tier', label: '3-Step Escalation Ladder', detail: 'Patient reminder -> Caregiver SMS -> Nurse alert -> Doctor review.' },
+            { metric: 'Active', label: 'Signal Quality Checking', detail: 'Sensor check filters out impossible readings to avoid false alarms.' },
+            { metric: 'Self-Reported', label: 'Doses Confirmed by Patients', detail: 'Daily dose check-ins with caregiver and staff alerts when doses are missed.' },
+            { metric: 'Code-Level', label: 'Emergency Keyword Engine', detail: 'Immediate deterministic safety keyword checks in Hindi and English.' },
+            { metric: '4-Tier', label: 'Clinical Escalation Ladder', detail: 'Patient prompt -> Caregiver SMS (consent-gated) -> Nurse alert -> Doctor decision.' },
           ].map((item, idx) => (
             <div
               key={idx}

@@ -21,7 +21,7 @@ const DEMO_ROLES = [
   {
     id: 'doctor',
     title: 'Attending Physician',
-    name: 'Dr. Ananya Rao',
+    name: 'Dr. Ananya Sharma',
     email: 'ananya.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/staff',
@@ -31,7 +31,7 @@ const DEMO_ROLES = [
   {
     id: 'nurse',
     title: 'Triage Nurse',
-    name: 'Nurse Priya Sharma',
+    name: 'Priya Nair',
     email: 'priya.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/staff',
@@ -51,7 +51,7 @@ const DEMO_ROLES = [
   {
     id: 'caregiver',
     title: 'Family Caregiver',
-    name: 'Sunita Patel',
+    name: 'Neha Patel (Spouse)',
     email: 'caregiver1.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/patient',

@@ -373,7 +373,7 @@ export default function TaskQueue({ staffMembers = [], user = {}, onSelectPatien
                       </div>
                       {t.flag_id && (
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Linked to Flag #{t.flag_id} {t.flag_severity ? `(${t.flag_severity})` : ''}
+                          Linked to Flag #{t.flag_id} {t.flag_severity ? `(${t.flag_severity === 'Review_Soon' ? 'Review soon' : t.flag_severity === 'Urgent_Review' ? 'Urgent' : t.flag_severity})` : ''}
                         </div>
                       )}
                     </td>
@@ -387,7 +387,7 @@ export default function TaskQueue({ staffMembers = [], user = {}, onSelectPatien
                             : 'status-pill-blue'
                         }`}
                       >
-                        {t.priority_label || t.priority}
+                        {t.priority_label || (t.priority === 'Review_Soon' ? 'Review soon' : t.priority === 'Urgent_Review' ? 'Urgent' : t.priority)}
                       </span>
                     </td>
                     <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>

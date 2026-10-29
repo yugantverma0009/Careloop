@@ -715,6 +715,12 @@ export default function PatientOverviewTab({
                       SpO2 sensor currently disconnected or uncalibrated.
                     </div>
                   )}
+
+                  {detailData.data_check_note && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '8px', padding: '6px 10px', background: 'var(--bg-base, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                      ℹ️ {detailData.data_check_note}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -976,7 +982,7 @@ export default function PatientOverviewTab({
                               color: fl.severity === 'Urgent_Review' ? 'var(--alert-red, #dc2626)' : 'var(--warning-amber, #d97706)',
                             }}
                           >
-                            {fl.severity.replace('_', ' ')}
+                            {fl.severity === 'Review_Soon' ? 'Review soon' : fl.severity === 'Urgent_Review' ? 'Urgent' : fl.severity}
                           </span>
                           <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
                             {fl.reason}
@@ -1217,7 +1223,7 @@ export default function PatientOverviewTab({
                               color: r.severity === 'Urgent_Review' ? 'var(--alert-red, #dc2626)' : 'var(--warning-amber, #d97706)',
                             }}
                           >
-                            {r.severity.replace('_', ' ')}
+                            {r.severity === 'Review_Soon' ? 'Review soon' : r.severity === 'Urgent_Review' ? 'Urgent' : r.severity}
                           </span>
                         </td>
                         <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-primary, #0f172a)', fontWeight: 600 }}>

@@ -1994,6 +1994,27 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
 
+              {todayData?.data_check_note && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    fontSize: '12px',
+                    color: 'var(--text-muted, #64748b)',
+                    marginTop: '-6px',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <span>ℹ️</span>
+                  <span>{todayData.data_check_note}</span>
+                </div>
+              )}
+
               {/* ─── 7. GROUPED MEDICINES TABLE (Morning / Afternoon / Evening / Night) (Brief Sec 6.2) ─── */}
               <div
                 style={{

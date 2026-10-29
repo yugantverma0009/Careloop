@@ -1854,7 +1854,9 @@ export default function CareLoopStaffPortal({ user }) {
                             }}
                           >
                             <div>
-                              <span style={{ fontWeight: 600, color: '#b91c1c', fontSize: '12px' }}>[{fl.severity}]</span>
+                              <span style={{ fontWeight: 600, color: '#b91c1c', fontSize: '12px' }}>
+                                [{fl.severity === 'Review_Soon' ? 'Review soon' : fl.severity === 'Urgent_Review' ? 'Urgent' : fl.severity}]
+                              </span>
                               <span style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', marginLeft: '6px' }}>{fl.reason}</span>
                               <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({fl.full_name})</span>
                             </div>

@@ -407,7 +407,7 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
             dis_date = d_row["discharge_date"]
             if isinstance(dis_date, datetime):
                 dis_date = dis_date.date()
-            day_after_discharge = max(1, (today_ist - dis_date).days)
+            day_after_discharge = max(1, (today_ist - dis_date).days + 1)
         else:
             day_after_discharge = 1
 
@@ -547,13 +547,27 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
             if next_dose is None and d["status"] in ("Unconfirmed", "Missed"):
                 next_dose = dose_obj
 
-        # 4. Readings
+        # 4. Readings (Only latest VALID readings as headline, impossible readings surfaced as note)
         cur.execute(
             """SELECT measurement_type, measurement_value, unit, measured_at, quality_status
-               FROM v_latest_sensor_readings WHERE patient_id=%s""",
+               FROM (
+                   SELECT sr.*, ROW_NUMBER() OVER (PARTITION BY sr.patient_id, sr.measurement_type ORDER BY sr.measured_at DESC) as rn
+                   FROM sensor_readings sr
+                   WHERE sr.patient_id = %s AND sr.quality_status != 'Invalid'
+               ) x WHERE x.rn = 1""",
             (pid,)
         )
         readings_rows = cur.fetchall()
+
+        cur.execute(
+            """SELECT COUNT(*) AS invalid_count FROM sensor_readings
+               WHERE patient_id = %s AND quality_status = 'Invalid' AND measured_at >= NOW() - INTERVAL 24 HOUR""",
+            (pid,)
+        )
+        inv_row = cur.fetchone()
+        invalid_cnt = inv_row["invalid_count"] if inv_row else 0
+        data_check_note = f"{invalid_cnt} reading ignored: impossible value" if invalid_cnt > 0 else None
+
         readings = [
             {
                 "type": r["measurement_type"],
@@ -703,6 +717,7 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
         },
         "all_doses": morning + afternoon + evening + night,
         "readings": readings,
+        "data_check_note": data_check_note,
         "device": device_status,
         "next_appointment": next_appt,
         "week": week,
@@ -1604,10 +1619,14 @@ def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient", "Caregi
     """
     pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
-        # 1. Latest readings
+        # 1. Latest readings (Filter out Invalid values for headline display)
         cur.execute(
             """SELECT measurement_type, measurement_value, unit, measured_at, quality_status
-               FROM v_latest_sensor_readings WHERE patient_id=%s""",
+               FROM (
+                   SELECT sr.*, ROW_NUMBER() OVER (PARTITION BY sr.patient_id, sr.measurement_type ORDER BY sr.measured_at DESC) as rn
+                   FROM sensor_readings sr
+                   WHERE sr.patient_id = %s AND sr.quality_status != 'Invalid'
+               ) x WHERE x.rn = 1""",
             (pid,),
         )
         readings = cur.fetchall()
@@ -1739,7 +1758,8 @@ def get_staff_worklist(
                       w.open_flag_count, w.distinct_reasons, w.top_severity_rank,
                       w.has_emergency, w.not_yet_seen, w.first_flag_at, w.latest_flag_at,
                       w.owner_staff_id, s.full_name AS owner_name,
-                      d.condition_summary, doc.full_name AS attending_doctor
+                      d.condition_summary, doc.full_name AS attending_doctor,
+                      DATEDIFF(CURDATE(), d.discharge_date) + 1 AS day_number
                FROM v_worklist_by_patient w
                LEFT JOIN care_staff s ON s.staff_id = w.owner_staff_id
                LEFT JOIN discharge_records d ON d.patient_id = w.patient_id
@@ -1806,22 +1826,50 @@ def get_staff_worklist(
             sla_target = "Routine"
             sla_limit_min = 4320
 
-        # Overdue Check
+        # Overdue Check with Human Duration Formatting
         is_overdue = False
         overdue_display = None
         if first_at:
             delta_min = max(0, int((now - first_at).total_seconds() / 60))
             if tier == "Immediate" and delta_min > 15:
                 is_overdue = True
-                overdue_display = f"Overdue by {delta_min - 15}m"
+                od_min = delta_min - 15
+                if od_min < 60:
+                    overdue_display = f"Overdue by {od_min}m"
+                elif od_min < 1440:
+                    h = od_min // 60
+                    m = od_min % 60
+                    overdue_display = f"Overdue by {h}h {m}m" if m > 0 else f"Overdue by {h}h"
+                else:
+                    d = od_min // 1440
+                    h = (od_min % 1440) // 60
+                    overdue_display = f"Overdue by {d}d {h}h" if h > 0 else f"Overdue by {d}d"
             elif tier == "Urgent" and delta_min > 120:
                 is_overdue = True
-                hrs = round((delta_min - 120) / 60.0, 1)
-                overdue_display = f"Overdue by {hrs}h"
+                od_min = delta_min - 120
+                if od_min < 60:
+                    overdue_display = f"Overdue by {od_min}m"
+                elif od_min < 1440:
+                    h = od_min // 60
+                    m = od_min % 60
+                    overdue_display = f"Overdue by {h}h {m}m" if m > 0 else f"Overdue by {h}h"
+                else:
+                    d = od_min // 1440
+                    h = (od_min % 1440) // 60
+                    overdue_display = f"Overdue by {d}d {h}h" if h > 0 else f"Overdue by {d}d"
             elif tier == "Review_Soon" and delta_min > 1440:
                 is_overdue = True
-                hrs = round((delta_min - 1440) / 60.0, 1)
-                overdue_display = f"Overdue by {hrs}h"
+                od_min = delta_min - 1440
+                if od_min < 60:
+                    overdue_display = f"Overdue by {od_min}m"
+                elif od_min < 1440:
+                    h = od_min // 60
+                    m = od_min % 60
+                    overdue_display = f"Overdue by {h}h {m}m" if m > 0 else f"Overdue by {h}h"
+                else:
+                    d = od_min // 1440
+                    h = (od_min % 1440) // 60
+                    overdue_display = f"Overdue by {d}d {h}h" if h > 0 else f"Overdue by {d}d"
 
         if is_overdue:
             overdue_total += 1
@@ -1885,6 +1933,7 @@ def get_staff_worklist(
             "full_name": r["full_name"],
             "age_years": r["age_years"],
             "condition": r["condition_summary"] or "Post-Discharge Recovery",
+            "day_number": max(1, r.get("day_number") or 1),
             "attending_doctor": r["attending_doctor"] or "Attending Physician",
             "open_flag_count": int(r["open_flag_count"] or 0),
             "distinct_reasons": dist_reasons,
@@ -2777,8 +2826,12 @@ def get_patient_detail(
         recent_readings = cur.fetchall()
 
         latest_readings = {"Heart_Rate": None, "SpO2": None}
+        invalid_count = sum(1 for r in recent_readings if r.get("quality_status") == "Invalid")
+        data_check_note = f"{invalid_count} reading ignored: impossible value" if invalid_count > 0 else None
         for r in recent_readings:
             m_type = r["measurement_type"]
+            if r.get("quality_status") == "Invalid":
+                continue
             if m_type in latest_readings and latest_readings[m_type] is None:
                 latest_readings[m_type] = r
 
@@ -2847,6 +2900,7 @@ def get_patient_detail(
         "caregivers": caregivers,
         "open_flags": open_flags,
         "latest_readings": latest_readings,
+        "data_check_note": data_check_note,
         "adherence_grid": adherence_grid,
         "pain_trend": pain_trend,
         "device": device,
@@ -3840,7 +3894,7 @@ def get_shift_handoff(
     with get_conn() as conn, conn.cursor() as cur:
         # 1. Fetch patients
         p_query = """
-            SELECT p.patient_id, p.patient_code, p.full_name,
+            SELECT DISTINCT p.patient_id, p.patient_code, p.full_name,
                    TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
                    COALESCE(d.condition_summary, 'Post-discharge recovery') AS condition_summary,
                    d.discharge_date,
@@ -3858,16 +3912,18 @@ def get_shift_handoff(
                                     SELECT 1 FROM follow_up_tasks ft 
                                     WHERE ft.patient_id = p.patient_id AND ft.assigned_staff_id = %s
                                 ))"""
+            p_query += " ORDER BY p.patient_id ASC"
             params = (staff_id, staff_id, staff_id)
             cur.execute(p_query, params)
         else:
+            p_query += " ORDER BY p.patient_id ASC"
             cur.execute(p_query)
         patients = cur.fetchall() or []
 
         # If empty in mine scope, fallback to all patients so handoff is never blank
         if not patients and scope == "mine":
             cur.execute(
-                """SELECT p.patient_id, p.patient_code, p.full_name,
+                """SELECT DISTINCT p.patient_id, p.patient_code, p.full_name,
                           TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
                           COALESCE(d.condition_summary, 'Post-discharge recovery') AS condition_summary,
                           d.discharge_date,
@@ -3875,7 +3931,8 @@ def get_shift_handoff(
                           cs.full_name AS attending_doctor
                    FROM patients p
                    LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
-                   LEFT JOIN care_staff cs ON cs.staff_id = d.attending_staff_id"""
+                   LEFT JOIN care_staff cs ON cs.staff_id = d.attending_staff_id
+                   ORDER BY p.patient_id ASC"""
             )
             patients = cur.fetchall() or []
 
@@ -3904,12 +3961,14 @@ def get_shift_handoff(
                 illness_tier = "Routine"
 
             # Open tasks
+            # Open tasks (capped at 5 to maintain concise handoff card)
             cur.execute(
                 """SELECT t.followup_id, t.reason, t.priority, t.due_at, t.status, cs.full_name AS assigned_staff_name
                    FROM follow_up_tasks t
                    LEFT JOIN care_staff cs ON cs.staff_id = t.assigned_staff_id
                    WHERE t.patient_id = %s AND t.status != 'Resolved'
-                   ORDER BY t.due_at ASC""",
+                   ORDER BY t.due_at ASC
+                   LIMIT 5""",
                 (pid,),
             )
             tasks = cur.fetchall() or []
@@ -3933,7 +3992,7 @@ def get_shift_handoff(
             )
             appts = cur.fetchall() or []
 
-            # Contingency note
+            # Contingency note (from clinician note or patient's approved rule limit, never hardcoded protocol)
             cur.execute(
                 """SELECT note_text, created_at
                    FROM clinician_notes
@@ -3942,7 +4001,17 @@ def get_shift_handoff(
                 (pid,),
             )
             c_note_row = cur.fetchone()
-            contingency_note = c_note_row["note_text"] if c_note_row else "Standard escalation protocol: If SpO2 < 90% or severe chest pain, escalate to attending doctor."
+            if c_note_row:
+                contingency_note = c_note_row["note_text"]
+            else:
+                cur.execute(
+                    """SELECT threshold_value FROM alert_rules
+                       WHERE patient_id = %s AND measurement_type = 'SpO2' AND rule_type = 'Reading_Below' AND is_active = 1 LIMIT 1""",
+                    (pid,)
+                )
+                spo2_rule = cur.fetchone()
+                spo2_thresh = int(spo2_rule["threshold_value"]) if spo2_rule else 94
+                contingency_note = f"Approved contingency: If SpO2 falls below approved limit of {spo2_thresh}% or acute symptoms develop, notify attending physician."
 
             # Synthesis: check if received in last 12 hours
             cur.execute(
