@@ -1,0 +1,128 @@
+[
+  {
+    "path": "/staff/worklist",
+    "status": 200,
+    "mean_ms": 26.42,
+    "median_ms": 26.17,
+    "min_ms": 25.8,
+    "max_ms": 27.41,
+    "payload_bytes": 67811
+  },
+  {
+    "path": "/staff/patients",
+    "status": 200,
+    "mean_ms": 21.63,
+    "median_ms": 22.24,
+    "min_ms": 19.41,
+    "max_ms": 22.55,
+    "payload_bytes": 4902
+  },
+  {
+    "path": "/staff/patients/1",
+    "status": 200,
+    "mean_ms": 25.9,
+    "median_ms": 25.65,
+    "min_ms": 25.06,
+    "max_ms": 26.74,
+    "payload_bytes": 43595
+  },
+  {
+    "path": "/staff/patients/1/timeline?limit=100",
+    "status": 200,
+    "mean_ms": 27.32,
+    "median_ms": 27.97,
+    "min_ms": 25.83,
+    "max_ms": 28.79,
+    "payload_bytes": 34622
+  },
+  {
+    "path": "/staff/patients/1/medicines",
+    "status": 200,
+    "mean_ms": 19.23,
+    "median_ms": 19.03,
+    "min_ms": 18.77,
+    "max_ms": 19.85,
+    "payload_bytes": 4502
+  },
+  {
+    "path": "/staff/patients/1/rules",
+    "status": 200,
+    "mean_ms": 18.5,
+    "median_ms": 18.54,
+    "min_ms": 16.73,
+    "max_ms": 20.19,
+    "payload_bytes": 2177
+  },
+  {
+    "path": "/staff/tasks",
+    "status": 200,
+    "mean_ms": 22.17,
+    "median_ms": 22.42,
+    "min_ms": 20.62,
+    "max_ms": 23.25,
+    "payload_bytes": 48070
+  },
+  {
+    "path": "/staff/summaries",
+    "status": 200,
+    "mean_ms": 21.3,
+    "median_ms": 21.34,
+    "min_ms": 20.4,
+    "max_ms": 22.12,
+    "payload_bytes": 90151
+  },
+  {
+    "path": "/staff/handoff",
+    "status": 200,
+    "mean_ms": 41.12,
+    "median_ms": 41.03,
+    "min_ms": 40.34,
+    "max_ms": 42.31,
+    "payload_bytes": 70195
+  },
+  {
+    "path": "/staff/notifications",
+    "status": 200,
+    "mean_ms": 18.81,
+    "median_ms": 19.38,
+    "min_ms": 17.25,
+    "max_ms": 19.83,
+    "payload_bytes": 323
+  },
+  {
+    "path": "/staff/insights?range=30d",
+    "status": 200,
+    "mean_ms": 20.93,
+    "median_ms": 20.85,
+    "min_ms": 20.37,
+    "max_ms": 21.59,
+    "payload_bytes": 2049
+  },
+  {
+    "path": "/staff/pathway-templates",
+    "status": 200,
+    "mean_ms": 2.26,
+    "median_ms": 2.23,
+    "min_ms": 1.97,
+    "max_ms": 2.59,
+    "payload_bytes": 4382
+  },
+  {
+    "path": "/staff/patients/1/fhir",
+    "status": 200,
+    "mean_ms": 25.21,
+    "median_ms": 24.99,
+    "min_ms": 23.48,
+    "max_ms": 26.99,
+    "payload_bytes": 24205
+  },
+  {
+    "path": "/staff/patients/1/lace",
+    "status": 200,
+    "mean_ms": 18.72,
+    "median_ms": 18.98,
+    "min_ms": 15.54,
+    "max_ms": 21.92,
+    "payload_bytes": 748
+  }
+]

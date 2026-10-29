@@ -3717,16 +3717,16 @@ def get_shift_handoff(
             FROM patients p
             LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
             LEFT JOIN care_staff cs ON cs.staff_id = d.attending_staff_id
-            LEFT JOIN care_assignments ca ON ca.patient_id = p.patient_id
+            LEFT JOIN care_assignments ca ON ca.patient_id = p.patient_id AND (ca.ends_at IS NULL OR ca.ends_at > NOW())
             WHERE 1=1
         """
         if scope == "mine":
-            p_query += """ AND (ca.doctor_staff_id = %s OR ca.nurse_staff_id = %s 
+            p_query += """ AND (ca.staff_id = %s 
                                 OR d.attending_staff_id = %s OR EXISTS (
                                     SELECT 1 FROM follow_up_tasks ft 
                                     WHERE ft.patient_id = p.patient_id AND ft.assigned_staff_id = %s
                                 ))"""
-            params = (staff_id, staff_id, staff_id, staff_id)
+            params = (staff_id, staff_id, staff_id)
             cur.execute(p_query, params)
         else:
             cur.execute(p_query)

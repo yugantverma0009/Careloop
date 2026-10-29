@@ -49,12 +49,27 @@ CareLoop is an **agentic post-discharge care management system** engineered to s
 * **Grounded RAG with Citations**: `POST /patient/me/chat` answers strictly from discharge excerpts, links citations to `chat_message_sources`, and deterministically refuses dose modifications (`is_grounded = FALSE`).
 * **Factual Daily AI Summaries**: Synthesizes `sp_daily_report` data into factual notes marked with **"AI draft, not reviewed"** until clinician review.
 
-### 7. Modern Web Portals (Milestone M6)
+### 7. Modern Web Portals (Milestones M6 & Care Team Upgrade)
 * **CareLoop Login**: Modern responsive glassmorphism portal with quick demo buttons for all 4 roles.
 * **Patient Recovery Portal**: Today's medications, live telemetry, bilingual symptom check-in, and grounded discharge assistant.
-* **Clinical Triage Hub**: Real-time triage board with priority score, severity color, reason text, patient timeline, and AI summary approval.
+* **Care Team (Doctor & Nurse) Portal**: Comprehensive clinical workstation built to the BhoomiSetu design token standard:
+  * **Phase 1 (Identity & Worklist)**: Patient-grouped clinical triage worklist, SLA adherence chips, flag detail investigation drawer with full escalation provenance, and named-clinician flag lifecycle (Acknowledge, Resolve, Dismiss with mandatory reason codes).
+  * **Phase 2 (Patient Chart & Timeline)**: Full patient directory, comprehensive chart overview with ABHA ID, vital signs timeline with signal quality chips (`Good`, `Degraded`, `Invalid`), rule threshold overlays, and medication adherence grid distinguishing past doses from scheduled future doses.
+  * **Phase 3 (Tasks & Clinical Summaries)**: Multi-staff follow-up task queue with ownership and overdue tracking; AI clinical summaries generated strictly from deterministic fact sheets with zero judgment words (e.g., no "stable" or "normal"), complete source panels, and doctor approval/edit/rejection workflows.
+  * **Phase 4 (Workflow & Clinical Operations)**: Structured shift handoff adhering to **I-PASS** protocols, live notification feed, break-glass emergency access logging, contact/call logs, rich clinician notes, audit log viewer, and global `Ctrl+K` command palette.
+  * **Phase 5 (Governance & Interoperability)**: 4 standard pathway rule templates shipping with blank default thresholds (doctor-only application), immutable threshold audit history, operational insights dashboard tracking 9 non-outcome metrics, validated **HL7 FHIR R4 JSON collection bundle** exporter, and clinician-entered **LACE readmission risk score** with evidence disclaimers.
+  * **Phase 6 (Handover & Polish)**: Full accessibility audit (WCAG 2.1 AA compliant), performance report (<30ms median API latency, 131 kB gzipped JS bundle), 5-minute doctor demo script, and known gaps catalog.
 
 ---
+
+## 📚 Technical & Clinical Reports
+* [Doctor Demo Script (5-Minute Walkthrough)](docs/DOCTOR_PORTAL_DEMO_SCRIPT.md)
+* [Performance & Latency Benchmark Report](docs/PERFORMANCE_REPORT.md)
+* [Care Team Portal Accessibility Audit (WCAG 2.1 AA)](docs/STAFF_ACCESSIBILITY_AUDIT.md)
+* [Patient Portal Accessibility Audit (WCAG 2.1 AA)](docs/ACCESSIBILITY_AUDIT.md)
+* [Known Gaps & Boundary Conditions](docs/KNOWN_GAPS.md)
+* [Visual Style Lock Specification](docs/STYLE_LOCK_STAFF.md)
+
 
 ## 🚀 Quickstart Guide
 
