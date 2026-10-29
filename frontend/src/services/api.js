@@ -189,10 +189,31 @@ export const submitChatFeedback = (messageId, rating, comment = null) =>
 
 export const getStaffProfile = () => get('/staff/me/profile');
 
+export const getStaffMembers = () => get('/staff/members');
+
 export const getTriageBoard = () => get('/staff/triage');
 
-export const acknowledgeFlag = (flagId, note = 'Acknowledged via portal') =>
-  post(`/staff/flags/${flagId}/acknowledge`, { note });
+export const getStaffWorklist = (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return get(`/staff/worklist${query ? `?${query}` : ''}`);
+};
+
+export const getFlagDetail = (flagId) => get(`/staff/flags/${flagId}`);
+
+export const acknowledgeFlag = (flagId, note = 'Acknowledged via portal', createTask = false) =>
+  post(`/staff/flags/${flagId}/acknowledge`, { note, create_task: createTask });
+
+export const resolveFlag = (flagId, resolutionCode, resolutionNote = '') =>
+  post(`/staff/flags/${flagId}/resolve`, { resolution_code: resolutionCode, resolution_note: resolutionNote });
+
+export const dismissFlag = (flagId, resolutionCode = 'False_Alarm', resolutionNote = '') =>
+  post(`/staff/flags/${flagId}/dismiss`, { resolution_code: resolutionCode, resolution_note: resolutionNote });
+
+export const assignFlag = (flagId, targetStaffId, note = '') =>
+  post(`/staff/flags/${flagId}/assign`, { target_staff_id: targetStaffId, note });
+
+export const escalateFlagNow = (flagId, note = '') =>
+  post(`/staff/flags/${flagId}/escalate`, { note });
 
 export const getFollowUps = () => get('/staff/follow-ups');
 

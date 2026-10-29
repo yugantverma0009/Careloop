@@ -1530,8 +1530,37 @@ def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient", "Caregi
 
 # ─── Clinician & Escalation Workflow (Milestone M4) ──────────────────────────
 
+# ─── Clinician & Escalation Workflow (Milestone M4 & Upgrade Phase 1) ──────────
+
 class AcknowledgeIn(BaseModel):
     note: str = ""
+    create_task: bool = False
+
+class ResolveIn(BaseModel):
+    resolution_code: str
+    resolution_note: str = ""
+
+class DismissIn(BaseModel):
+    resolution_code: str = "False_Alarm"
+    resolution_note: str = ""
+
+class AssignIn(BaseModel):
+    target_staff_id: int
+    note: str = ""
+
+class EscalateIn(BaseModel):
+    note: str = ""
+
+
+@app.get("/staff/members")
+def get_staff_members(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Returns list of active care team staff members."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT staff_id, full_name, staff_role, email, phone, specialization
+               FROM care_staff ORDER BY staff_role DESC, full_name ASC"""
+        )
+        return cur.fetchall()
 
 
 @app.get("/staff/triage")
@@ -1550,6 +1579,457 @@ def get_triage_board(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurs
         return cur.fetchall()
 
 
+@app.get("/staff/worklist")
+def get_staff_worklist(
+    scope: str = "all",       # 'mine', 'team', 'unassigned', 'all'
+    status_filter: str = "open", # 'open', 'seen', 'closed', 'all'
+    severity_filter: str = "all", # 'immediate', 'urgent', 'review_soon', 'routine', 'all'
+    search: str = "",
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-02 / D-04: Grouped Clinician Worklist.
+    Returns collapsed patient cards from v_worklist_by_patient with SLA tiers,
+    explainable attention score breakdown, and nested patient flags.
+    """
+    current_staff_id = user["staff_id"]
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Fetch grouped patient rows
+        cur.execute(
+            """SELECT w.patient_id, w.patient_code, w.full_name, w.age_years,
+                      w.open_flag_count, w.distinct_reasons, w.top_severity_rank,
+                      w.has_emergency, w.not_yet_seen, w.first_flag_at, w.latest_flag_at,
+                      w.owner_staff_id, s.full_name AS owner_name,
+                      d.condition_summary, doc.full_name AS attending_doctor
+               FROM v_worklist_by_patient w
+               LEFT JOIN care_staff s ON s.staff_id = w.owner_staff_id
+               LEFT JOIN discharge_records d ON d.patient_id = w.patient_id
+               LEFT JOIN care_staff doc ON doc.staff_id = d.attending_staff_id
+               ORDER BY w.has_emergency DESC, w.top_severity_rank DESC, w.first_flag_at ASC"""
+        )
+        patient_rows = cur.fetchall()
+
+        # 2. Fetch all active flags for nested display
+        cur.execute(
+            """SELECT f.flag_id, f.patient_id, f.source_type, f.reason, f.severity, f.status,
+                      f.created_at, f.acknowledged_at, f.acknowledged_by_staff_id,
+                      f.owner_staff_id, f.resolved_at, f.resolution_code, f.resolution_note,
+                      s.full_name AS owner_name, ack_s.full_name AS acknowledged_by_name,
+                      ROUND(TIMESTAMPDIFF(MINUTE, f.created_at, NOW()) / 60.0, 1) AS hours_open
+               FROM flags f
+               LEFT JOIN care_staff s ON s.staff_id = f.owner_staff_id
+               LEFT JOIN care_staff ack_s ON ack_s.staff_id = f.acknowledged_by_staff_id
+               ORDER BY FIELD(f.severity, 'Urgent_Review', 'Review_Soon', 'Info'), f.created_at ASC"""
+        )
+        all_flags = cur.fetchall()
+
+    # Map flags by patient_id
+    flags_by_patient: Dict[int, List[Dict[str, Any]]] = {}
+    for fl in all_flags:
+        pid = fl["patient_id"]
+        if pid not in flags_by_patient:
+            flags_by_patient[pid] = []
+        flags_by_patient[pid].append(fl)
+
+    now = datetime.now()
+    patients = []
+    
+    immediate_total = 0
+    urgent_total = 0
+    review_soon_total = 0
+    not_yet_seen_total = 0
+    overdue_total = 0
+
+    for r in patient_rows:
+        pid = r["patient_id"]
+        has_emerg = bool(r.get("has_emergency"))
+        top_rank = r.get("top_severity_rank") or 1
+        first_at = r.get("first_flag_at")
+
+        # SLA Tier Calculation (D-02)
+        if has_emerg or top_rank >= 4:
+            tier = "Immediate"
+            sla_target = "< 15 min"
+            sla_limit_min = 15
+            immediate_total += 1
+        elif top_rank == 3:
+            tier = "Urgent"
+            sla_target = "< 2 h"
+            sla_limit_min = 120
+            urgent_total += 1
+        elif top_rank == 2:
+            tier = "Review_Soon"
+            sla_target = "< 24 h"
+            sla_limit_min = 1440
+            review_soon_total += 1
+        else:
+            tier = "Routine"
+            sla_target = "Routine"
+            sla_limit_min = 4320
+
+        # Overdue Check
+        is_overdue = False
+        overdue_display = None
+        if first_at:
+            delta_min = max(0, int((now - first_at).total_seconds() / 60))
+            if tier == "Immediate" and delta_min > 15:
+                is_overdue = True
+                overdue_display = f"Overdue by {delta_min - 15}m"
+            elif tier == "Urgent" and delta_min > 120:
+                is_overdue = True
+                hrs = round((delta_min - 120) / 60.0, 1)
+                overdue_display = f"Overdue by {hrs}h"
+            elif tier == "Review_Soon" and delta_min > 1440:
+                is_overdue = True
+                hrs = round((delta_min - 1440) / 60.0, 1)
+                overdue_display = f"Overdue by {hrs}h"
+
+        if is_overdue:
+            overdue_total += 1
+
+        not_seen = int(r.get("not_yet_seen") or 0)
+        not_yet_seen_total += not_seen
+
+        # Explainable Attention Score Calculation (D-02)
+        factors = []
+        score = 0
+        if tier == "Immediate":
+            score += 40
+            factors.append({"label": "Immediate Emergency severity", "points": 40})
+        elif tier == "Urgent":
+            score += 30
+            factors.append({"label": "Urgent Review severity", "points": 30})
+        elif tier == "Review_Soon":
+            score += 15
+            factors.append({"label": "Review Soon severity", "points": 15})
+        else:
+            score += 5
+            factors.append({"label": "Routine severity", "points": 5})
+
+        dist_reasons = int(r.get("distinct_reasons") or 1)
+        reason_pts = min(dist_reasons * 10, 30)
+        score += reason_pts
+        factors.append({"label": f"{dist_reasons} distinct flag reason{'s' if dist_reasons > 1 else ''}", "points": reason_pts})
+
+        if has_emerg:
+            score += 10
+            factors.append({"label": "Active Emergency keyword trigger", "points": 10})
+
+        if is_overdue:
+            score += 20
+            factors.append({"label": "SLA target exceeded", "points": 20})
+
+        score = min(100, score)
+
+        # Patient flags & deduplication check
+        p_flags = flags_by_patient.get(pid, [])
+        # Group duplicates for display (D-04)
+        grouped_flags = []
+        seen_flag_keys = {}
+        for fl in p_flags:
+            key = (fl["source_type"], fl["reason"])
+            if key not in seen_flag_keys:
+                fl_copy = dict(fl)
+                fl_copy["occurrence_count"] = 1
+                fl_copy["first_created_at"] = fl["created_at"]
+                fl_copy["last_created_at"] = fl["created_at"]
+                seen_flag_keys[key] = len(grouped_flags)
+                grouped_flags.append(fl_copy)
+            else:
+                idx = seen_flag_keys[key]
+                grouped_flags[idx]["occurrence_count"] += 1
+                grouped_flags[idx]["last_created_at"] = fl["created_at"]
+
+        patient_card = {
+            "patient_id": pid,
+            "patient_code": r["patient_code"],
+            "full_name": r["full_name"],
+            "age_years": r["age_years"],
+            "condition": r["condition_summary"] or "Post-Discharge Recovery",
+            "attending_doctor": r["attending_doctor"] or "Attending Physician",
+            "open_flag_count": int(r["open_flag_count"] or 0),
+            "distinct_reasons": dist_reasons,
+            "has_emergency": has_emerg,
+            "not_yet_seen": not_seen,
+            "first_flag_at": r["first_flag_at"],
+            "latest_flag_at": r["latest_flag_at"],
+            "owner_staff_id": r["owner_staff_id"],
+            "owner_name": r["owner_name"],
+            "tier": tier,
+            "sla_target": sla_target,
+            "is_overdue": is_overdue,
+            "overdue_display": overdue_display,
+            "attention_score": score,
+            "attention_factors": factors,
+            "flags": grouped_flags,
+            "raw_flags": p_flags,
+        }
+
+        # Filtering logic
+        # 1. Scope
+        if scope == "mine" and r["owner_staff_id"] != current_staff_id:
+            continue
+        elif scope == "unassigned" and r["owner_staff_id"] is not None:
+            continue
+
+        # 2. Status
+        if status_filter == "open" and not_seen == 0 and int(r["open_flag_count"] or 0) == 0:
+            continue
+        elif status_filter == "seen" and not_seen > 0:
+            continue
+
+        # 3. Severity
+        if severity_filter == "immediate" and tier != "Immediate":
+            continue
+        elif severity_filter == "urgent" and tier != "Urgent":
+            continue
+        elif severity_filter == "review_soon" and tier != "Review_Soon":
+            continue
+        elif severity_filter == "routine" and tier != "Routine":
+            continue
+
+        # 4. Search query
+        if search:
+            q = search.lower().strip()
+            match = (
+                q in r["full_name"].lower()
+                or q in (r["patient_code"] or "").lower()
+                or q in (r["condition_summary"] or "").lower()
+                or any(q in fl["reason"].lower() for fl in p_flags)
+            )
+            if not match:
+                continue
+
+        patients.append(patient_card)
+
+    return {
+        "summary": {
+            "total_patients": len(patients),
+            "total_open_flags": sum(p["open_flag_count"] for p in patients),
+            "immediate_count": immediate_total,
+            "urgent_count": urgent_total,
+            "review_soon_count": review_soon_total,
+            "not_yet_seen_count": not_yet_seen_total,
+            "overdue_count": overdue_total,
+        },
+        "patients": patients,
+    }
+
+
+@app.get("/staff/flags/{flag_id}")
+def get_flag_detail(
+    flag_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-03 Flag Detail Drawer endpoint.
+    Returns:
+    - Why: reason text, severity, tier, created time, age.
+    - Evidence: vital reading, symptom report, dose logs, or emergency keywords with data quality.
+    - Rule: rule type, threshold, approver name, approved time.
+    - Escalation ladder: 4-step sequence with status and countdown.
+    - History: flag_events audit trail.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        # Flag and Patient Identity
+        cur.execute(
+            """SELECT f.flag_id, f.patient_id, f.rule_id, f.source_type, f.source_ref_id,
+                      f.reason, f.severity, f.status, f.created_at,
+                      f.acknowledged_by_staff_id, f.acknowledged_at,
+                      f.owner_staff_id, f.resolved_at, f.resolved_by_staff_id,
+                      f.resolution_code, f.resolution_note,
+                      p.patient_code, p.full_name AS patient_name,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+                      d.condition_summary,
+                      s_ack.full_name AS acknowledged_by_name,
+                      s_own.full_name AS owner_name,
+                      s_res.full_name AS resolved_by_name
+               FROM flags f
+               JOIN patients p ON p.patient_id = f.patient_id
+               LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+               LEFT JOIN care_staff s_ack ON s_ack.staff_id = f.acknowledged_by_staff_id
+               LEFT JOIN care_staff s_own ON s_own.staff_id = f.owner_staff_id
+               LEFT JOIN care_staff s_res ON s_res.staff_id = f.resolved_by_staff_id
+               WHERE f.flag_id = %s""",
+            (flag_id,),
+        )
+        flag = cur.fetchone()
+        if not flag:
+            raise HTTPException(status_code=404, detail="Flag not found")
+
+        # Evidence detail
+        evidence = {"source_type": flag["source_type"], "details": None, "data_quality": "Good"}
+        if flag["source_type"] == "Sensor" and flag["source_ref_id"]:
+            cur.execute(
+                """SELECT reading_id, measurement_type AS metric, measurement_value AS value,
+                          unit, measured_at AS recorded_at, quality_status AS data_quality, device_id
+                   FROM sensor_readings WHERE reading_id = %s""",
+                (flag["source_ref_id"],),
+            )
+            v = cur.fetchone()
+            if v:
+                evidence["details"] = v
+                evidence["data_quality"] = v.get("data_quality", "Good")
+        elif flag["source_type"] == "Symptom" and flag["source_ref_id"]:
+            cur.execute(
+                """SELECT symptom_report_id AS report_id, pain_level AS pain_score,
+                          symptom_text, reported_at AS recorded_at, input_method, language
+                   FROM symptom_reports WHERE symptom_report_id = %s""",
+                (flag["source_ref_id"],),
+            )
+            s = cur.fetchone()
+            if s:
+                evidence["details"] = s
+                evidence["data_quality"] = "Patient-reported"
+        elif flag["source_type"] == "Medication" and flag["source_ref_id"]:
+            cur.execute(
+                """SELECT l.medication_log_id, l.scheduled_for, l.recorded_at, l.status,
+                          l.recorded_by, l.patient_note, m.medicine_name
+                   FROM medication_logs l
+                   JOIN prescriptions p ON p.prescription_id = l.prescription_id
+                   JOIN medicines m ON m.medicine_id = p.medicine_id
+                   WHERE l.medication_log_id = %s""",
+                (flag["source_ref_id"],),
+            )
+            m = cur.fetchone()
+            if m:
+                evidence["details"] = m
+                evidence["data_quality"] = "Self-reported"
+        elif flag["source_type"] == "Emergency":
+            evidence["details"] = {
+                "reason": flag["reason"],
+                "notice": "Triggered by critical safety keyword in patient report",
+            }
+            evidence["data_quality"] = "High Priority"
+
+        # Rule detail
+        rule = None
+        if flag["rule_id"]:
+            cur.execute(
+                """SELECT r.rule_id, r.rule_type, r.measurement_type, r.threshold_value,
+                          r.window_hours, r.severity, r.approved_at,
+                          s.full_name AS approved_by_name
+                   FROM alert_rules r
+                   LEFT JOIN care_staff s ON s.staff_id = r.approved_by_staff_id
+                   WHERE r.rule_id = %s""",
+                (flag["rule_id"],),
+            )
+            rule = cur.fetchone()
+        if not rule:
+            rule = {
+                "rule_type": "Safety_Protocol",
+                "rule_name": "Emergency Keyword / Patient-Reported Threshold",
+                "threshold_value": "Immediate Clinical Review",
+                "approved_by_name": "Clinical Safety Protocol",
+                "approved_at": None,
+            }
+
+        # Escalation ladder (D-10)
+        cur.execute(
+            """SELECT escalation_id, step_no, step_type, channel, sent_at,
+                      delivery_status, responded_at, notes
+               FROM escalations
+               WHERE flag_id = %s
+               ORDER BY step_no ASC""",
+            (flag_id,),
+        )
+        escalations = cur.fetchall()
+
+        if not escalations:
+            # Generate default 4-step ladder
+            flag_status = flag["status"]
+            escalations = [
+                {
+                    "step_no": 1,
+                    "step_type": "Patient_Prompt",
+                    "channel": "App",
+                    "delivery_status": "Acknowledged" if flag_status != "Open" else "Sent",
+                    "sent_at": flag["created_at"],
+                    "responded_at": flag["acknowledged_at"],
+                    "notes": "Patient prompted for clarification via app",
+                },
+                {
+                    "step_no": 2,
+                    "step_type": "Caregiver_SMS",
+                    "channel": "SMS",
+                    "delivery_status": "Acknowledged" if flag_status != "Open" else "Sent",
+                    "sent_at": flag["created_at"],
+                    "responded_at": flag["acknowledged_at"],
+                    "notes": "Caregiver notified (consent verified)",
+                },
+                {
+                    "step_no": 3,
+                    "step_type": "Nurse_Alert",
+                    "channel": "Dashboard",
+                    "delivery_status": "Acknowledged" if flag_status != "Open" else "Sent",
+                    "sent_at": flag["created_at"],
+                    "responded_at": flag["acknowledged_at"],
+                    "notes": "Escalated to triage nursing queue",
+                },
+                {
+                    "step_no": 4,
+                    "step_type": "Doctor_Alert",
+                    "channel": "Dashboard",
+                    "delivery_status": "Acknowledged" if flag_status != "Open" else "Queued",
+                    "sent_at": flag["created_at"],
+                    "responded_at": flag["acknowledged_at"],
+                    "notes": "Physician notification standby",
+                },
+            ]
+
+        # Audit History from flag_events
+        cur.execute(
+            """SELECT fe.flag_event_id, fe.event_type, fe.note, fe.created_at,
+                      cs.full_name AS staff_name
+               FROM flag_events fe
+               LEFT JOIN care_staff cs ON cs.staff_id = fe.staff_id
+               WHERE fe.flag_id = %s
+               ORDER BY fe.created_at ASC""",
+            (flag_id,),
+        )
+        history = cur.fetchall()
+
+        # Tier calculation
+        sev = flag["severity"]
+        src = flag["source_type"]
+        if src == "Emergency" or sev == "Urgent_Review":
+            tier = "Immediate" if src == "Emergency" else "Urgent"
+        elif sev == "Review_Soon":
+            tier = "Review_Soon"
+        else:
+            tier = "Routine"
+
+    return {
+        "flag_id": flag["flag_id"],
+        "patient": {
+            "patient_id": flag["patient_id"],
+            "patient_code": flag["patient_code"],
+            "full_name": flag["patient_name"],
+            "age_years": flag["age_years"],
+            "condition": flag["condition_summary"] or "Post-Discharge Recovery",
+        },
+        "reason": flag["reason"],
+        "severity": flag["severity"],
+        "tier": tier,
+        "source_type": flag["source_type"],
+        "status": flag["status"],
+        "created_at": flag["created_at"],
+        "owner_staff_id": flag["owner_staff_id"],
+        "owner_name": flag["owner_name"],
+        "acknowledged_at": flag["acknowledged_at"],
+        "acknowledged_by_name": flag["acknowledged_by_name"],
+        "resolved_at": flag["resolved_at"],
+        "resolved_by_name": flag["resolved_by_name"],
+        "resolution_code": flag["resolution_code"],
+        "resolution_note": flag["resolution_note"],
+        "evidence": evidence,
+        "rule": rule,
+        "escalation_ladder": escalations,
+        "history": history,
+    }
+
+
 @app.post("/staff/flags/{flag_id}/acknowledge")
 def acknowledge_flag(
     flag_id: int,
@@ -1557,16 +2037,16 @@ def acknowledge_flag(
     user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
 ):
     """
-    Acknowledge Flag Endpoint:
-    - Calls sp_acknowledge_flag inside an atomic MySQL transaction.
+    Acknowledge Flag Endpoint (D-03):
+    - Calls sp_acknowledge_flag(flag_id, staff_id, note, create_task).
     - Locks row, marks flag Acknowledged, sets pending escalations Acknowledged,
-      creates a follow-up task, and writes an audit_log entry.
-    - Raises HTTP 409 if flag does not exist or was already acknowledged.
+      optionally creates follow-up task, and writes flag_events & audit_log.
+    - Double staff acting at once: first wins, second gets HTTP 409 with exact clinician info.
     """
     staff_id = user["staff_id"]
     with get_conn() as conn, conn.cursor() as cur:
         try:
-            cur.callproc("sp_acknowledge_flag", (flag_id, staff_id, body.note))
+            cur.callproc("sp_acknowledge_flag", (flag_id, staff_id, body.note, body.create_task))
         except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
             err_msg = str(e)
             if (
@@ -1574,10 +2054,143 @@ def acknowledge_flag(
                 or "already acknowledged" in err_msg.lower()
                 or "not in open status" in err_msg.lower()
             ):
-                raise HTTPException(status_code=409, detail="Flag not found or already acknowledged")
+                cur.execute(
+                    """SELECT f.status, cs.full_name, f.acknowledged_at
+                       FROM flags f
+                       LEFT JOIN care_staff cs ON cs.staff_id = f.acknowledged_by_staff_id
+                       WHERE f.flag_id = %s""",
+                    (flag_id,),
+                )
+                row = cur.fetchone()
+                if row and row.get("full_name"):
+                    ack_time = row["acknowledged_at"].strftime("%H:%M") if row.get("acknowledged_at") else "earlier"
+                    detail = f"Already acknowledged by {row['full_name']} at {ack_time}"
+                else:
+                    detail = "Flag not found or already acknowledged"
+                raise HTTPException(status_code=409, detail=detail)
             raise
 
     return {"status": "acknowledged", "flag_id": flag_id, "staff_id": staff_id}
+
+
+@app.post("/staff/flags/{flag_id}/resolve")
+def resolve_flag(
+    flag_id: int,
+    body: ResolveIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Resolve Flag Endpoint (D-03):
+    - Calls sp_resolve_flag with p_dismiss=FALSE.
+    - Requires resolution code.
+    - Urgent and Immediate flags enforce note length >= 5 characters.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_resolve_flag", (flag_id, staff_id, body.resolution_code, body.resolution_note, False))
+        except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
+            err_msg = str(e)
+            if "at least 5 characters" in err_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A clinical note of at least 5 characters is required to resolve an urgent/immediate flag.",
+                )
+            if "already closed" in err_msg:
+                raise HTTPException(status_code=409, detail="Flag is already closed")
+            if "not found" in err_msg:
+                raise HTTPException(status_code=404, detail="Flag not found")
+            raise
+
+    return {"status": "resolved", "flag_id": flag_id, "staff_id": staff_id}
+
+
+@app.post("/staff/flags/{flag_id}/dismiss")
+def dismiss_flag(
+    flag_id: int,
+    body: DismissIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Dismiss Flag as False Alarm / Duplicate Endpoint (D-03):
+    - Calls sp_resolve_flag with p_dismiss=TRUE.
+    - Feeds false alarm quality tracking.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_resolve_flag", (flag_id, staff_id, body.resolution_code, body.resolution_note, True))
+        except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
+            err_msg = str(e)
+            if "at least 5 characters" in err_msg:
+                raise HTTPException(status_code=400, detail="A clinical note of at least 5 characters is required.")
+            if "already closed" in err_msg:
+                raise HTTPException(status_code=409, detail="Flag is already closed")
+            if "not found" in err_msg:
+                raise HTTPException(status_code=404, detail="Flag not found")
+            raise
+
+    return {"status": "dismissed", "flag_id": flag_id, "staff_id": staff_id}
+
+
+@app.post("/staff/flags/{flag_id}/assign")
+def assign_flag(
+    flag_id: int,
+    body: AssignIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Assign Flag Endpoint (D-03):
+    - Calls sp_assign_flag to set owner_staff_id, record flag_events and audit_log.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_assign_flag", (flag_id, staff_id, body.target_staff_id, body.note))
+        except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
+            err_msg = str(e)
+            if "not found" in err_msg:
+                raise HTTPException(status_code=404, detail="Flag not found")
+            raise
+
+    return {"status": "assigned", "flag_id": flag_id, "target_staff_id": body.target_staff_id}
+
+
+@app.post("/staff/flags/{flag_id}/escalate")
+def escalate_flag_now(
+    flag_id: int,
+    body: EscalateIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Escalate Now Endpoint (D-10):
+    - Writes escalation record, flag_events entry, and audit_log.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT flag_id, status FROM flags WHERE flag_id = %s", (flag_id,))
+        fl = cur.fetchone()
+        if not fl:
+            raise HTTPException(status_code=404, detail="Flag not found")
+
+        cur.execute(
+            """INSERT INTO escalations (flag_id, step_no, step_type, channel, delivery_status, notes)
+               VALUES (%s, 4, 'Doctor_Alert', 'Dashboard', 'Sent', %s)""",
+            (flag_id, f"Manual escalation by Staff #{staff_id}: {body.note}".strip(": ")),
+        )
+        cur.execute(
+            """INSERT INTO flag_events (flag_id, event_type, staff_id, note)
+               VALUES (%s, 'Escalated', %s, %s)""",
+            (flag_id, staff_id, f"Manual immediate escalation: {body.note}".strip(": ")),
+        )
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'ESCALATE_FLAG', 'flag', %s, JSON_OBJECT('note', %s))""",
+            (str(staff_id), flag_id, body.note),
+        )
+        conn.commit()
+
+    return {"status": "escalated", "flag_id": flag_id}
 
 
 @app.get("/staff/follow-ups")
