@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 import pymysql
 import json
+import urllib.parse
 from contextlib import asynccontextmanager
 from .db import get_conn
 from .auth import verify_login, make_token, require_role, current_user
@@ -53,6 +54,55 @@ app = FastAPI(
 )
 
 IST = ZoneInfo("Asia/Kolkata")
+
+
+def make_google_calendar_url(
+    appointment_id: int,
+    appt_dt: Any,
+    doctor_name: Optional[str] = None,
+    specialization: Optional[str] = None,
+) -> str:
+    """
+    Builds a direct Google Calendar event creation URL.
+    - Times converted to UTC (IST is UTC+5:30)
+    - Non-clinical description and details
+    """
+    dates_str = ""
+    try:
+        if isinstance(appt_dt, str):
+            appt_dt = datetime.fromisoformat(appt_dt.replace("Z", "+00:00"))
+
+        if isinstance(appt_dt, datetime):
+            if appt_dt.tzinfo is None:
+                appt_dt_ist = appt_dt.replace(tzinfo=IST)
+            else:
+                appt_dt_ist = appt_dt.astimezone(IST)
+            appt_dt_utc = appt_dt_ist.astimezone(timezone.utc)
+            appt_end_utc = appt_dt_utc + timedelta(minutes=30)
+
+            dtstart = appt_dt_utc.strftime("%Y%m%dT%H%M%SZ")
+            dtend = appt_end_utc.strftime("%Y%m%dT%H%M%SZ")
+            dates_str = f"{dtstart}/{dtend}"
+    except Exception:
+        dates_str = ""
+
+    doc = doctor_name or "Care Team Clinician"
+    dept = specialization or "Follow-up Clinic"
+
+    title = f"Follow-up visit with {doc}"
+    details = f"Follow-up appointment at CareLoop ({dept}). Please arrive 10 minutes early with your discharge summary papers."
+    location = "CareLoop Hospital & Clinics"
+
+    query_dict = {
+        "action": "TEMPLATE",
+        "text": title,
+        "details": details,
+        "location": location,
+    }
+    if dates_str:
+        query_dict["dates"] = dates_str
+
+    return f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(query_dict)}"
 
 # CORS middleware
 app.add_middleware(
@@ -530,7 +580,7 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
 
         # 6. Next appointment
         cur.execute(
-            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status, s.full_name AS doctor_name
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status, s.full_name AS doctor_name, s.specialization
                FROM appointments a
                JOIN care_staff s ON s.staff_id = a.staff_id
                WHERE a.patient_id=%s AND a.status='Scheduled' AND a.appointment_date >= NOW()
@@ -544,6 +594,12 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
             "formatted_date": appt_row["appointment_date"].strftime("%d %b, %I:%M %p"),
             "with": appt_row["doctor_name"],
             "type": appt_row["appointment_type"],
+            "google_calendar_url": make_google_calendar_url(
+                appt_row["appointment_id"],
+                appt_row["appointment_date"],
+                appt_row["doctor_name"],
+                appt_row.get("specialization"),
+            ),
         } if appt_row else None
 
         # 7. Week strip (Monday to Sunday)
@@ -612,6 +668,8 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
                 "date": next_appt["formatted_date"] if next_appt else None,
                 "doctor": next_appt["with"] if next_appt else None,
                 "type": next_appt["type"] if next_appt else None,
+                "at": next_appt["at"] if next_appt else None,
+                "google_calendar_url": next_appt["google_calendar_url"] if next_appt else None,
             } if next_appt else None,
             "course_end_date": course_end_str,
             "checkins_this_week": checkins_this_week_str,
@@ -907,6 +965,12 @@ def get_patient_calendar(
                 "department": a["specialization"] or "Care Clinic",
                 "type": a["appointment_type"],
                 "status": a["status"],
+                "google_calendar_url": make_google_calendar_url(
+                    a["appointment_id"],
+                    a["appointment_date"],
+                    a["doctor_name"],
+                    a.get("specialization"),
+                ),
             })
 
         # 3. Check-ins in month
@@ -947,6 +1011,12 @@ def get_patient_calendar(
                 "department": u["specialization"] or "Care Clinic",
                 "type": u["appointment_type"],
                 "status": u["status"],
+                "google_calendar_url": make_google_calendar_url(
+                    u["appointment_id"],
+                    u["appointment_date"],
+                    u["doctor_name"],
+                    u.get("specialization"),
+                ),
             }
             for u in upcoming_rows
         ]
@@ -1173,6 +1243,44 @@ def download_appointment_ics(
                 "Cache-Control": "no-cache",
             },
         )
+
+
+@app.get("/patient/me/appointments/{appointment_id}/google-calendar-url")
+def get_appointment_google_calendar_url(
+    appointment_id: int,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Returns direct Google Calendar event creation URL for the requested appointment.
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status,
+                      s.full_name AS doctor_name, s.specialization
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.appointment_id = %s AND a.patient_id = %s""",
+            (appointment_id, pid),
+        )
+        appt = cur.fetchone()
+        if not appt:
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "not_found", "message": "Appointment not found for this patient"}
+            )
+        url = make_google_calendar_url(
+            appt["appointment_id"],
+            appt["appointment_date"],
+            appt["doctor_name"],
+            appt.get("specialization"),
+        )
+        return {
+            "appointment_id": appointment_id,
+            "google_calendar_url": url,
+            "doctor_name": appt["doctor_name"],
+            "appointment_date": str(appt["appointment_date"]),
+        }
 
 
 @app.get("/patient/me/doses")

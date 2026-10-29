@@ -4,6 +4,7 @@ import {
   getPatientCalendar,
   getPatientDay,
   downloadAppointmentIcs,
+  getAppointmentGoogleCalendarUrl,
   markDoseTaken,
   skipDose,
   undoDose,
@@ -38,6 +39,8 @@ import {
   IconX,
   IconFileText,
   IconRefresh,
+  IconGoogleCalendar,
+  IconExternalLink,
 } from './Icons';
 
 const SKIP_REASONS = [
@@ -289,6 +292,56 @@ export default function CareLoopPatientPortal({ user }) {
       alert(lang === 'hi' ? 'कैलेंडर फाइल डाउनलोड नहीं हो सकी।' : 'Failed to download calendar event file.');
     } finally {
       setDownloadingIcsId(null);
+    }
+  };
+
+  const handleOpenGoogleCalendar = async (appt) => {
+    if (!appt) return;
+    try {
+      if (appt.google_calendar_url) {
+        window.open(appt.google_calendar_url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (appt.id) {
+        try {
+          const res = await getAppointmentGoogleCalendarUrl(appt.id);
+          if (res?.google_calendar_url) {
+            window.open(res.google_calendar_url, '_blank', 'noopener,noreferrer');
+            return;
+          }
+        } catch (e) {
+          console.warn('Falling back to client-built Google Calendar URL', e);
+        }
+      }
+      const doc = appt.doctor || appt.doctor_name || appt.with || 'Care Team Clinician';
+      const dept = appt.type || appt.department || 'Care Clinic';
+      const title = `Follow-up visit with ${doc}`;
+      const details = `Follow-up appointment at CareLoop (${dept}). Please arrive 10 minutes early with your discharge summary papers.`;
+      const location = 'CareLoop Hospital & Clinics';
+
+      let datesStr = '';
+      const rawDate = appt.scheduled_at || appt.at || appt.date;
+      if (rawDate) {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          const pad = (n) => String(n).padStart(2, '0');
+          const toUtc = (dt) =>
+            `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}${pad(dt.getUTCMinutes())}${pad(dt.getUTCSeconds())}Z`;
+          datesStr = `${toUtc(d)}/${toUtc(new Date(d.getTime() + 30 * 60000))}`;
+        }
+      }
+
+      const q = new URLSearchParams({
+        action: 'TEMPLATE',
+        text: title,
+        details: details,
+        location: location,
+      });
+      if (datesStr) q.set('dates', datesStr);
+      window.open(`https://calendar.google.com/calendar/render?${q.toString()}`, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('Failed to open Google Calendar', err);
+      window.open('https://calendar.google.com', '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -1892,6 +1945,52 @@ export default function CareLoopPatientPortal({ user }) {
                   <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
                     {todayData?.next_appointment?.with || (lang === 'hi' ? 'केयर टीम' : 'Care team')}
                   </div>
+                  {todayData?.next_appointment?.id && (
+                    <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenGoogleCalendar(todayData.next_appointment)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '3px 8px',
+                          borderRadius: '5px',
+                          border: '1px solid #4285F4',
+                          background: 'rgba(66, 133, 244, 0.08)',
+                          color: '#1a73e8',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                        title={lang === 'hi' ? 'गूगल कैलेंडर में जोड़ें' : 'Add to Google Calendar'}
+                      >
+                        <IconGoogleCalendar width={11} height={11} />
+                        <span>Google</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadAppointmentIcs(todayData.next_appointment.id)}
+                        disabled={downloadingIcsId === todayData.next_appointment.id}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          padding: '3px 6px',
+                          borderRadius: '5px',
+                          border: '1px solid var(--border-subtle, #cbd5e1)',
+                          background: 'transparent',
+                          color: 'var(--text-secondary, #475569)',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Download .ics"
+                      >
+                        .ics
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2201,28 +2300,54 @@ export default function CareLoopPatientPortal({ user }) {
                       </div>
                     </div>
                     {todayData?.plan_checklist?.next_appointment?.id && (
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadAppointmentIcs(todayData.plan_checklist.next_appointment.id)}
-                        disabled={downloadingIcsId === todayData.plan_checklist.next_appointment.id}
-                        style={{
-                          alignSelf: 'flex-start',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--accent-blue, #0284c7)',
-                          background: 'transparent',
-                          color: 'var(--accent-blue, #0284c7)',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <IconCalendar width={12} height={12} />
-                        <span>{downloadingIcsId === todayData.plan_checklist.next_appointment.id ? (lang === 'hi' ? 'डाउनलोड हो रहा है...' : 'Downloading...') : (lang === 'hi' ? 'कैलेंडर में जोड़ें (.ics)' : 'Add to calendar (.ics)')}</span>
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenGoogleCalendar(todayData.plan_checklist.next_appointment)}
+                          style={{
+                            alignSelf: 'flex-start',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '5px 11px',
+                            borderRadius: '6px',
+                            border: '1px solid #4285F4',
+                            background: 'rgba(66, 133, 244, 0.08)',
+                            color: '#1a73e8',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                          title={lang === 'hi' ? 'गूगल कैलेंडर में जोड़ें' : 'Add to Google Calendar'}
+                        >
+                          <IconGoogleCalendar width={13} height={13} />
+                          <span>{lang === 'hi' ? 'गूगल कैलेंडर' : 'Google Calendar'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAppointmentIcs(todayData.plan_checklist.next_appointment.id)}
+                          disabled={downloadingIcsId === todayData.plan_checklist.next_appointment.id}
+                          style={{
+                            alignSelf: 'flex-start',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '5px 9px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-subtle, #cbd5e1)',
+                            background: 'transparent',
+                            color: 'var(--text-secondary, #475569)',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          title={lang === 'hi' ? 'Apple या Outlook के लिए .ics डाउनलोड करें' : 'Download .ics for Apple / Outlook'}
+                        >
+                          <IconCalendar width={12} height={12} />
+                          <span>{downloadingIcsId === todayData.plan_checklist.next_appointment.id ? (lang === 'hi' ? 'डाउनलोड...' : 'Downloading...') : '.ics'}</span>
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -2777,16 +2902,41 @@ export default function CareLoopPatientPortal({ user }) {
                       boxShadow: 'var(--shadow-card)',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <IconCalendar width={16} height={16} style={{ color: 'var(--accent-blue, #0284c7)' }} />
                         <h2 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
                           {lang === 'hi' ? 'आगामी फॉलो-अप अपॉइंटमेंट्स' : 'Upcoming Follow-up Appointments'}
                         </h2>
                       </div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
-                        {calendarData?.upcoming_appointments?.length || 0} {lang === 'hi' ? 'निर्धारित' : 'scheduled'}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <a
+                          href="https://calendar.google.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: '#1a73e8',
+                            textDecoration: 'none',
+                            padding: '4px 9px',
+                            borderRadius: '6px',
+                            background: 'rgba(66, 133, 244, 0.08)',
+                            border: '1px solid rgba(66, 133, 244, 0.25)',
+                          }}
+                          title={lang === 'hi' ? 'गूगल कैलेंडर खोलें' : 'Open Google Calendar in new tab'}
+                        >
+                          <IconGoogleCalendar width={13} height={13} />
+                          <span>{lang === 'hi' ? 'गूगल कैलेंडर खोलें' : 'Google Calendar'}</span>
+                          <IconExternalLink width={10} height={10} />
+                        </a>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                          {calendarData?.upcoming_appointments?.length || 0} {lang === 'hi' ? 'निर्धारित' : 'scheduled'}
+                        </span>
+                      </div>
                     </div>
 
                     {calendarData?.upcoming_appointments?.length > 0 ? (
@@ -2818,32 +2968,58 @@ export default function CareLoopPatientPortal({ user }) {
                               </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadAppointmentIcs(appt.id)}
-                              disabled={downloadingIcsId === appt.id}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '8px 14px',
-                                borderRadius: '8px',
-                                border: '1px solid var(--accent-blue, #0284c7)',
-                                background: 'transparent',
-                                color: 'var(--accent-blue, #0284c7)',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                minHeight: '38px',
-                              }}
-                            >
-                              <IconCalendar width={14} height={14} />
-                              <span>
-                                {downloadingIcsId === appt.id
-                                  ? (lang === 'hi' ? 'डाउनलोड हो रहा है...' : 'Downloading...')
-                                  : (lang === 'hi' ? 'अपने कैलेंडर में जोड़ें (.ics)' : 'Add to my calendar (.ics)')}
-                              </span>
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenGoogleCalendar(appt)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '8px 14px',
+                                  borderRadius: '8px',
+                                  border: '1px solid #4285F4',
+                                  background: 'rgba(66, 133, 244, 0.08)',
+                                  color: '#1a73e8',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  minHeight: '38px',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                title={lang === 'hi' ? 'गूगल कैलेंडर में जोड़ें' : 'Add to Google Calendar'}
+                              >
+                                <IconGoogleCalendar width={15} height={15} />
+                                <span>{lang === 'hi' ? 'गूगल कैलेंडर' : 'Google Calendar'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadAppointmentIcs(appt.id)}
+                                disabled={downloadingIcsId === appt.id}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '8px 12px',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                                  background: 'transparent',
+                                  color: 'var(--text-secondary, #475569)',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  minHeight: '38px',
+                                }}
+                                title={lang === 'hi' ? 'Apple या Outlook के लिए .ics फ़ाइल डाउनलोड करें' : 'Download .ics for Apple / Outlook'}
+                              >
+                                <IconCalendar width={14} height={14} />
+                                <span>
+                                  {downloadingIcsId === appt.id
+                                    ? (lang === 'hi' ? 'डाउनलोड...' : 'Downloading...')
+                                    : '.ics (Apple / Outlook)'}
+                                </span>
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2977,23 +3153,47 @@ export default function CareLoopPatientPortal({ user }) {
                                       {appt.formatted_time} · {appt.department}
                                     </div>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDownloadAppointmentIcs(appt.id)}
-                                    disabled={downloadingIcsId === appt.id}
-                                    style={{
-                                      padding: '4px 8px',
-                                      borderRadius: '6px',
-                                      border: '1px solid var(--accent-blue, #0284c7)',
-                                      background: 'transparent',
-                                      color: 'var(--accent-blue, #0284c7)',
-                                      fontSize: '11px',
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    .ics
-                                  </button>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenGoogleCalendar(appt)}
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #4285F4',
+                                        background: 'rgba(66, 133, 244, 0.08)',
+                                        color: '#1a73e8',
+                                        fontSize: '11px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                      }}
+                                      title={lang === 'hi' ? 'गूगल कैलेंडर में जोड़ें' : 'Add to Google Calendar'}
+                                    >
+                                      <IconGoogleCalendar width={11} height={11} />
+                                      <span>Google</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadAppointmentIcs(appt.id)}
+                                      disabled={downloadingIcsId === appt.id}
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                                        background: 'transparent',
+                                        color: 'var(--text-secondary, #475569)',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                      }}
+                                      title={lang === 'hi' ? 'Apple या Outlook के लिए .ics डाउनलोड करें' : 'Download .ics'}
+                                    >
+                                      .ics
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             ))}

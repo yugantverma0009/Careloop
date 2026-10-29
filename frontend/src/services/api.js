@@ -107,6 +107,9 @@ export const getPatientCalendar = (month = null) =>
 export const getPatientDay = (date) =>
   get(`/patient/me/day?date=${encodeURIComponent(date)}`);
 
+export const getAppointmentGoogleCalendarUrl = (appointmentId) =>
+  get(`/patient/me/appointments/${appointmentId}/google-calendar-url`);
+
 export const downloadAppointmentIcs = async (appointmentId) => {
   const token = getToken();
   const res = await fetch(`${API_BASE}/patient/me/appointments/${appointmentId}.ics`, {

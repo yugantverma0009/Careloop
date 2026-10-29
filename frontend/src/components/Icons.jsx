@@ -360,3 +360,37 @@ export function IconX(props) {
     </svg>
   );
 }
+
+export function IconGoogleCalendar({ width = 16, height = 16, className = '', ...props }) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      {...props}
+    >
+      <rect x="3" y="4" width="18" height="17" rx="3" fill="var(--bg-card, #ffffff)" stroke="#4285F4" strokeWidth="2" />
+      <path d="M3 9h18" stroke="#4285F4" strokeWidth="2" strokeLinecap="round" />
+      <path d="M8 2.5v3.5M16 2.5v3.5" stroke="#EA4335" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="8" cy="13.5" r="1.3" fill="#FBBC05" />
+      <circle cx="12" cy="13.5" r="1.3" fill="#34A853" />
+      <circle cx="16" cy="13.5" r="1.3" fill="#4285F4" />
+      <circle cx="8" cy="17.5" r="1.3" fill="#4285F4" />
+      <circle cx="12" cy="17.5" r="1.3" fill="#EA4335" />
+      <circle cx="16" cy="17.5" r="1.3" fill="#34A853" />
+    </svg>
+  );
+}
+
+export function IconExternalLink(props) {
+  return (
+    <svg {...defaultProps} {...props}>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  );
+}
+
