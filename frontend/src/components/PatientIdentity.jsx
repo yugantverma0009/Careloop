@@ -8,14 +8,19 @@ import React from 'react';
  */
 export default function PatientIdentity({
   patient = {},
+  patientCode,
+  fullName,
+  patientName,
+  ageYears,
   size = 'md',
   showCondition = true,
   inline = false,
   style = {},
+  onClick,
 }) {
-  const name = patient.full_name || patient.patient_name || (patient.patient_id ? `Patient #${patient.patient_id}` : 'Unknown Patient');
-  const code = patient.patient_code || (patient.patient_id ? `CL-${String(patient.patient_id).padStart(5, '0')}` : 'CL-00000');
-  const age = patient.age_years !== undefined && patient.age_years !== null ? `${patient.age_years}y` : (patient.age ? `${patient.age}y` : null);
+  const name = fullName || patientName || patient.full_name || patient.patient_name || (patient.patient_id ? `Patient #${patient.patient_id}` : 'Unknown Patient');
+  const code = patientCode || patient.patient_code || (patient.patient_id ? `CL-${String(patient.patient_id).padStart(5, '0')}` : 'CL-00000');
+  const age = (ageYears !== undefined && ageYears !== null) ? `${ageYears}y` : (patient.age_years !== undefined && patient.age_years !== null ? `${patient.age_years}y` : (patient.age ? `${patient.age}y` : null));
   const condition = patient.condition || patient.condition_summary;
 
   const fontSizes = {
@@ -68,11 +73,13 @@ export default function PatientIdentity({
 
   return (
     <div
+      onClick={onClick}
       style={{
         display: 'flex',
         flexDirection: 'column',
         gap: '2px',
         fontFamily: "'Inter', sans-serif",
+        cursor: onClick ? 'pointer' : 'default',
         ...style,
       }}
     >

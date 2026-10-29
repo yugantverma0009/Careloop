@@ -12,6 +12,7 @@ Tests:
 """
 
 import time
+import random
 from fastapi.testclient import TestClient
 from backend.app.main import app
 from backend.app.db import get_conn
@@ -55,7 +56,7 @@ def test_auth_and_device_validation():
 
 
 def test_idempotent_ingestion():
-    timestamp = int(time.time()) - 500  # distinct epoch
+    timestamp = int(time.time()) - random.randint(100000, 999999)
     payload = {
         "device_id": "ESP32-DEMO-01",
         "measurement_type": "Heart_Rate",

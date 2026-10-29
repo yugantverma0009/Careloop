@@ -91,6 +91,11 @@ def test_d07_task_filters():
     for t in resp.json():
         assert t["assigned_staff_id"] == 1
 
+    # Query param tolerance test (prevents 422 on undefined or team scope)
+    resp_tol = client.get("/staff/tasks?scope=team&status=pending&priority=all&search=&overdue=undefined", headers=doc_headers)
+    assert resp_tol.status_code == 200
+    assert len(resp_tol.json()) > 0
+
 
 def test_d07_task_claim_assign_snooze():
     """D-07: Claim, assign, and snooze task workflow."""

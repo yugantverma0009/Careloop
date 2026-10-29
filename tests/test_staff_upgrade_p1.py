@@ -252,6 +252,12 @@ def test_d03_resolve_urgent_flag_validation():
         ev = cur.fetchone()
         assert ev is not None
 
+        # Clean up test flag to prevent test interference
+        cur.execute("DELETE FROM flag_events WHERE flag_id = %s", (flag_id,))
+        cur.execute("DELETE FROM audit_log WHERE entity_type = 'flag' AND entity_id = %s", (str(flag_id),))
+        cur.execute("DELETE FROM flags WHERE flag_id = %s", (flag_id,))
+        conn.commit()
+
 
 def test_d03_dismiss_flag():
     """D-03: Dismiss flag as False_Alarm records resolution_code and event."""
@@ -276,6 +282,12 @@ def test_d03_dismiss_flag():
         fl = cur.fetchone()
         assert fl["status"] == "Dismissed"
         assert fl["resolution_code"] == "False_Alarm"
+
+        # Clean up test flag
+        cur.execute("DELETE FROM flag_events WHERE flag_id = %s", (flag_id,))
+        cur.execute("DELETE FROM audit_log WHERE entity_type = 'flag' AND entity_id = %s", (str(flag_id),))
+        cur.execute("DELETE FROM flags WHERE flag_id = %s", (flag_id,))
+        conn.commit()
 
 
 def test_d03_assign_flag():
@@ -306,6 +318,11 @@ def test_d03_assign_flag():
         assert ev is not None
         assert ev["staff_id"] == 3
 
+        # Clean up test flag
+        cur.execute("DELETE FROM flag_events WHERE flag_id = %s", (flag_id,))
+        cur.execute("DELETE FROM flags WHERE flag_id = %s", (flag_id,))
+        conn.commit()
+
 
 def test_d10_manual_escalate():
     """D-10: Escalate now writes escalation ladder entry and flag event."""
@@ -331,3 +348,9 @@ def test_d10_manual_escalate():
         assert esc is not None
         assert esc["step_type"] == "Doctor_Alert"
         assert esc["delivery_status"] == "Sent"
+
+        # Clean up test flag
+        cur.execute("DELETE FROM escalations WHERE flag_id = %s", (flag_id,))
+        cur.execute("DELETE FROM flag_events WHERE flag_id = %s", (flag_id,))
+        cur.execute("DELETE FROM flags WHERE flag_id = %s", (flag_id,))
+        conn.commit()

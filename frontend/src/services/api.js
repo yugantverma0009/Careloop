@@ -192,14 +192,23 @@ export const submitChatFeedback = (messageId, rating, comment = null) =>
 
 export const getStaffProfile = () => get('/staff/me/profile');
 
+const buildQuery = (params = {}) => {
+  const clean = {};
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '' && v !== 'undefined' && v !== 'null') {
+      clean[k] = v;
+    }
+  });
+  const q = new URLSearchParams(clean).toString();
+  return q ? `?${q}` : '';
+};
+
 export const getStaffMembers = () => get('/staff/members');
 
 export const getTriageBoard = () => get('/staff/triage');
 
-export const getStaffWorklist = (params = {}) => {
-  const query = new URLSearchParams(params).toString();
-  return get(`/staff/worklist${query ? `?${query}` : ''}`);
-};
+export const getStaffWorklist = (params = {}) =>
+  get(`/staff/worklist${buildQuery(params)}`);
 
 export const getFlagDetail = (flagId) => get(`/staff/flags/${flagId}`);
 
@@ -220,10 +229,8 @@ export const escalateFlagNow = (flagId, note = '') =>
 
 export const getFollowUps = () => get('/staff/follow-ups');
 
-export const getStaffTasks = (params = {}) => {
-  const query = new URLSearchParams(params).toString();
-  return get(`/staff/tasks${query ? `?${query}` : ''}`);
-};
+export const getStaffTasks = (params = {}) =>
+  get(`/staff/tasks${buildQuery(params)}`);
 
 export const claimTask = (taskId) =>
   post(`/staff/tasks/${taskId}/claim`, {});
@@ -237,10 +244,8 @@ export const completeTask = (taskId, outcomeCode, outcomeNotes = '') =>
 export const snoozeTask = (taskId, hours, reason) =>
   post(`/staff/tasks/${taskId}/snooze`, { hours, reason });
 
-export const getStaffSummaries = (params = {}) => {
-  const query = new URLSearchParams(params).toString();
-  return get(`/staff/summaries${query ? `?${query}` : ''}`);
-};
+export const getStaffSummaries = (params = {}) =>
+  get(`/staff/summaries${buildQuery(params)}`);
 
 export const generateClinicalSummary = (patientId, targetDate = null) =>
   post('/staff/summaries/generate', { patient_id: patientId, target_date: targetDate });

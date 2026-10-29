@@ -33,22 +33,24 @@ export default function TaskQueue({ staffMembers = [], user = {}, onSelectPatien
   const [contactChannel, setContactChannel] = useState('Phone');
   const [contactOutcome, setContactOutcome] = useState('Reached');
   const [contactSummary, setContactSummary] = useState('');
-
   const [actionMsg, setActionMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const fetchTasks = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const data = await getStaffTasks({
         scope,
         status,
-        priority,
-        search,
+        priority: priority === 'all' ? undefined : priority,
+        search: search.trim() || undefined,
         overdue: overdueOnly ? true : undefined,
       });
       setTasks(data || []);
     } catch (err) {
       console.error('Failed to load task queue:', err);
+      setLoadError(err.message || 'Failed to load task queue');
     } finally {
       setLoading(false);
     }
@@ -159,6 +161,23 @@ export default function TaskQueue({ staffMembers = [], user = {}, onSelectPatien
           }}
         >
           ✓ {actionMsg}
+        </div>
+      )}
+
+      {/* Error banner */}
+      {loadError && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderRadius: '8px',
+            background: '#fee2e2',
+            border: '1px solid #fca5a5',
+            color: '#991b1b',
+            fontSize: '13px',
+            fontWeight: 700,
+          }}
+        >
+          ⚠️ {loadError}
         </div>
       )}
 
