@@ -189,6 +189,25 @@ export default function CareLoopPatientPortal({ user }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
+  // Keyboard accessibility: Escape key closes any active modal or drawer
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (selectedSource) {
+          setSelectedSource(null);
+        } else if (skipModalDose) {
+          setSkipModalDose(null);
+        } else if (remindersOpen) {
+          setRemindersOpen(false);
+        } else if (activeFeedbackPromptId) {
+          setActiveFeedbackPromptId(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedSource, skipModalDose, remindersOpen, activeFeedbackPromptId]);
+
   // Calendar Loader Functions (Brief Sec 6.3 & 8.3)
   const loadCalendarData = async (month) => {
     try {
@@ -1466,6 +1485,8 @@ export default function CareLoopPatientPortal({ user }) {
           {/* ─── 5. UNDO FLOATING TOAST (Brief Sec 6.2) ─── */}
           {undoToast && (
             <div
+              role="status"
+              aria-live="polite"
               style={{
                 position: 'fixed',
                 bottom: '24px',
@@ -4439,8 +4460,12 @@ export default function CareLoopPatientPortal({ user }) {
             justifyContent: 'center',
             zIndex: 110,
           }}
+          onClick={() => setSkipModalDose(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="skip-modal-title"
             style={{
               background: 'var(--bg-surface, #ffffff)',
               border: '1px solid var(--border-subtle, #e2e8f0)',
@@ -4450,8 +4475,9 @@ export default function CareLoopPatientPortal({ user }) {
               maxWidth: '440px',
               boxShadow: 'var(--shadow-float)',
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginBottom: '4px' }}>
+            <div id="skip-modal-title" style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginBottom: '4px' }}>
               {lang === 'hi' ? 'यह दवा क्यों छोड़ रहे हैं?' : 'Why are you skipping this dose?'}
             </div>
             <div style={{ fontSize: '13px', color: 'var(--text-muted, #64748b)', marginBottom: '18px' }}>
@@ -4543,6 +4569,9 @@ export default function CareLoopPatientPortal({ user }) {
           onClick={() => setSelectedSource(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="source-drawer-title"
             style={{
               background: 'var(--bg-surface, #ffffff)',
               border: '1px solid var(--border-subtle, #e2e8f0)',
@@ -4576,7 +4605,7 @@ export default function CareLoopPatientPortal({ user }) {
                   <IconFileText width={20} height={20} />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
+                  <h3 id="source-drawer-title" style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
                     {lang === 'hi' ? 'स्रोत रिकॉर्ड विवरण' : 'Source record passage'}
                   </h3>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
@@ -4589,6 +4618,7 @@ export default function CareLoopPatientPortal({ user }) {
               <button
                 type="button"
                 onClick={() => setSelectedSource(null)}
+                aria-label={lang === 'hi' ? 'बंद करें' : 'Close'}
                 style={{
                   background: 'none',
                   border: 'none',

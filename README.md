@@ -98,10 +98,50 @@ The ESP32 wearable streams physiological data via `device/esp32_careloop/esp32_c
 
 ---
 
+## 🏥 Patient Portal Upgrade (Phases 0 - 5)
+
+The patient portal (`/patient`) underwent an end-to-end upgrade adhering strictly to the visual style lock, clinical safety rules, and patient-first ergonomics:
+
+* **Phase 1: Recovery Overview & Daily Regimen (`/patient`)**:
+  - Single-query overview (`GET /patient/me/today`) with real flag-driven banner (no permanent alarms).
+  - 1-tap **"Mark Taken"** (`POST /patient/me/doses/{id}/taken`) with 60-minute time window validation.
+  - Floating 5-minute **Undo** toast (`POST /patient/me/doses/{id}/undo`) reverting mistakenly logged doses.
+  - **Skip Dose Sheet** (`POST /patient/me/doses/{id}/skip`) with structured reasons (`felt_unwell`, `ran_out`, `forgot`, `side_effects`, `other`).
+* **Phase 2: Calendar & Care Plan Checklist**:
+  - Interactive month calendar (`GET /patient/me/calendar?month=YYYY-MM`) with dose status dots and appointment indicators.
+  - Detailed Day Sheet drawer (`GET /patient/me/day?date=YYYY-MM-DD`) with prescribed doses, visits, and pain check-ins.
+  - RFC 5545 compliant `.ics` calendar sync (`GET /patient/me/appointments/{id}.ics`).
+* **Phase 3: Rapid Check-in (<30s) & Duplicate Flag Window**:
+  - Step-by-step check-in flow with 0-10 numeric pain slider, symptom chips, location chips, and trend comparison.
+  - Optional multi-modal Voice STT (Web Speech API) supporting English and Hindi (`hi-IN`).
+  - 14-day pain and symptom history chart (`GET /patient/me/checkins?days=14`).
+  - Database trigger fix (`trg_symptom_rules_after_insert`) suppressing duplicate Emergency flags within a 60-minute window for the same patient.
+* **Phase 4: Grounded RAG Assistant**:
+  - Hybrid retrieval combining dense vector search (ChromaDB with Gemini embeddings) and sparse BM25/MySQL text search with Reciprocal Rank Fusion (RRF).
+  - Read-only SQL tools strictly scoped to authenticated JWT: `get_next_appointment`, `get_today_doses`, `get_medicine_plan`, and `get_latest_readings`.
+  - Deterministic safety guards: immediate emergency bypass calling `112` without LLM latency; strict dose modification refusal with automatic "Ask My Care Team" escalation; numeric guard ensuring numbers come strictly from source records.
+  - Grounded source pill chips and interactive Source Inspection Modal Drawer.
+* **Phase 5: Accessibility, Polish & Seed Cleanliness**:
+  - WCAG 2.1 AA accessibility audit: 44px tap targets, `:focus-visible` styling, Escape key dismissal, `aria-live` regions.
+  - Comprehensive Hindi copy review (`docs/HINDI_REVIEW.md`).
+  - Clean synthetic seed data schedule (`scripts/reset_seed.sql`).
+  - 5-minute clinical demo script (`docs/PATIENT_DEMO_SCRIPT.md`).
+
+---
+
 ## 🧪 Comprehensive Test Suites
 
 Run individual milestone tests or the complete regression suite:
 ```bash
+# Patient Portal Upgrade Suites (Phases 1 - 4)
+PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p1.py
+PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p2.py
+PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p3.py
+PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p4.py
+
+# RAG Benchmark Suite (44 golden test cases)
+PYTHONPATH=. ./backend/env/bin/python3 rag_eval/run_eval.py
+
 # Milestone M1: Auth & Isolation
 PYTHONPATH=. ./backend/env/bin/python3 tests/test_m1_auth.py
 
