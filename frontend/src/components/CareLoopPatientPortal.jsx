@@ -14,6 +14,8 @@ import {
   getChatHistory,
   askCareTeamForChatMessage,
   submitChatFeedback,
+  getFamilySharingStatus,
+  toggleFamilySharing,
   logout,
 } from '../services/api';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
@@ -136,6 +138,33 @@ export default function CareLoopPatientPortal({ user }) {
   const [inputMethod, setInputMethod] = useState('Text');
   const [isListening, setIsListening] = useState(false);
   const [checkinSubmitting, setCheckinSubmitting] = useState(false);
+
+  // Family Sharing Consent State (Section 2.4 & Phase 2)
+  const [familySharingEnabled, setFamilySharingEnabled] = useState(true);
+  const [sharingLoading, setSharingLoading] = useState(false);
+
+  useEffect(() => {
+    getFamilySharingStatus()
+      .then((res) => {
+        if (res && res.sharing_enabled !== undefined) {
+          setFamilySharingEnabled(Boolean(res.sharing_enabled));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleToggleSharing = async () => {
+    try {
+      setSharingLoading(true);
+      const nextStatus = !familySharingEnabled;
+      await toggleFamilySharing(nextStatus);
+      setFamilySharingEnabled(nextStatus);
+    } catch (err) {
+      alert(err.message || 'Failed to update sharing consent');
+    } finally {
+      setSharingLoading(false);
+    }
+  };
   const [checkinSuccessData, setCheckinSuccessData] = useState(null);
   const [checkinError, setCheckinError] = useState(null);
   const [checkinHistory, setCheckinHistory] = useState([]);
@@ -1290,6 +1319,24 @@ export default function CareLoopPatientPortal({ user }) {
               )}
             </div>
 
+            {/* Role Chip (Phase 2 & Section 2.5) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 12px',
+                borderRadius: '20px',
+                backgroundColor: 'var(--role-patient-soft, #f0fdfa)',
+                border: '1px solid var(--role-patient, #0d9488)',
+                color: 'var(--role-patient-text, #0f766e)',
+                fontSize: '12px',
+                fontWeight: 700,
+              }}
+            >
+              <span>{lang === 'hi' ? 'मरीज़ (Patient)' : 'Patient'}</span>
+            </div>
+
             <SwitchDemoWorkspace currentUser={user} />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1587,6 +1634,84 @@ export default function CareLoopPatientPortal({ user }) {
           {/* ─── 6. TAB: RECOVERY OVERVIEW OR MEDICINES ─── */}
           {(activeNav === 'recovery' || activeNav === 'prescriptions') && (
             <>
+              {/* Family Sharing Consent Card / Switch (Section 2.4 & Phase 2) */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  boxShadow: 'var(--shadow-card)',
+                  marginBottom: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '8px',
+                      backgroundColor: familySharingEnabled ? 'var(--role-family-soft, #fffbeb)' : 'var(--bg-card-hover, #f1f5f9)',
+                      color: familySharingEnabled ? 'var(--role-family, #d97706)' : 'var(--text-muted, #64748b)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <IconShieldCheck width={20} height={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                      {lang === 'hi' ? 'परिवार के साथ साझा करना' : 'Family sharing'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                      {familySharingEnabled
+                        ? (lang === 'hi' ? 'नेहा पटेल (पत्नी) के साथ रिकवरी अपडेट साझा किए जा रहे हैं।' : 'Sharing allowed with Neha Patel (Spouse).')
+                        : (lang === 'hi' ? 'परिवार के साथ साझा करना बंद है। कोई डेटा नहीं भेजा जा रहा है।' : 'Family sharing is turned off. Access disabled.')}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: familySharingEnabled ? 'var(--role-family, #d97706)' : 'var(--text-muted, #64748b)' }}>
+                    {familySharingEnabled ? (lang === 'hi' ? 'चालू (On)' : 'On') : (lang === 'hi' ? 'बंद (Off)' : 'Off')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleToggleSharing}
+                    disabled={sharingLoading}
+                    style={{
+                      width: '48px',
+                      height: '26px',
+                      borderRadius: '13px',
+                      backgroundColor: familySharingEnabled ? 'var(--role-family, #d97706)' : 'var(--border-strong, #cbd5e1)',
+                      border: 'none',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s ease',
+                    }}
+                    title="Toggle family sharing consent"
+                  >
+                    <div
+                      style={{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '10px',
+                        backgroundColor: '#ffffff',
+                        position: 'absolute',
+                        top: '3px',
+                        left: familySharingEnabled ? '25px' : '3px',
+                        transition: 'left 0.2s ease',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      }}
+                    />
+                  </button>
+                </div>
+              </div>
+
               {/* HERO ROW: NEXT MEDICINE & TODAY SUMMARY (Brief Sec 5.2, 6.1) */}
               <div
                 style={{

@@ -47,6 +47,20 @@
   --success-green-soft: #f0fdf4;
   --success-green-text: #166534;
 
+  /* Role-Specific Identity Accents */
+  --role-doctor: #7c3aed;
+  --role-doctor-soft: #f5f3ff;
+  --role-doctor-text: #6d28d9;
+  --role-nurse: #0284c7;
+  --role-nurse-soft: #eff6ff;
+  --role-nurse-text: #0369a1;
+  --role-patient: #0d9488;
+  --role-patient-soft: #f0fdfa;
+  --role-patient-text: #0f766e;
+  --role-family: #d97706;
+  --role-family-soft: #fffbeb;
+  --role-family-text: #b45309;
+
   --header-bg: #ffffff;
   --header-border: #e2e8f0;
   --sidebar-bg: #ffffff;
@@ -95,6 +109,20 @@
   --success-green: #34d399;
   --success-green-soft: rgba(52, 211, 153, 0.15);
   --success-green-text: #a7f3d0;
+
+  /* Role-Specific Identity Accents (Dark) */
+  --role-doctor: #a78bfa;
+  --role-doctor-soft: rgba(167, 139, 250, 0.15);
+  --role-doctor-text: #c4b5fd;
+  --role-nurse: #38bdf8;
+  --role-nurse-soft: rgba(56, 189, 248, 0.15);
+  --role-nurse-text: #7dd3fc;
+  --role-patient: #2dd4bf;
+  --role-patient-soft: rgba(45, 212, 191, 0.15);
+  --role-patient-text: #5eead4;
+  --role-family: #fbbf24;
+  --role-family-soft: rgba(251, 191, 36, 0.15);
+  --role-family-text: #fde68a;
 
   --header-bg: #111a2c;
   --header-border: #1e2e4a;

@@ -38,7 +38,18 @@ import {
   IconBell,
 } from './Icons';
 
-export default function CareLoopStaffPortal({ user }) {
+export default function CareLoopStaffPortal({ user, defaultRole }) {
+  const effectiveRole = user?.role || user?.account_role || defaultRole || 'Doctor';
+  const isDoctor = effectiveRole === 'Doctor';
+  const isNurse = effectiveRole === 'Nurse';
+
+  const roleAccent = isDoctor ? 'var(--role-doctor, #7c3aed)' : 'var(--role-nurse, #0284c7)';
+  const roleAccentSoft = isDoctor ? 'var(--role-doctor-soft, #f5f3ff)' : 'var(--role-nurse-soft, #eff6ff)';
+  const roleAccentText = isDoctor ? 'var(--role-doctor-text, #6d28d9)' : 'var(--role-nurse-text, #0369a1)';
+  const roleSubtitle = isDoctor ? 'Doctor desk' : 'Nurse desk';
+  const roleSectionKicker = isDoctor ? 'DOCTOR DESK' : 'NURSE DESK';
+  const roleFirstScreenTitle = isDoctor ? 'Needs my decision' : 'My call list';
+
   const [activeNav, setActiveNav] = useState('triage');
   const [worklistData, setWorklistData] = useState({ summary: {}, patients: [] });
   const [staffMembers, setStaffMembers] = useState([]);
@@ -358,10 +369,10 @@ export default function CareLoopStaffPortal({ user }) {
                   color: 'var(--text-primary, #0f172a)',
                 }}
               >
-                Care<span style={{ color: '#0d9488' }}>Loop</span>
+                Care<span style={{ color: roleAccent }}>Loop</span>
               </div>
-              <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600 }}>
-                Care team hub
+              <div style={{ fontSize: '11px', color: roleAccent, fontWeight: 700 }}>
+                {roleSubtitle}
               </div>
             </div>
           </div>
@@ -372,27 +383,35 @@ export default function CareLoopStaffPortal({ user }) {
               style={{
                 fontSize: '10px',
                 fontWeight: 800,
-                color: '#94a3b8',
+                color: 'var(--text-muted, #94a3b8)',
                 letterSpacing: '0.06em',
                 textTransform: 'uppercase',
                 padding: '0 10px',
                 marginBottom: '10px',
               }}
             >
-              CARE TEAM
+              {roleSectionKicker}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '22px' }}>
-              {[
-                { id: 'triage', label: 'Who needs attention', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
-                { id: 'patients', label: 'Patient directory', Icon: IconPatient },
-                { id: 'timeline', label: 'Patient timeline', Icon: IconActivity },
-                { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
-                { id: 'summaries', label: 'Draft summaries', Icon: IconFileText, badge: summaries.length },
-                { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
-                { id: 'insights', label: 'Operational insights', Icon: IconActivity },
-                { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
-              ].map((item) => {
+              {(isDoctor
+                ? [
+                    { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
+                    { id: 'patients', label: 'Patients', Icon: IconPatient },
+                    { id: 'timeline', label: 'Patient timeline', Icon: IconActivity },
+                    { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
+                    { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: summaries.length },
+                    { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
+                    { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
+                  ]
+                : [
+                    { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
+                    { id: 'patients', label: 'Patients', Icon: IconPatient },
+                    { id: 'timeline', label: 'Patient timeline', Icon: IconActivity },
+                    { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
+                    { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
+                  ]
+              ).map((item) => {
                 const isActive = activeNav === item.id || (item.id === 'patients' && activeNav === 'patient_chart');
                 const ItemIcon = item.Icon;
                 return (
@@ -408,8 +427,8 @@ export default function CareLoopStaffPortal({ user }) {
                       padding: '9px 12px',
                       borderRadius: '8px',
                       border: 'none',
-                      background: isActive ? '#eff6ff' : 'transparent',
-                      color: isActive ? '#0284c7' : 'var(--text-secondary, #475569)',
+                      background: isActive ? roleAccentSoft : 'transparent',
+                      color: isActive ? roleAccent : 'var(--text-secondary, #475569)',
                       fontWeight: isActive ? 700 : 500,
                       fontSize: '13px',
                       cursor: 'pointer',
@@ -427,7 +446,7 @@ export default function CareLoopStaffPortal({ user }) {
                           fontWeight: 700,
                           padding: '2px 7px',
                           borderRadius: '12px',
-                          background: isActive ? '#0284c7' : '#e2e8f0',
+                          background: isActive ? roleAccent : '#e2e8f0',
                           color: isActive ? '#ffffff' : '#475569',
                         }}
                       >
@@ -497,11 +516,11 @@ export default function CareLoopStaffPortal({ user }) {
           }}
         >
           <div>
-            <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 800, letterSpacing: '0.06em' }}>
-              WHO NEEDS ATTENTION
+            <div style={{ fontSize: '10px', color: roleAccent, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              {roleSectionKicker}
             </div>
             <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
-              Care team
+              {activeNav === 'triage' ? roleFirstScreenTitle : activeNav.toUpperCase()}
             </div>
           </div>
 
@@ -663,6 +682,24 @@ export default function CareLoopStaffPortal({ user }) {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Role Chip (Phase 2 & Section 2.5) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 12px',
+                borderRadius: '20px',
+                backgroundColor: roleAccentSoft,
+                border: `1px solid ${roleAccent}`,
+                color: roleAccentText,
+                fontSize: '12px',
+                fontWeight: 700,
+              }}
+            >
+              <span>{isDoctor ? 'Doctor' : 'Nurse'}</span>
             </div>
 
             <SwitchDemoWorkspace currentUser={user} />
@@ -1068,9 +1105,8 @@ export default function CareLoopStaffPortal({ user }) {
                         Scope:
                       </span>
                       {[
+                        { key: 'mine', label: 'Mine' },
                         { key: 'all', label: 'All Patients' },
-                        { key: 'mine', label: 'My Assigned' },
-                        { key: 'unassigned', label: 'Unassigned' },
                       ].map(({ key, label }) => (
                         <button
                           key={key}
@@ -1080,7 +1116,7 @@ export default function CareLoopStaffPortal({ user }) {
                             padding: '5px 12px',
                             borderRadius: '6px',
                             border: '1px solid var(--border-subtle, #e2e8f0)',
-                            background: scopeFilter === key ? '#0f172a' : 'var(--bg-base, #f8fafc)',
+                            background: scopeFilter === key ? roleAccent : 'var(--bg-base, #f8fafc)',
                             color: scopeFilter === key ? '#ffffff' : 'var(--text-secondary, #475569)',
                             fontSize: '12px',
                             fontWeight: 600,

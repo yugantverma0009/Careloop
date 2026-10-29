@@ -21,6 +21,15 @@ import urllib.parse
 from contextlib import asynccontextmanager
 from .db import get_conn
 from .auth import verify_login, make_token, require_role, current_user
+from .permissions import (
+    require_doctor,
+    require_nurse,
+    require_staff,
+    require_patient,
+    require_family,
+    can_resolve_flag,
+    FLAG_AUTHORITY_POLICY,
+)
 from .safety import has_emergency_term, EMERGENCY_GUIDANCE
 from .rag import answer as rag_answer
 from .llm import generate
@@ -229,23 +238,14 @@ def get_current_user_profile(user: Dict[str, Any] = Depends(current_user)):
 
 
 def get_effective_patient_id(user: Dict[str, Any]) -> int:
-    """Extract authenticated patient_id from JWT or through authorized Caregiver link."""
+    """Extract authenticated patient_id strictly from JWT."""
     pid = user.get("patient_id")
     if pid:
         return int(pid)
-    if user.get("role") == "Caregiver" and user.get("caregiver_id"):
-        with get_conn() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT patient_id, consent_granted FROM caregivers WHERE caregiver_id=%s",
-                (user["caregiver_id"],),
-            )
-            cg = cur.fetchone()
-            if cg and cg.get("consent_granted"):
-                return int(cg["patient_id"])
     raise HTTPException(status_code=403, detail="No authorized patient associated with this account")
 
 @app.get("/patient/me/profile")
-def get_my_patient_profile(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def get_my_patient_profile(user: Dict[str, Any] = Depends(require_patient)):
     """
     Patient profile access.
     PATIENT_ID IS SOLELY EXTRACTED FROM THE JWT. NEVER ACCEPTED VIA URL.
@@ -285,8 +285,8 @@ def get_my_patient_profile(user: Dict[str, Any] = Depends(require_role("Patient"
 
 
 @app.get("/caregiver/me/profile")
-def get_my_caregiver_profile(user: Dict[str, Any] = Depends(require_role("Caregiver"))):
-    """Caregiver profile access."""
+def get_my_caregiver_profile(user: Dict[str, Any] = Depends(require_family)):
+    """Caregiver profile access (Family Helper)."""
     cid = user["caregiver_id"]
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -301,7 +301,7 @@ def get_my_caregiver_profile(user: Dict[str, Any] = Depends(require_role("Caregi
 
 
 @app.get("/staff/me/profile")
-def get_my_staff_profile(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+def get_my_staff_profile(user: Dict[str, Any] = Depends(require_staff)):
     """Staff profile access for Doctors and Nurses."""
     sid = user["staff_id"]
     with get_conn() as conn, conn.cursor() as cur:
@@ -381,7 +381,7 @@ UNDO_WINDOW_MIN = 5
 
 
 @app.get("/patient/me/today")
-def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def get_patient_today(user: Dict[str, Any] = Depends(require_patient)):
     """
     Unified Today Overview endpoint (Brief Section 8.1):
     Single query payload rendering greeting, day after discharge, banner state,
@@ -729,7 +729,7 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
 def mark_dose_taken(
     log_id: int,
     body: DoseTakenIn = DoseTakenIn(),
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Mark dose as Taken (Brief Section 6.2, 8.2).
@@ -793,7 +793,7 @@ def mark_dose_taken(
 def skip_dose(
     log_id: int,
     body: DoseSkipIn,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Skip dose with patient-provided reason (Brief Section 6.2, 8.2).
@@ -839,7 +839,7 @@ def skip_dose(
 @app.post("/patient/me/doses/{log_id}/undo")
 def undo_dose(
     log_id: int,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Undo dose action within 5-minute safety window (Brief Section 6.2, 8.2).
@@ -905,7 +905,7 @@ def undo_dose(
 @app.get("/patient/me/calendar")
 def get_patient_calendar(
     month: Optional[str] = None,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Calendar Month Summary endpoint (Brief Sec 8.3 & 6.3):
@@ -1075,7 +1075,7 @@ def get_patient_calendar(
 @app.get("/patient/me/day")
 def get_patient_day(
     date_str: str = Query(..., alias="date"),
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Day Inspection Sheet endpoint (Brief Sec 8.3 & 6.3):
@@ -1184,7 +1184,7 @@ def get_patient_day(
 @app.get("/patient/me/appointments/{appointment_id}.ics")
 def download_appointment_ics(
     appointment_id: int,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Export appointment to standard RFC 5545 iCalendar file (.ics).
@@ -1263,7 +1263,7 @@ def download_appointment_ics(
 @app.get("/patient/me/appointments/{appointment_id}/google-calendar-url")
 def get_appointment_google_calendar_url(
     appointment_id: int,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Returns direct Google Calendar event creation URL for the requested appointment.
@@ -1299,7 +1299,7 @@ def get_appointment_google_calendar_url(
 
 
 @app.get("/patient/me/doses")
-def get_my_doses(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def get_my_doses(user: Dict[str, Any] = Depends(require_patient)):
     """
     Returns today's scheduled medication doses for the authenticated patient.
     PATIENT_ID IS STRICTLY EXTRACTED FROM JWT.
@@ -1328,7 +1328,7 @@ def get_my_doses(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiv
 def confirm_my_dose(
     log_id: int,
     body: DoseConfirmIn,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Confirm a dose as Taken_Confirmed or Skipped.
@@ -1437,7 +1437,7 @@ def extract_and_save_symptom_tags(report_id: int, symptom_text: str):
 @app.post("/patient/me/checkins")
 def submit_patient_checkin(
     body: CheckinIn,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Phase 3 Daily Check-in Endpoint (Brief Sec 6.4 & 8.4):
@@ -1547,7 +1547,7 @@ def submit_patient_checkin(
 @app.get("/patient/me/checkins")
 def get_patient_checkins(
     days: int = Query(14, ge=1, le=90),
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Returns last N days of check-in reports for the authenticated patient.
@@ -1588,7 +1588,7 @@ def get_patient_checkins(
 
 
 @app.post("/patient/me/symptoms")
-def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_patient)):
     """
     Legacy Symptom Check-in Endpoint (maintained for backward compatibility):
     Forwards to submit_patient_checkin.
@@ -1608,7 +1608,7 @@ def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(requi
 # ─── Patient Status Page (Milestone M3) ──────────────────────────────────────
 
 @app.get("/patient/me/status")
-def get_my_status(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def get_my_status(user: Dict[str, Any] = Depends(require_patient)):
     """
     Patient Status Page:
     - Latest readings with quality label from v_latest_sensor_readings.
@@ -2266,16 +2266,29 @@ def acknowledge_flag(
 def resolve_flag(
     flag_id: int,
     body: ResolveIn,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_staff),
 ):
     """
-    Resolve Flag Endpoint (D-03):
+    Resolve Flag Endpoint (D-03 & Phase 2 Role Model):
+    - Policy: Nurse can resolve Routine and Review_Soon flags.
+    - Urgent and Immediate flags enforce Doctor role and note length >= 5.
     - Calls sp_resolve_flag with p_dismiss=FALSE.
-    - Requires resolution code.
-    - Urgent and Immediate flags enforce note length >= 5 characters.
     """
     staff_id = user["staff_id"]
+    staff_role = user.get("role") or user.get("account_role")
+
     with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT flag_id, severity, status FROM flags WHERE flag_id = %s", (flag_id,))
+        fl = cur.fetchone()
+        if not fl:
+            raise HTTPException(status_code=404, detail="Flag not found")
+
+        allowed, msg = can_resolve_flag(staff_role, fl["severity"], body.resolution_note)
+        if not allowed:
+            if "Nurse cannot resolve" in msg:
+                raise HTTPException(status_code=403, detail=msg)
+            raise HTTPException(status_code=400, detail=msg)
+
         try:
             cur.callproc("sp_resolve_flag", (flag_id, staff_id, body.resolution_code, body.resolution_note, False))
         except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
@@ -2298,15 +2311,28 @@ def resolve_flag(
 def dismiss_flag(
     flag_id: int,
     body: DismissIn,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_staff),
 ):
     """
     Dismiss Flag as False Alarm / Duplicate Endpoint (D-03):
+    - Policy: Nurse can dismiss routine flags; urgent flags require doctor authority.
     - Calls sp_resolve_flag with p_dismiss=TRUE.
-    - Feeds false alarm quality tracking.
     """
     staff_id = user["staff_id"]
+    staff_role = user.get("role") or user.get("account_role")
+
     with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT flag_id, severity, status FROM flags WHERE flag_id = %s", (flag_id,))
+        fl = cur.fetchone()
+        if not fl:
+            raise HTTPException(status_code=404, detail="Flag not found")
+
+        allowed, msg = can_resolve_flag(staff_role, fl["severity"], body.resolution_note)
+        if not allowed:
+            if "Nurse cannot resolve" in msg:
+                raise HTTPException(status_code=403, detail="Nurse cannot dismiss urgent or immediate flags. Only doctors can resolve or dismiss urgent flags.")
+            raise HTTPException(status_code=400, detail=msg)
+
         try:
             cur.callproc("sp_resolve_flag", (flag_id, staff_id, body.resolution_code, body.resolution_note, True))
         except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
@@ -2320,6 +2346,58 @@ def dismiss_flag(
             raise
 
     return {"status": "dismissed", "flag_id": flag_id, "staff_id": staff_id}
+
+
+class EscalateDoctorIn(BaseModel):
+    note: Optional[str] = "Nurse requested doctor review"
+
+
+@app.post("/staff/flags/{flag_id}/escalate-doctor")
+def escalate_flag_to_doctor(
+    flag_id: int,
+    body: EscalateDoctorIn = EscalateDoctorIn(),
+    user: Dict[str, Any] = Depends(require_staff),
+):
+    """
+    Nurse / Staff action: 'Ask doctor' (Section 2.3 & 2.6).
+    Records flag_events row ('Escalated'), inserts escalation record, writes audit_log,
+    and surfaces flag prominently on Doctor Desk.
+    """
+    staff_id = user["staff_id"]
+    staff_role = user.get("role") or user.get("account_role")
+    note_text = (body.note or "Nurse requested doctor review").strip()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT flag_id, patient_id, severity, status FROM flags WHERE flag_id = %s", (flag_id,))
+        fl = cur.fetchone()
+        if not fl:
+            raise HTTPException(status_code=404, detail="Flag not found")
+
+        cur.execute(
+            "SELECT COALESCE(MAX(step_no), 0) + 1 AS next_step FROM escalations WHERE flag_id = %s",
+            (flag_id,),
+        )
+        next_step = cur.fetchone()["next_step"]
+
+        cur.execute(
+            """INSERT INTO escalations (flag_id, step_no, step_type, channel, delivery_status, notes)
+               VALUES (%s, %s, 'Doctor_Alert', 'Dashboard', 'Sent', %s)""",
+            (flag_id, next_step, f"Escalated to doctor by {staff_role} #{staff_id}: {note_text}"),
+        )
+        cur.execute(
+            """INSERT INTO flag_events (flag_id, event_type, staff_id, note)
+               VALUES (%s, 'Escalated', %s, %s)""",
+            (flag_id, staff_id, f"Escalated to doctor: {note_text}"),
+        )
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'FLAG_ESCALATED_TO_DOCTOR', 'flag', %s,
+                       JSON_OBJECT('note', %s, 'staff_role', %s, 'patient_id', %s))""",
+            (str(staff_id), flag_id, note_text, staff_role, fl["patient_id"]),
+        )
+        conn.commit()
+
+    return {"status": "escalated_to_doctor", "flag_id": flag_id, "note": note_text}
 
 
 @app.post("/staff/flags/{flag_id}/assign")
@@ -3256,7 +3334,7 @@ def get_patient_timeline(
 # ─── Patient Chat & RAG (Milestone M5) ────────────────────────────────────────
 
 @app.post("/patient/me/chat")
-def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_patient)):
     """
     Patient Chat Endpoint with Grounded RAG & Tool Routing (Brief Sec 7.2 - 7.12 & 8.6):
     - When USE_UPGRADED_RAG is true, routes through upgraded RAG pipeline:
@@ -3369,7 +3447,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_rol
 
 
 @app.get("/patient/me/chat/history")
-def get_chat_history(user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
     """
     Returns patient chat history with answer types, source chips, and feedback ratings (Brief Sec 7.10 & 8.6).
     """
@@ -3435,7 +3513,7 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_role("Patient", "Car
 @app.post("/patient/me/chat/{message_id}/ask-care-team")
 def ask_care_team_from_chat(
     message_id: int,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Creates a clinical follow-up task and writes an audit row when a patient escalates a question (Brief Sec 7.7 & 8.6).
@@ -3485,7 +3563,7 @@ def ask_care_team_from_chat(
 def submit_chat_feedback(
     message_id: int,
     body: FeedbackIn,
-    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+    user: Dict[str, Any] = Depends(require_patient),
 ):
     """
     Records 👍 (1) or 👎 (-1) rating with optional patient comment (Brief Sec 7.10 & 9.2).
@@ -3744,17 +3822,12 @@ def get_pending_summaries(user: Dict[str, Any] = Depends(require_role("Doctor", 
 def approve_summary(
     summary_id: int,
     body: ApproveSummaryIn,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_doctor),
 ):
     """
     D-08 & D-12: Approve draft summary.
     STRICT RULE: Doctor role is required! Nurses cannot approve summaries.
     """
-    if user.get("role") != "Doctor":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: Only doctors can approve clinical summaries. Nurses can propose but cannot approve.",
-        )
     doctor_staff_id = user["staff_id"]
     with get_conn() as conn, conn.cursor() as cur:
         try:
@@ -3775,17 +3848,12 @@ def approve_summary(
 def reject_summary(
     summary_id: int,
     body: RejectSummaryIn,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_doctor),
 ):
     """
     D-08 & D-12: Reject draft summary with required clinical reason.
     STRICT RULE: Doctor role is required!
     """
-    if user.get("role") != "Doctor":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: Only doctors can reject clinical summaries.",
-        )
     if not body.reason or len(body.reason.strip()) < 3:
         raise HTTPException(status_code=400, detail="A reason of at least 3 characters is required to reject a summary")
 
@@ -4481,7 +4549,7 @@ def get_audit_log(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     limit: int = 150,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_doctor),
 ):
     """
     D-17: Audit log viewer. Filter by patient, staff, action, date.
@@ -4555,7 +4623,7 @@ class ExportLogAuditIn(BaseModel):
 @app.post("/staff/audit-log/export-log")
 def log_audit_export(
     body: ExportLogAuditIn,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_doctor),
 ):
     """
     D-17: Logging audit log export event (compliance requirement).
@@ -4946,7 +5014,7 @@ def log_insights_export(
 @app.get("/staff/patients/{pid}/fhir")
 def get_patient_fhir_bundle(
     pid: int,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_doctor),
 ):
     """
     D-19: Returns a standard-compliant FHIR R4 JSON Bundle for follow-up data.
@@ -5050,3 +5118,398 @@ def record_patient_lace(
 
     lace_calc["risk_context_id"] = rec_id
     return lace_calc
+
+
+# ─── Patient Family Sharing & Consent (Phase 2) ─────────────────────────────
+
+class SharingToggleIn(BaseModel):
+    enabled: bool
+
+
+@app.post("/patient/me/sharing")
+def toggle_family_sharing(
+    body: SharingToggleIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Patient controls family sharing consent (Section 2.3 & 3.8).
+    When sharing is disabled:
+    - caregivers.consent_granted is set to 0.
+    - All /family/... endpoints immediately return 403.
+    - Escalation step shows 'Skipped: no consent'.
+    - Written to immutable audit_log.
+    """
+    pid = user["patient_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE caregivers
+               SET consent_granted = %s
+               WHERE patient_id = %s""",
+            (1 if body.enabled else 0, pid),
+        )
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Patient', %s, 'FAMILY_SHARING_TOGGLED', 'patient', %s,
+                       JSON_OBJECT('sharing_enabled', %s, 'patient_id', %s))""",
+            (str(user["account_id"]), pid, body.enabled, pid),
+        )
+        conn.commit()
+
+    return {"status": "updated", "sharing_enabled": body.enabled, "patient_id": pid}
+
+
+@app.get("/patient/me/sharing")
+def get_family_sharing_status(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Returns current family sharing status and linked caregiver details."""
+    pid = user["patient_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT caregiver_id, full_name, relationship, phone, consent_granted
+               FROM caregivers WHERE patient_id = %s LIMIT 1""",
+            (pid,),
+        )
+        cg = cur.fetchone()
+
+    if not cg:
+        return {"sharing_enabled": False, "caregiver": None}
+
+    return {
+        "sharing_enabled": bool(cg["consent_granted"]),
+        "caregiver": {
+            "caregiver_id": cg["caregiver_id"],
+            "name": cg["full_name"],
+            "relationship": cg["relationship"],
+            "phone": cg["phone"],
+        },
+    }
+
+
+# ─── Family Helper Endpoints (Phase 2 & Section 2.3) ────────────────────────
+
+@app.get("/family/today")
+def get_family_today(user: Dict[str, Any] = Depends(require_family)):
+    """
+    Family View 'Today' endpoint (Section 2.3 & 2.4):
+    Strictly requires active caregiver consent (caregivers.consent_granted = 1).
+    Returns a reduced, supportive dataset:
+    - Patient identity (name, age, patient code)
+    - Recovery day (Day N)
+    - Latest valid readings (HR, SpO2, BP) — invalid readings like 450 bpm are omitted
+    - Today's dose status (taken/scheduled/missed — no clinical pharmacology details)
+    - Check-in status (sent today: yes/no — no symptom text or chat)
+    - 'What you may need to do' guidance card
+    - Consent acknowledgement badge
+    """
+    pid = user["patient_id"]
+    cg_info = user.get("caregiver_info") or {}
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Patient identity & discharge
+        cur.execute(
+            """SELECT p.patient_id, p.patient_code, p.full_name, p.date_of_birth,
+                      d.condition_summary, d.discharge_date,
+                      DATEDIFF(CURDATE(), d.discharge_date) + 1 AS day_number
+               FROM patients p
+               LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+               WHERE p.patient_id = %s""",
+            (pid,),
+        )
+        pat = cur.fetchone()
+        if not pat:
+            raise HTTPException(status_code=404, detail="Patient record not found")
+
+        # Age calculation
+        dob = pat.get("date_of_birth")
+        age = None
+        if dob:
+            today_d = date.today()
+            age = today_d.year - dob.year - ((today_d.month, today_d.day) < (dob.month, dob.day))
+
+        # 2. Latest valid readings (Filter out quality_status = 'Invalid')
+        cur.execute(
+            """SELECT measurement_type, measurement_value, unit, measured_at, quality_status
+               FROM sensor_readings
+               WHERE patient_id = %s AND (quality_status != 'Invalid' OR quality_status IS NULL)
+               ORDER BY measured_at DESC""",
+            (pid,),
+        )
+        all_readings = cur.fetchall() or []
+        latest_readings = {}
+        for r in all_readings:
+            mtype = r["measurement_type"]
+            if mtype not in latest_readings:
+                latest_readings[mtype] = {
+                    "type": mtype,
+                    "value": float(r["measurement_value"]),
+                    "unit": r["unit"],
+                    "quality_status": r["quality_status"] or "Good",
+                    "recorded_at": r["measured_at"].isoformat() if isinstance(r["measured_at"], datetime) else str(r["measured_at"]),
+                }
+
+        # 3. Today's doses (status only, no pharmacology details)
+        cur.execute(
+            """SELECT ml.medication_log_id, ml.scheduled_for, ml.status, ml.recorded_at, ml.recorded_by,
+                      m.medicine_name
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s
+                 AND ml.scheduled_for >= CURDATE()
+                 AND ml.scheduled_for < CURDATE() + INTERVAL 1 DAY
+               ORDER BY ml.scheduled_for ASC""",
+            (pid,),
+        )
+        dose_rows = cur.fetchall() or []
+        doses = []
+        unconfirmed_count = 0
+        taken_count = 0
+        for d in dose_rows:
+            st = d["status"]
+            if st == "Taken_Confirmed":
+                taken_count += 1
+                disp_st = "Taken"
+            elif st == "Skipped":
+                disp_st = "Skipped"
+            elif st == "Missed":
+                disp_st = "Missed"
+                unconfirmed_count += 1
+            else:
+                disp_st = "Scheduled"
+                unconfirmed_count += 1
+
+            sched_time = d["scheduled_for"].strftime("%I:%M %p") if isinstance(d["scheduled_for"], datetime) else ""
+            doses.append({
+                "dose_id": d["medication_log_id"],
+                "medicine_name": d["medicine_name"],
+                "scheduled_time": sched_time,
+                "status": disp_st,
+                "raw_status": st,
+                "can_confirm": st not in ("Taken_Confirmed", "Skipped"),
+            })
+
+        # 4. Checkin completed today (yes / no only)
+        cur.execute(
+            """SELECT symptom_report_id, reported_at
+               FROM symptom_reports
+               WHERE patient_id = %s AND DATE(reported_at) = CURDATE()
+               ORDER BY reported_at DESC LIMIT 1""",
+            (pid,),
+        )
+        chk = cur.fetchone()
+        checkin_completed_today = bool(chk)
+
+        # 5. Active urgent alert check for guidance card
+        cur.execute(
+            """SELECT flag_id, severity FROM flags
+               WHERE patient_id = %s AND status IN ('Open', 'Acknowledged') AND severity = 'Urgent_Review'
+               LIMIT 1""",
+            (pid,),
+        )
+        urgent_flag = cur.fetchone()
+
+        # 6. Next appointment
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type,
+                      s.full_name AS doctor_name, s.specialization
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id = %s AND a.appointment_date >= NOW()
+               ORDER BY a.appointment_date ASC LIMIT 1""",
+            (pid,),
+        )
+        appt = cur.fetchone()
+        next_appointment = None
+        if appt:
+            next_appointment = {
+                "appointment_id": appt["appointment_id"],
+                "date": appt["appointment_date"].strftime("%d %b %Y, %I:%M %p") if isinstance(appt["appointment_date"], datetime) else str(appt["appointment_date"]),
+                "doctor_name": appt["doctor_name"],
+                "specialization": appt["specialization"] or "Care Clinic",
+                "type": appt["appointment_type"],
+            }
+
+        # What you may need to do card
+        if urgent_flag:
+            what_to_do = "The care team is checking on Aarav. Please contact him."
+            what_to_do_severity = "urgent"
+        elif unconfirmed_count > 0:
+            what_to_do = f"{pat['full_name']} has a scheduled medicine. You can help him take it and tap 'I helped'."
+            what_to_do_severity = "action_needed"
+        else:
+            what_to_do = "All scheduled doses are taken for today. No action needed."
+            what_to_do_severity = "normal"
+
+    return {
+        "patient": {
+            "patient_id": pat["patient_id"],
+            "patient_code": pat["patient_code"],
+            "full_name": pat["full_name"],
+            "age": age,
+            "condition": pat["condition_summary"] or "Post-Discharge Recovery",
+            "day_number": pat["day_number"] or 3,
+        },
+        "caregiver": {
+            "name": cg_info.get("full_name") or "Family Helper",
+            "relationship": cg_info.get("relationship") or "Family",
+            "consent_granted": True,
+            "sharing_badge": f"Sharing allowed by {pat['full_name']}",
+        },
+        "what_you_may_need_to_do": {
+            "text": what_to_do,
+            "severity": what_to_do_severity,
+        },
+        "latest_vitals": latest_readings,
+        "today_doses": {
+            "total": len(doses),
+            "taken": taken_count,
+            "remaining": unconfirmed_count,
+            "items": doses,
+        },
+        "checkin_status": {
+            "completed_today": checkin_completed_today,
+            "message": "Daily check-in received today" if checkin_completed_today else "No daily check-in logged yet today",
+        },
+        "next_appointment": next_appointment,
+    }
+
+
+@app.post("/family/doses/{log_id}/helped")
+def family_confirm_dose(
+    log_id: int,
+    user: Dict[str, Any] = Depends(require_family),
+):
+    """
+    Family Helper confirms assisting patient with medication dose (Section 2.3).
+    - Checks dose belongs to authorized patient.
+    - Sets status to 'Taken_Confirmed', recorded_by to 'Caregiver'.
+    - Logs to audit_log with action 'TAKE_DOSE_FAMILY_HELPED'.
+    """
+    pid = user["patient_id"]
+    cg_name = (user.get("caregiver_info") or {}).get("full_name") or "Family helper"
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT ml.medication_log_id, ml.status, m.medicine_name
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE ml.medication_log_id = %s AND pr.patient_id = %s""",
+            (log_id, pid),
+        )
+        dose = cur.fetchone()
+        if not dose:
+            raise HTTPException(status_code=404, detail="Medication dose log not found for this patient.")
+
+        if dose["status"] == "Taken_Confirmed":
+            return {"status": "already_taken", "dose_id": log_id, "medicine": dose["medicine_name"]}
+
+        cur.execute(
+            """UPDATE medication_logs
+               SET status = 'Taken_Confirmed', recorded_at = NOW(), recorded_by = 'Caregiver',
+                   patient_note = %s
+               WHERE medication_log_id = %s""",
+            (f"Confirmed with help from Family helper ({cg_name})", log_id),
+        )
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Caregiver', %s, 'TAKE_DOSE_FAMILY_HELPED', 'medication_log', %s,
+                       JSON_OBJECT('status', 'Taken_Confirmed', 'medicine', %s, 'patient_id', %s, 'caregiver', %s))""",
+            (str(user["account_id"]), log_id, dose["medicine_name"], pid, cg_name),
+        )
+        conn.commit()
+
+    return {
+        "status": "updated",
+        "dose_id": log_id,
+        "medicine": dose["medicine_name"],
+        "actor": "Family helper",
+        "message": f"Confirmed dose with help from {cg_name}",
+    }
+
+
+@app.get("/family/calendar")
+def get_family_calendar(user: Dict[str, Any] = Depends(require_family)):
+    """Family View Calendar endpoint: returns upcoming appointments and schedule."""
+    pid = user["patient_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status,
+                      s.full_name AS doctor_name, s.specialization
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id = %s AND a.appointment_date >= CURDATE()
+               ORDER BY a.appointment_date ASC""",
+            (pid,),
+        )
+        appts = cur.fetchall() or []
+
+    results = []
+    for a in appts:
+        results.append({
+            "appointment_id": a["appointment_id"],
+            "date": a["appointment_date"].strftime("%A, %d %B %Y") if isinstance(a["appointment_date"], datetime) else str(a["appointment_date"]),
+            "time": a["appointment_date"].strftime("%I:%M %p") if isinstance(a["appointment_date"], datetime) else "",
+            "doctor_name": a["doctor_name"],
+            "department": a["specialization"] or "Cardiology Recovery Desk",
+            "type": a["appointment_type"],
+            "status": a["status"],
+            "ics_url": f"/patient/me/appointments/{a['appointment_id']}.ics",
+        })
+
+    return {"appointments": results, "patient_id": pid}
+
+
+@app.get("/family/contacts")
+def get_family_contacts(user: Dict[str, Any] = Depends(require_family)):
+    """Family View Contacts endpoint: returns care team and emergency services."""
+    return {
+        "attending_doctor": {
+            "name": "Dr. Ananya Sharma",
+            "role": "Attending Physician",
+            "phone": "+91-98765-01001",
+            "clinic": "CareLoop Recovery Clinic",
+        },
+        "assigned_nurse": {
+            "name": "Priya Nair",
+            "role": "Assigned Care Nurse",
+            "phone": "+91-98765-01002",
+        },
+        "hospital_desk": {
+            "name": "CareLoop Hospital 24/7 Desk",
+            "phone": "+91-11-2659-8800",
+            "hours": "24/7 Mon-Sun",
+        },
+        "emergency": {
+            "number": "112",
+            "label": "National Emergency Services",
+            "guidance": "If experiencing severe chest pain, shortness of breath, or sudden weakness, call 112 immediately.",
+        },
+    }
+
+
+# ─── Staff Rule Proposals (Phase 2) ──────────────────────────────────────────
+
+class ProposeLimitIn(BaseModel):
+    rule_id: int
+    threshold_value: float
+    window_hours: Optional[int] = None
+    severity: Optional[str] = None
+    change_reason: str
+
+
+@app.post("/staff/rules/propose-limit")
+def propose_limit_endpoint(
+    body: ProposeLimitIn,
+    user: Dict[str, Any] = Depends(require_staff),
+):
+    """Nurse or Doctor limit proposal endpoint (Section 2.3)."""
+    update_body = UpdateRuleIn(
+        threshold_value=body.threshold_value,
+        window_hours=body.window_hours,
+        severity=body.severity,
+        change_reason=body.change_reason,
+    )
+    return update_alert_rule(rule_id=body.rule_id, body=update_body, user=user)

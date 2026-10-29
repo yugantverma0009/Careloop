@@ -24,7 +24,7 @@ const DEMO_ROLES = [
     name: 'Dr. Ananya Sharma',
     email: 'ananya.demo@example.test',
     password: 'Demo@12345',
-    targetRoute: '/staff',
+    targetRoute: '/doctor',
     roleTag: 'Doctor',
     IconComponent: IconStethoscope,
   },
@@ -34,7 +34,7 @@ const DEMO_ROLES = [
     name: 'Priya Nair',
     email: 'priya.demo@example.test',
     password: 'Demo@12345',
-    targetRoute: '/staff',
+    targetRoute: '/nurse',
     roleTag: 'Nurse',
     IconComponent: IconNurse,
   },
@@ -50,11 +50,11 @@ const DEMO_ROLES = [
   },
   {
     id: 'caregiver',
-    title: 'Family Caregiver',
+    title: 'Family Helper',
     name: 'Neha Patel (Spouse)',
     email: 'caregiver1.demo@example.test',
     password: 'Demo@12345',
-    targetRoute: '/patient',
+    targetRoute: '/family',
     roleTag: 'Caregiver',
     IconComponent: IconCaregiver,
   },
@@ -89,10 +89,11 @@ export default function CareLoopLogin({ onLoginSuccess }) {
         onLoginSuccess(userObj);
       }
       const role = userObj.role || activeRole.roleTag;
-      const target =
-        role === 'Patient' || role === 'Caregiver'
-          ? '/patient'
-          : '/staff';
+      let target = '/patient';
+      if (role === 'Doctor') target = '/doctor';
+      else if (role === 'Nurse') target = '/nurse';
+      else if (role === 'Caregiver') target = '/family';
+      else target = '/patient';
       window.location.href = target;
     } catch (err) {
       console.error('Login error', err);

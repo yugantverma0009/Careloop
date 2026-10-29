@@ -4,8 +4,8 @@ import {
   acknowledgeFlag,
   resolveFlag,
   dismissFlag,
-  assignFlag,
   escalateFlagNow,
+  escalateFlagToDoctor,
 } from '../services/api';
 
 /**
@@ -134,20 +134,16 @@ export default function FlagDrawer({
     }
   };
 
-  const handleAssign = async () => {
-    if (!targetStaffId) {
-      setErrorMsg('Please select a staff member.');
-      return;
-    }
+  const handleEscalateDoctor = async () => {
     setLoadingAction(true);
     setErrorMsg('');
     try {
-      await assignFlag(flag_id, Number(targetStaffId), modalNote);
-      onActionSuccess?.('Flag reassigned');
+      await escalateFlagToDoctor(flag_id, modalNote || 'Nurse requested doctor review');
+      onActionSuccess?.('Flag escalated to Dr. Ananya Sharma');
       setActionModal(null);
       onClose();
     } catch (err) {
-      setErrorMsg(err.message || 'Failed to assign flag');
+      setErrorMsg(err.message || 'Failed to escalate flag to doctor');
     } finally {
       setLoadingAction(false);
     }
@@ -695,20 +691,20 @@ export default function FlagDrawer({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActionModal('assign')}
+                  onClick={() => setActionModal('ask_doctor')}
                   disabled={loadingAction}
                   style={{
                     padding: '8px 14px',
                     borderRadius: '6px',
-                    border: '1px solid var(--border-subtle, #e2e8f0)',
-                    background: 'var(--bg-base, #f8fafc)',
-                    color: 'var(--text-secondary, #475569)',
+                    border: '1px solid var(--role-nurse, #0284c7)',
+                    background: 'var(--role-nurse-soft, #eff6ff)',
+                    color: 'var(--role-nurse, #0284c7)',
                     fontSize: '12px',
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
                   }}
                 >
-                  Assign...
+                  Ask doctor
                 </button>
               </div>
 
@@ -745,20 +741,20 @@ export default function FlagDrawer({
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   type="button"
-                  onClick={() => setActionModal('assign')}
+                  onClick={() => setActionModal('ask_doctor')}
                   disabled={loadingAction}
                   style={{
                     padding: '8px 14px',
                     borderRadius: '6px',
-                    border: '1px solid var(--border-subtle, #e2e8f0)',
-                    background: 'var(--bg-base, #f8fafc)',
-                    color: 'var(--text-secondary, #475569)',
+                    border: '1px solid var(--role-nurse, #0284c7)',
+                    background: 'var(--role-nurse-soft, #eff6ff)',
+                    color: 'var(--role-nurse, #0284c7)',
                     fontSize: '12px',
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
                   }}
                 >
-                  Reassign...
+                  Ask doctor
                 </button>
               </div>
 
@@ -837,14 +833,14 @@ export default function FlagDrawer({
             <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>
               {actionModal === 'resolve' && 'Resolve Clinical Flag'}
               {actionModal === 'dismiss' && 'Dismiss as False Alarm'}
-              {actionModal === 'assign' && 'Assign Flag Ownership'}
+              {actionModal === 'ask_doctor' && 'Ask Doctor to Review'}
               {actionModal === 'escalate' && 'Confirm Manual Escalation'}
             </div>
 
             <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
               {actionModal === 'resolve' && 'Select the clinical outcome and provide resolution notes.'}
               {actionModal === 'dismiss' && 'Record the false alarm reason to update rule performance metrics.'}
-              {actionModal === 'assign' && 'Select the colleague to take ownership of this flag.'}
+              {actionModal === 'ask_doctor' && 'Escalate this alert directly to Dr. Ananya Sharma with your clinical notes.'}
               {actionModal === 'escalate' && 'Immediate notification will be dispatched to the attending physician.'}
             </div>
 
@@ -882,33 +878,6 @@ export default function FlagDrawer({
                       <option value="Device_Or_Data_Issue">Device Transmission Glitch</option>
                     </>
                   )}
-                </select>
-              </div>
-            )}
-
-            {/* Assign Colleague Dropdown */}
-            {actionModal === 'assign' && (
-              <div style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                  Assign to Staff Member *
-                </label>
-                <select
-                  value={targetStaffId}
-                  onChange={(e) => setTargetStaffId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '13px',
-                    color: '#0f172a',
-                  }}
-                >
-                  {staffMembers.map((sm) => (
-                    <option key={sm.staff_id} value={sm.staff_id}>
-                      {sm.full_name} ({sm.staff_role})
-                    </option>
-                  ))}
                 </select>
               </div>
             )}
@@ -961,8 +930,8 @@ export default function FlagDrawer({
                     ? handleResolve
                     : actionModal === 'dismiss'
                     ? handleDismiss
-                    : actionModal === 'assign'
-                    ? handleAssign
+                    : actionModal === 'ask_doctor'
+                    ? handleEscalateDoctor
                     : handleEscalate
                 }
                 disabled={loadingAction}
@@ -970,14 +939,22 @@ export default function FlagDrawer({
                   padding: '8px 18px',
                   borderRadius: '6px',
                   border: 'none',
-                  background: actionModal === 'resolve' ? '#16a34a' : '#0f172a',
+                  background: actionModal === 'resolve' ? '#16a34a' : actionModal === 'ask_doctor' ? 'var(--role-nurse, #0284c7)' : '#0f172a',
                   color: '#ffffff',
                   fontSize: '13px',
                   fontWeight: 700,
                   cursor: 'pointer',
                 }}
               >
-                {loadingAction ? 'Processing...' : 'Confirm'}
+                {loadingAction
+                  ? 'Processing...'
+                  : actionModal === 'resolve'
+                  ? 'Confirm Resolution'
+                  : actionModal === 'dismiss'
+                  ? 'Confirm Dismissal'
+                  : actionModal === 'ask_doctor'
+                  ? 'Escalate to Doctor'
+                  : 'Escalate Now'}
               </button>
             </div>
           </div>

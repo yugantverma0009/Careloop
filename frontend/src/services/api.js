@@ -418,3 +418,35 @@ export const recordPatientLace = (patientId, losDays, acute, charlson, edVisits)
     charlson_index: charlson,
     ed_visits_6m: edVisits,
   });
+
+// ─── Phase 2: Role Model, Family Helper & Consent ───────────────────────────
+
+export const toggleFamilySharing = (enabled) =>
+  post('/patient/me/sharing', { enabled });
+
+export const getFamilySharingStatus = () =>
+  get('/patient/me/sharing');
+
+export const getFamilyToday = () =>
+  get('/family/today');
+
+export const confirmFamilyDoseHelped = (logId) =>
+  post(`/family/doses/${logId}/helped`);
+
+export const getFamilyCalendar = () =>
+  get('/family/calendar');
+
+export const getFamilyContacts = () =>
+  get('/family/contacts');
+
+export const escalateFlagToDoctor = (flagId, note = 'Nurse requested doctor review') =>
+  post(`/staff/flags/${flagId}/escalate-doctor`, { note });
+
+export const proposeLimitChange = (ruleId, thresholdValue, reason, windowHours = null, severity = null) =>
+  post('/staff/rules/propose-limit', {
+    rule_id: ruleId,
+    threshold_value: thresholdValue,
+    change_reason: reason,
+    window_hours: windowHours,
+    severity,
+  });
