@@ -7,7 +7,8 @@ import {
   markDoseTaken,
   skipDose,
   undoDose,
-  submitSymptomCheckin,
+  submitPatientCheckin,
+  getPatientCheckins,
   sendChatMessage,
   getChatHistory,
   logout,
@@ -29,6 +30,7 @@ import {
   IconCalendar,
   IconClock,
   IconBell,
+  IconMic,
 } from './Icons';
 
 const SKIP_REASONS = [
@@ -39,9 +41,39 @@ const SKIP_REASONS = [
   { id: 'other', en: 'Other', hi: 'अन्य कारण' },
 ];
 
+const CHECKIN_SYMPTOM_CHIPS = [
+  { id: 'tired', en: 'Tired', hi: 'थकान' },
+  { id: 'dizzy', en: 'Dizzy', hi: 'चक्कर आना' },
+  { id: 'nausea', en: 'Nausea', hi: 'जी मिचलाना' },
+  { id: 'fever', en: 'Fever', hi: 'बुखार' },
+  { id: 'cough', en: 'Cough', hi: 'खांसी' },
+  { id: 'swelling', en: 'Swelling', hi: 'सूजन' },
+  { id: 'wound_pain', en: 'Wound pain', hi: 'घाव का दर्द' },
+  { id: 'poor_sleep', en: 'Poor sleep', hi: 'नींद न आना' },
+  { id: 'short_of_breath', en: 'Short of breath', hi: 'सांस फूलना', emergency: true },
+  { id: 'chest_pain', en: 'Chest pain', hi: 'सीने में दर्द', emergency: true },
+  { id: 'none_of_these', en: 'None of these', hi: 'इनमें से कोई नहीं', isNone: true },
+];
+
+const CHECKIN_LOCATION_CHIPS = [
+  { id: 'chest', en: 'Chest', hi: 'छाती/सीना' },
+  { id: 'wound_site', en: 'Wound site', hi: 'घाव की जगह' },
+  { id: 'head', en: 'Head', hi: 'सिर' },
+  { id: 'stomach', en: 'Stomach', hi: 'पेट' },
+  { id: 'back', en: 'Back', hi: 'पीठ' },
+  { id: 'legs', en: 'Legs', hi: 'पैर' },
+  { id: 'other', en: 'Other', hi: 'अन्य' },
+];
+
+const CHECKIN_TRENDS = [
+  { id: 'better', en: 'Better', hi: 'बेहतर' },
+  { id: 'same', en: 'Same', hi: 'वैसा ही' },
+  { id: 'worse', en: 'Worse', hi: 'खराब' },
+];
+
 export default function CareLoopPatientPortal({ user }) {
   const [lang, setLang] = useState('en');
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [todayData, setTodayData] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
@@ -71,11 +103,21 @@ export default function CareLoopPatientPortal({ user }) {
   // In-App Reminders State (Brief Sec 6.8)
   const [remindersOpen, setRemindersOpen] = useState(false);
 
-  // Symptom check-in state (retained from existing)
+  // Phase 3 Check-in State (Brief Sec 6.4)
+  const [painLevel, setPainLevel] = useState(0);
+  const [selectedChips, setSelectedChips] = useState([]);
+  const [selectedSites, setSelectedSites] = useState([]);
+  const [trend, setTrend] = useState(null);
   const [symptomText, setSymptomText] = useState('');
-  const [painLevel, setPainLevel] = useState(2);
-  const [symptomGuidance, setSymptomGuidance] = useState(null);
-  const [symptomSuccess, setSymptomSuccess] = useState('');
+  const [inputMethod, setInputMethod] = useState('Text');
+  const [isListening, setIsListening] = useState(false);
+  const [checkinSubmitting, setCheckinSubmitting] = useState(false);
+  const [checkinSuccessData, setCheckinSuccessData] = useState(null);
+  const [checkinError, setCheckinError] = useState(null);
+  const [checkinHistory, setCheckinHistory] = useState([]);
+  const [checkinHistoryLoading, setCheckinHistoryLoading] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  const recognitionRef = useRef(null);
 
   const chatEndRef = useRef(null);
 
@@ -358,30 +400,218 @@ export default function CareLoopPatientPortal({ user }) {
     }
   };
 
-  // Symptom Check-in submit
-  const handleSymptomSubmit = async (e) => {
-    e.preventDefault();
-    if (!symptomText.trim()) return;
+  // Speech recognition helper (Brief Sec 6.4)
+  const speechSupported =
+    typeof window !== 'undefined' &&
+    Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  const toggleSpeechRecognition = () => {
+    if (!speechSupported) return;
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+      setIsListening(false);
+      return;
+    }
 
     try {
-      setLoading(true);
-      const res = await submitSymptomCheckin(symptomText, painLevel, 'Text', lang);
-      setSymptomSuccess(
-        lang === 'hi'
-          ? 'आपकी स्थिति दर्ज कर ली गई है। आपकी केयर टीम इसे देख सकती है।'
-          : 'Check-in recorded. Your care team can see your update.'
-      );
-      if (res && (res.guidance || res.immediate_guidance)) {
-        setSymptomGuidance(res.guidance || res.immediate_guidance);
-      }
-      setSymptomText('');
-      setTimeout(() => setSymptomSuccess(''), 6000);
-      await loadTodayData(true);
-    } catch (err) {
-      alert(`Check-in failed: ${err.message}`);
-    } finally {
-      setLoading(false);
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new SpeechRecognition();
+      rec.lang = lang === 'hi' ? 'hi-IN' : 'en-US';
+      rec.continuous = false;
+      rec.interimResults = false;
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (e) => {
+        const transcript = e.results?.[0]?.[0]?.transcript;
+        if (transcript) {
+          setSymptomText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          setInputMethod('Voice_Transcript');
+        }
+      };
+
+      rec.onerror = (e) => {
+        console.warn('Speech recognition error:', e);
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+    } catch (e) {
+      console.warn('Failed to start speech recognition:', e);
+      setIsListening(false);
     }
+  };
+
+  // Chip toggles
+  const handleToggleChip = (chipId) => {
+    const chip = CHECKIN_SYMPTOM_CHIPS.find((c) => c.id === chipId);
+    if (!chip) return;
+
+    if (chip.isNone) {
+      if (selectedChips.includes('none_of_these')) {
+        setSelectedChips([]);
+      } else {
+        setSelectedChips(['none_of_these']);
+      }
+      return;
+    }
+
+    if (selectedChips.includes(chipId)) {
+      setSelectedChips(selectedChips.filter((c) => c !== chipId));
+    } else {
+      setSelectedChips([...selectedChips.filter((c) => c !== 'none_of_these'), chipId]);
+    }
+  };
+
+  const handleToggleSite = (siteId) => {
+    if (selectedSites.includes(siteId)) {
+      setSelectedSites(selectedSites.filter((s) => s !== siteId));
+    } else {
+      setSelectedSites([...selectedSites, siteId]);
+    }
+  };
+
+  const handleToggleTrend = (trendId) => {
+    setTrend((prev) => (prev === trendId ? null : trendId));
+  };
+
+  // 14-day Check-in History Loader (Brief Sec 6.4 & 8.4)
+  const loadCheckinHistory = async () => {
+    try {
+      setCheckinHistoryLoading(true);
+      const res = await getPatientCheckins(14);
+      if (res && res.reports) {
+        setCheckinHistory(res.reports);
+      }
+    } catch (err) {
+      console.error('Failed to load checkin history:', err);
+    } finally {
+      setCheckinHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeNav === 'checkin') {
+      loadCheckinHistory();
+    }
+  }, [activeNav]);
+
+  // Draft Safety: load draft from localStorage on mount (Brief Sec 6.4)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('careloop_checkin_draft');
+      if (saved) {
+        const d = JSON.parse(saved);
+        if (typeof d.painLevel === 'number') setPainLevel(d.painLevel);
+        if (Array.isArray(d.selectedChips)) setSelectedChips(d.selectedChips);
+        if (Array.isArray(d.selectedSites)) setSelectedSites(d.selectedSites);
+        if (d.trend) setTrend(d.trend);
+        if (d.symptomText) setSymptomText(d.symptomText);
+      }
+    } catch (e) {
+      // ignore JSON parse error
+    }
+  }, []);
+
+  // Draft Safety: persist draft until submitted
+  useEffect(() => {
+    if (!checkinSuccessData) {
+      try {
+        localStorage.setItem(
+          'careloop_checkin_draft',
+          JSON.stringify({
+            painLevel,
+            selectedChips,
+            selectedSites,
+            trend,
+            symptomText,
+          })
+        );
+      } catch (e) {
+        // ignore storage errors
+      }
+    }
+  }, [painLevel, selectedChips, selectedSites, trend, symptomText, checkinSuccessData]);
+
+  // Check-in Submit Handler (Brief Sec 6.4)
+  const handleCheckinSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (checkinSubmitting) return;
+
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      setCheckinError(
+        lang === 'hi'
+          ? 'सर्वर से जवाब मिलने में समय लग रहा है। कृपया अपना कनेक्शन जांचें और पुनः प्रयास करें।'
+          : 'Request is taking longer than usual. Please check your connection and retry.'
+      );
+    }, 10000);
+
+    try {
+      setCheckinSubmitting(true);
+      setCheckinError(null);
+
+      const payload = {
+        pain_level: painLevel,
+        chips: selectedChips,
+        sites: selectedSites,
+        trend: trend,
+        text: symptomText.trim(),
+        language: lang,
+        input_method: inputMethod,
+      };
+
+      const res = await submitPatientCheckin(payload);
+      clearTimeout(timeoutId);
+
+      if (!timedOut) {
+        try {
+          localStorage.removeItem('careloop_checkin_draft');
+        } catch (err) {}
+        setCheckinSuccessData({
+          res,
+          payload,
+          submittedAt: new Date(),
+        });
+        await loadCheckinHistory();
+        await loadTodayData(true);
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      setCheckinError(
+        err.message || (lang === 'hi' ? 'चेक-इन भेजने में त्रुटि हुई।' : 'Failed to send check-in.')
+      );
+    } finally {
+      setCheckinSubmitting(false);
+    }
+  };
+
+  const handleResetCheckinForm = () => {
+    setCheckinSuccessData(null);
+    setPainLevel(0);
+    setSelectedChips([]);
+    setSelectedSites([]);
+    setTrend(null);
+    setSymptomText('');
+    setInputMethod('Text');
+    setCheckinError(null);
+    try {
+      localStorage.removeItem('careloop_checkin_draft');
+    } catch (e) {}
   };
 
   // Chat message submit
@@ -2707,125 +2937,811 @@ export default function CareLoopPatientPortal({ user }) {
             </div>
           )}
 
-          {/* ─── 9. TAB: CHECK-IN (Retained from existing, refined styling) ─── */}
+          {/* ─── 9. TAB: CHECK-IN (Phase 3 Upgrade: Brief Sec 6.4 & 8.4) ─── */}
           {activeNav === 'checkin' && (
-            <div
-              style={{
-                background: 'var(--bg-surface, #ffffff)',
-                border: '1px solid var(--border-subtle, #e2e8f0)',
-                borderRadius: '12px',
-                padding: '28px',
-                maxWidth: '680px',
-                boxShadow: 'var(--shadow-card)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                <IconShieldCheck width={20} height={20} style={{ color: 'var(--accent-teal, #0d9488)' }} />
-                <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
-                  {lang === 'hi' ? 'दैनिक स्वास्थ्य चेक-इन' : 'Daily health check-in'}
-                </h2>
-              </div>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted, #64748b)', marginBottom: '20px' }}>
-                {lang === 'hi'
-                  ? 'बताएं कि आप कैसा महसूस कर रहे हैं और क्या आपको कोई असामान्य लक्षण महसूस हो रहे हैं।'
-                  : 'Tell us how you are feeling and if you notice anything unusual.'}
-              </p>
-
-              {symptomSuccess && (
-                <div
-                  style={{
-                    background: 'var(--success-green-soft, #f0fdf4)',
-                    color: 'var(--success-green-text, #166534)',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    marginBottom: '16px',
-                    border: '1px solid var(--success-green, #bbf7d0)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <IconCheck width={14} height={14} />
-                  <span>{symptomSuccess}</span>
-                </div>
-              )}
-
-              {symptomGuidance && (
-                <div
-                  style={{
-                    background: 'var(--alert-red-soft, #fef2f2)',
-                    border: '1px solid var(--alert-red, #dc2626)',
-                    borderRadius: '8px',
-                    padding: '12px 16px',
-                    marginBottom: '16px',
-                    color: 'var(--alert-red-text, #991b1b)',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                  }}
-                >
-                  {symptomGuidance}
-                </div>
-              )}
-
-              <form onSubmit={handleSymptomSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
-                    <span>{lang === 'hi' ? 'दर्द का स्तर (0 से 10)' : 'Pain level (0 to 10)'}</span>
-                    <span style={{ color: painLevel > 6 ? '#dc2626' : painLevel > 3 ? '#d97706' : '#059669', fontWeight: 800 }}>
-                      {painLevel} / 10
-                    </span>
+            <div style={{ maxWidth: '740px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Check-in Form Card */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '28px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '8px',
+                        background: 'var(--accent-teal-subtle, #ccfbf1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--accent-teal, #0d9488)',
+                      }}
+                    >
+                      <IconShieldCheck width={20} height={20} />
+                    </div>
+                    <div>
+                      <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
+                        {lang === 'hi' ? 'दैनिक स्वास्थ्य चेक-इन' : 'Daily health check-in'}
+                      </h2>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', margin: '2px 0 0 0' }}>
+                        {lang === 'hi'
+                          ? '30 सेकंड से कम समय लगता है · सीधे आपकी देखभाल टीम को भेजा जाता है'
+                          : 'Takes less than 30 seconds · Sent directly to your care team'}
+                      </p>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="10"
-                    value={painLevel}
-                    onChange={(e) => setPainLevel(parseInt(e.target.value, 10))}
-                    style={{ width: '100%', accentColor: 'var(--accent-teal, #0d9488)' }}
-                  />
+
+                  {!checkinSuccessData && (
+                    <button
+                      type="button"
+                      onClick={handleResetCheckinForm}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        fontSize: '12px',
+                        color: 'var(--text-muted, #64748b)',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {lang === 'hi' ? 'रीसेट करें' : 'Clear draft'}
+                    </button>
+                  )}
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
-                    {lang === 'hi' ? 'वर्णन करें कि आप अभी कैसा महसूस कर रहे हैं' : 'Describe how you feel right now'}
-                  </label>
-                  <textarea
-                    rows="4"
-                    value={symptomText}
-                    onChange={(e) => setSymptomText(e.target.value)}
-                    placeholder={lang === 'hi' ? 'उदा. थोड़ा थका हुआ, कोई सीने में दर्द नहीं...' : 'e.g. A little tired after walking, no chest pain...'}
+                {/* POST-SUBMISSION CONFIRMATION STATE */}
+                {checkinSuccessData ? (
+                  <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* Emergency notice if emergency flag was hit */}
+                    {checkinSuccessData.res?.emergency && (
+                      <div
+                        style={{
+                          background: 'var(--alert-red-soft, #fef2f2)',
+                          border: '2px solid var(--alert-red, #dc2626)',
+                          borderRadius: '10px',
+                          padding: '16px',
+                          color: 'var(--alert-red-text, #991b1b)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <IconAlertTriangle width={20} height={20} style={{ color: 'var(--alert-red, #dc2626)' }} />
+                          <strong style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            {lang === 'hi' ? 'आपातकालीन सूचना' : 'Emergency Notice'}
+                          </strong>
+                        </div>
+                        <p style={{ fontSize: '13px', margin: '0 0 8px 0', lineHeight: 1.5, fontWeight: 600 }}>
+                          {lang === 'hi'
+                            ? 'यदि आपको सीने में तेज दर्द, सांस लेने में अत्यधिक तकलीफ या अचानक कमजोरी महसूस हो, तो तुरंत 112 पर कॉल करें।'
+                            : 'If you have severe chest pain, shortness of breath, or sudden collapse, call 112 immediately.'}
+                        </p>
+                        {checkinSuccessData.res?.guidance && (
+                          <div
+                            style={{
+                              fontSize: '12px',
+                              background: 'rgba(255, 255, 255, 0.7)',
+                              padding: '10px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(220, 38, 38, 0.2)',
+                            }}
+                          >
+                            {checkinSuccessData.res.guidance}
+                          </div>
+                        )}
+                        <div style={{ marginTop: '8px', fontSize: '12px', fontWeight: 700 }}>
+                          {lang === 'hi' ? 'आपातकालीन सहायता: 112' : 'Emergency Assistance: Call 112'}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Factual Confirmation Card */}
+                    <div
+                      style={{
+                        background: 'var(--success-green-soft, #f0fdf4)',
+                        border: '1px solid var(--success-green, #bbf7d0)',
+                        borderRadius: '10px',
+                        padding: '18px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <div
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '50%',
+                            background: 'var(--success-green, #10b981)',
+                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <IconCheck width={14} height={14} />
+                        </div>
+                        <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--success-green-text, #166534)' }}>
+                          {lang === 'hi' ? 'आपकी स्थिति केयर टीम को भेज दी गई है' : 'Sent to your care team'}
+                        </h3>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', margin: '0 0 14px 0' }}>
+                        {lang === 'hi'
+                          ? `रिपोर्ट आईडी #${checkinSuccessData.res?.report_id || ''} दर्ज कर ली गई है। डॉक्टर और नर्सिंग स्टाफ इसे अपने बोर्ड पर देख सकते हैं।`
+                          : `Report #${checkinSuccessData.res?.report_id || ''} recorded. Your doctor and nurses can see this update on their clinical triage board.`}
+                      </p>
+
+                      <div
+                        style={{
+                          background: 'var(--bg-surface, #ffffff)',
+                          border: '1px solid var(--border-subtle, #e2e8f0)',
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '10px',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div>
+                          <span style={{ color: 'var(--text-muted, #64748b)' }}>{lang === 'hi' ? 'दर्द का स्तर:' : 'Pain score:'}</span>{' '}
+                          <strong>
+                            {checkinSuccessData.payload.pain_level !== null ? `${checkinSuccessData.payload.pain_level} / 10` : 'Not rated'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted, #64748b)' }}>{lang === 'hi' ? 'कल की तुलना में:' : 'Vs yesterday:'}</span>{' '}
+                          <strong style={{ textTransform: 'capitalize' }}>
+                            {checkinSuccessData.payload.trend || 'Not specified'}
+                          </strong>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <span style={{ color: 'var(--text-muted, #64748b)' }}>{lang === 'hi' ? 'लक्षण:' : 'Symptoms:'}</span>{' '}
+                          <strong>
+                            {checkinSuccessData.payload.chips?.length > 0
+                              ? checkinSuccessData.payload.chips.join(', ')
+                              : 'None selected'}
+                          </strong>
+                        </div>
+                        {checkinSuccessData.payload.sites?.length > 0 && (
+                          <div style={{ gridColumn: '1 / -1' }}>
+                            <span style={{ color: 'var(--text-muted, #64748b)' }}>{lang === 'hi' ? 'स्थान:' : 'Locations:'}</span>{' '}
+                            <strong>{checkinSuccessData.payload.sites.join(', ')}</strong>
+                          </div>
+                        )}
+                        {checkinSuccessData.payload.text && (
+                          <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border-subtle, #e2e8f0)', paddingTop: '8px' }}>
+                            <span style={{ color: 'var(--text-muted, #64748b)' }}>{lang === 'hi' ? 'विवरण:' : 'Notes:'}</span>{' '}
+                            <span>{checkinSuccessData.payload.text}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                        <button
+                          type="button"
+                          onClick={handleResetCheckinForm}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-strong, #cbd5e1)',
+                            background: 'var(--bg-surface, #ffffff)',
+                            color: 'var(--text-primary, #0f172a)',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {lang === 'hi' ? 'दूसरा चेक-इन भेजें' : 'Submit another check-in'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveNav('recovery')}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: 'var(--navy-deep, #0b1528)',
+                            color: '#ffffff',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {lang === 'hi' ? 'होम पर लौटें' : 'Return to Overview'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* ACTIVE CHECK-IN FORM */
+                  <form onSubmit={handleCheckinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '22px', marginTop: '18px' }}>
+                    {/* 1. Pain Scale (0 to 10) */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                          1. {lang === 'hi' ? 'दर्द का स्तर (0 से 10)' : 'Pain scale (0 to 10)'}
+                        </label>
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            padding: '3px 10px',
+                            borderRadius: '999px',
+                            background:
+                              painLevel >= 7
+                                ? 'var(--alert-red-soft, #fef2f2)'
+                                : painLevel >= 4
+                                ? 'var(--warning-amber-soft, #fffbeb)'
+                                : 'var(--success-green-soft, #f0fdf4)',
+                            color:
+                              painLevel >= 7
+                                ? 'var(--alert-red-text, #991b1b)'
+                                : painLevel >= 4
+                                ? 'var(--warning-amber-text, #b45309)'
+                                : 'var(--success-green-text, #166534)',
+                            border: `1px solid ${
+                              painLevel >= 7
+                                ? 'var(--alert-red, #dc2626)'
+                                : painLevel >= 4
+                                ? 'var(--warning-amber, #d97706)'
+                                : 'var(--success-green, #10b981)'
+                            }`,
+                          }}
+                        >
+                          {painLevel} / 10 ·{' '}
+                          {painLevel === 0
+                            ? lang === 'hi' ? 'कोई दर्द नहीं' : 'No pain'
+                            : painLevel <= 3
+                            ? lang === 'hi' ? 'हल्का' : 'Mild'
+                            : painLevel <= 6
+                            ? lang === 'hi' ? 'मध्यम' : 'Moderate'
+                            : lang === 'hi' ? 'अत्यधिक दर्द' : 'Severe / Worst pain'}
+                        </div>
+                      </div>
+
+                      {/* 11 Tappable Number Buttons */}
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(11, minmax(0, 1fr))',
+                          gap: '6px',
+                        }}
+                      >
+                        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                          const isSelected = painLevel === num;
+                          const activeColor =
+                            num === 0 ? '#10b981' : num <= 3 ? '#0d9488' : num <= 6 ? '#d97706' : '#dc2626';
+                          const numBg = isSelected ? activeColor : 'var(--bg-surface-alt, #f8fafc)';
+                          const numBorder = isSelected ? activeColor : 'var(--border-subtle, #e2e8f0)';
+
+                          return (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => setPainLevel(num)}
+                              aria-label={`Pain score ${num}`}
+                              style={{
+                                height: '46px',
+                                borderRadius: '8px',
+                                border: `2px solid ${isSelected ? numBorder : 'var(--border-subtle, #e2e8f0)'}`,
+                                background: isSelected ? numBg : 'var(--bg-surface-alt, #f8fafc)',
+                                color: isSelected ? '#ffffff' : 'var(--text-primary, #0f172a)',
+                                fontSize: '15px',
+                                fontWeight: isSelected ? 800 : 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              {num}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: '11px',
+                          color: 'var(--text-muted, #64748b)',
+                          marginTop: '6px',
+                          padding: '0 2px',
+                        }}
+                      >
+                        <span>0 = {lang === 'hi' ? 'कोई दर्द नहीं' : 'No pain'}</span>
+                        <span>10 = {lang === 'hi' ? 'अत्यधिक दर्द' : 'Worst pain possible'}</span>
+                      </div>
+                    </div>
+
+                    {/* 2. Quick Symptoms (Multi-select chips) */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                        2. {lang === 'hi' ? 'त्वरित लक्षण (लागू होने वाले सभी चुनें)' : 'Quick symptoms (tap all that apply)'}
+                      </label>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {CHECKIN_SYMPTOM_CHIPS.map((chip) => {
+                          const isSelected = selectedChips.includes(chip.id);
+                          return (
+                            <button
+                              key={chip.id}
+                              type="button"
+                              onClick={() => handleToggleChip(chip.id)}
+                              style={{
+                                padding: '8px 14px',
+                                borderRadius: '20px',
+                                border: `1.5px solid ${
+                                  isSelected
+                                    ? chip.emergency
+                                      ? 'var(--alert-red, #dc2626)'
+                                      : 'var(--accent-teal, #0d9488)'
+                                    : 'var(--border-subtle, #e2e8f0)'
+                                }`,
+                                background: isSelected
+                                  ? chip.emergency
+                                    ? 'var(--alert-red-soft, #fef2f2)'
+                                    : 'var(--accent-teal-subtle, #ccfbf1)'
+                                  : 'var(--bg-surface-alt, #f8fafc)',
+                                color: isSelected
+                                  ? chip.emergency
+                                    ? 'var(--alert-red-text, #991b1b)'
+                                    : 'var(--accent-teal, #0d9488)'
+                                  : 'var(--text-secondary, #475569)',
+                                fontSize: '12px',
+                                fontWeight: isSelected ? 700 : 500,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {chip.emergency && (
+                                <span
+                                  style={{
+                                    width: '6px',
+                                    height: '6px',
+                                    borderRadius: '50%',
+                                    background: 'var(--alert-red, #dc2626)',
+                                  }}
+                                />
+                              )}
+                              <span>{chip[lang] || chip.en}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Where is it? (Optional Location Chips) */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                        3. {lang === 'hi' ? 'दर्द या परेशानी कहां है? (वैकल्पिक)' : 'Where is it? (optional)'}
+                      </label>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {CHECKIN_LOCATION_CHIPS.map((loc) => {
+                          const isSelected = selectedSites.includes(loc.id);
+                          return (
+                            <button
+                              key={loc.id}
+                              type="button"
+                              onClick={() => handleToggleSite(loc.id)}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: '16px',
+                                border: `1.5px solid ${
+                                  isSelected ? 'var(--navy-deep, #0b1528)' : 'var(--border-subtle, #e2e8f0)'
+                                }`,
+                                background: isSelected ? 'var(--navy-deep, #0b1528)' : 'var(--bg-surface-alt, #f8fafc)',
+                                color: isSelected ? '#ffffff' : 'var(--text-secondary, #475569)',
+                                fontSize: '12px',
+                                fontWeight: isSelected ? 700 : 500,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {loc[lang] || loc.en}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 4. Compared with yesterday (Optional) */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                        4. {lang === 'hi' ? 'कल की तुलना में (वैकल्पिक)' : 'Compared with yesterday (optional)'}
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                        {CHECKIN_TRENDS.map((t) => {
+                          const isSelected = trend === t.id;
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => handleToggleTrend(t.id)}
+                              style={{
+                                padding: '10px',
+                                borderRadius: '8px',
+                                border: `1.5px solid ${
+                                  isSelected ? 'var(--accent-teal, #0d9488)' : 'var(--border-subtle, #e2e8f0)'
+                                }`,
+                                background: isSelected ? 'var(--accent-teal-subtle, #ccfbf1)' : 'var(--bg-surface-alt, #f8fafc)',
+                                color: isSelected ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                                fontSize: '13px',
+                                fontWeight: isSelected ? 800 : 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {t[lang] || t.en}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 5. Add details (Optional text + Voice Input) */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                          5. {lang === 'hi' ? 'अतिरिक्त विवरण (वैकल्पिक)' : 'Add details (optional)'}
+                        </label>
+                        {speechSupported && (
+                          <button
+                            type="button"
+                            onClick={toggleSpeechRecognition}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 12px',
+                              borderRadius: '6px',
+                              border: isListening ? '1px solid #ef4444' : '1px solid var(--border-subtle, #e2e8f0)',
+                              background: isListening ? '#fef2f2' : 'var(--bg-surface-alt, #f8fafc)',
+                              color: isListening ? '#dc2626' : 'var(--text-secondary, #475569)',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <IconMic width={14} height={14} style={{ color: isListening ? '#dc2626' : 'inherit' }} />
+                            <span>
+                              {isListening
+                                ? (lang === 'hi' ? 'सुन रहे हैं...' : 'Listening...')
+                                : (lang === 'hi' ? 'बोलकर बताएं' : 'Voice input')}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+
+                      <textarea
+                        rows="3"
+                        maxLength={1000}
+                        value={symptomText}
+                        onChange={(e) => setSymptomText(e.target.value)}
+                        placeholder={
+                          lang === 'hi'
+                            ? 'उदा. दोपहर के भोजन के बाद हल्का दर्द हुआ, कोई सांस की समस्या नहीं...'
+                            : 'e.g. A little tired after walking, no chest pain, dressing is clean...'
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '12px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-strong, #cbd5e1)',
+                          fontSize: '13px',
+                          background: 'var(--bg-input, #ffffff)',
+                          color: 'var(--text-primary, #0f172a)',
+                          resize: 'vertical',
+                          fontFamily: 'inherit',
+                          lineHeight: 1.5,
+                        }}
+                      />
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: '11px',
+                          color: 'var(--text-muted, #64748b)',
+                          marginTop: '4px',
+                        }}
+                      >
+                        <span>
+                          {inputMethod === 'Voice_Transcript' && (
+                            <span style={{ color: 'var(--accent-teal, #0d9488)', fontWeight: 600 }}>
+                              ✓ {lang === 'hi' ? 'आवाज से ट्रांसक्रिप्ट किया गया' : 'Voice transcript recorded'}
+                            </span>
+                          )}
+                        </span>
+                        <span>{symptomText.length} / 1000</span>
+                      </div>
+                    </div>
+
+                    {/* Error Notice */}
+                    {checkinError && (
+                      <div
+                        style={{
+                          background: 'var(--alert-red-soft, #fef2f2)',
+                          border: '1px solid var(--alert-red, #dc2626)',
+                          borderRadius: '8px',
+                          padding: '12px 16px',
+                          color: 'var(--alert-red-text, #991b1b)',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span>{checkinError}</span>
+                        <button
+                          type="button"
+                          onClick={handleCheckinSubmit}
+                          style={{
+                            padding: '4px 10px',
+                            background: 'var(--alert-red, #dc2626)',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {lang === 'hi' ? 'पुनः प्रयास' : 'Retry'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Sticky Bottom Submit Button */}
+                    <button
+                      type="submit"
+                      disabled={checkinSubmitting}
+                      style={{
+                        padding: '14px 20px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: 'var(--navy-deep, #0b1528)',
+                        color: '#ffffff',
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        cursor: checkinSubmitting ? 'not-allowed' : 'pointer',
+                        opacity: checkinSubmitting ? 0.7 : 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        boxShadow: 'var(--shadow-card)',
+                        transition: 'background 0.15s ease',
+                      }}
+                    >
+                      <IconSend width={16} height={16} />
+                      <span>
+                        {checkinSubmitting
+                          ? (lang === 'hi' ? 'भेजा जा रहा है...' : 'Sending to care team...')
+                          : (lang === 'hi' ? 'केयर टीम को भेजें' : 'Send to my care team')}
+                      </span>
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              {/* 14-DAY CHECK-IN HISTORY CARD (Brief Sec 6.4 & 8.4) */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '24px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <IconClock width={18} height={18} style={{ color: 'var(--accent-teal, #0d9488)' }} />
+                    <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
+                      {lang === 'hi' ? 'पिछले 14 दिनों का चेक-इन इतिहास' : 'Past 14 days check-in history'}
+                    </h3>
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
+                    {checkinHistory.length} {lang === 'hi' ? 'रिकॉर्ड' : 'entries'}
+                  </span>
+                </div>
+
+                {checkinHistoryLoading ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                    {lang === 'hi' ? 'इतिहास लोड हो रहा है...' : 'Loading check-in history...'}
+                  </div>
+                ) : checkinHistory.length === 0 ? (
+                  <div
                     style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border-strong, #cbd5e1)',
+                      padding: '24px',
+                      textAlign: 'center',
+                      color: 'var(--text-muted, #64748b)',
                       fontSize: '13px',
-                      background: 'var(--bg-input, #ffffff)',
-                      color: 'var(--text-primary, #0f172a)',
+                      fontStyle: 'italic',
+                      background: 'var(--bg-surface-alt, #f8fafc)',
+                      borderRadius: '8px',
                     }}
-                  />
-                </div>
+                  >
+                    {lang === 'hi'
+                      ? 'पिछले 14 दिनों में कोई चेक-इन दर्ज नहीं किया गया।'
+                      : 'No check-ins recorded in the last 14 days.'}
+                  </div>
+                ) : (
+                  <div>
+                    {/* Factual comparison note if at least 2 entries exist */}
+                    {checkinHistory.length >= 2 && (
+                      <div
+                        style={{
+                          background: 'var(--bg-surface-alt, #f8fafc)',
+                          border: '1px solid var(--border-subtle, #e2e8f0)',
+                          borderRadius: '8px',
+                          padding: '10px 14px',
+                          fontSize: '12px',
+                          color: 'var(--text-secondary, #475569)',
+                          marginBottom: '14px',
+                        }}
+                      >
+                        <strong>{lang === 'hi' ? 'तुलना (तथ्य):' : 'Fact-based summary:'}</strong>{' '}
+                        {lang === 'hi'
+                          ? `नवीनतम चेक-इन पर दर्द स्तर ${checkinHistory[0].pain_level ?? 'अव्यक्त'} था (${checkinHistory[0].formatted_date || checkinHistory[0].date})। पिछले चेक-इन पर दर्द ${checkinHistory[1].pain_level ?? 'अव्यक्त'} था (${checkinHistory[1].formatted_date || checkinHistory[1].date})।`
+                          : `Pain was ${checkinHistory[0].pain_level ?? 'unrated'} on ${checkinHistory[0].formatted_date || checkinHistory[0].date} and ${checkinHistory[1].pain_level ?? 'unrated'} on ${checkinHistory[1].formatted_date || checkinHistory[1].date}.`}
+                      </div>
+                    )}
 
-                <button
-                  type="submit"
-                  disabled={loading || !symptomText.trim()}
-                  style={{
-                    padding: '10px 18px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    background: 'var(--navy-deep, #0b1528)',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    cursor: !symptomText.trim() ? 'not-allowed' : 'pointer',
-                    opacity: !symptomText.trim() ? 0.6 : 1,
-                  }}
-                >
-                  {lang === 'hi' ? 'केयर टीम को भेजें' : 'Send check-in'}
-                </button>
-              </form>
+                    {/* History items list */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {checkinHistory.map((rep) => {
+                        const isExpanded = expandedHistoryId === rep.id;
+                        const pScore = rep.pain_level;
+                        const pillBg =
+                          pScore >= 7
+                            ? 'var(--alert-red-soft, #fef2f2)'
+                            : pScore >= 4
+                            ? 'var(--warning-amber-soft, #fffbeb)'
+                            : 'var(--success-green-soft, #f0fdf4)';
+                        const pillText =
+                          pScore >= 7
+                            ? 'var(--alert-red-text, #991b1b)'
+                            : pScore >= 4
+                            ? 'var(--warning-amber-text, #b45309)'
+                            : 'var(--success-green-text, #166534)';
+                        const pillBorder =
+                          pScore >= 7
+                            ? 'var(--alert-red, #dc2626)'
+                            : pScore >= 4
+                            ? 'var(--warning-amber, #d97706)'
+                            : 'var(--success-green, #10b981)';
+
+                        return (
+                          <div
+                            key={rep.id}
+                            style={{
+                              border: '1px solid var(--border-subtle, #e2e8f0)',
+                              borderRadius: '8px',
+                              padding: '12px 16px',
+                              background: 'var(--bg-surface, #ffffff)',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <div
+                              onClick={() => setExpandedHistoryId(isExpanded ? null : rep.id)}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '12px',
+                                    fontWeight: 800,
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    background: pillBg,
+                                    color: pillText,
+                                    border: `1px solid ${pillBorder}`,
+                                    fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                                  }}
+                                >
+                                  {pScore !== null ? `Pain ${pScore}/10` : 'No score'}
+                                </span>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
+                                  {rep.formatted_date || rep.reported_at}
+                                </span>
+                                {rep.emergency && (
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      background: 'var(--alert-red-soft, #fef2f2)',
+                                      color: 'var(--alert-red-text, #991b1b)',
+                                      border: '1px solid var(--alert-red, #dc2626)',
+                                    }}
+                                  >
+                                    Emergency Flag
+                                  </span>
+                                )}
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {rep.input_method === 'Voice_Transcript' && (
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      color: 'var(--text-muted, #64748b)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <IconMic width={12} height={12} />
+                                    Voice
+                                  </span>
+                                )}
+                                <span style={{ fontSize: '12px', color: 'var(--accent-teal, #0d9488)', fontWeight: 600 }}>
+                                  {isExpanded ? (lang === 'hi' ? 'कम करें' : 'Hide') : (lang === 'hi' ? 'विवरण' : 'Details')}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Tags row */}
+                            {rep.tags && rep.tags.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                {rep.tags.map((t, idx) => (
+                                  <span
+                                    key={idx}
+                                    style={{
+                                      fontSize: '11px',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      background: 'var(--bg-surface-alt, #f8fafc)',
+                                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                                      color: 'var(--text-secondary, #475569)',
+                                    }}
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Expanded note text */}
+                            {isExpanded && (
+                              <div
+                                style={{
+                                  marginTop: '10px',
+                                  paddingTop: '10px',
+                                  borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                                  fontSize: '12px',
+                                  color: 'var(--text-primary, #0f172a)',
+                                  lineHeight: 1.5,
+                                }}
+                              >
+                                <strong>{lang === 'hi' ? 'नोट:' : 'Patient note:'}</strong>{' '}
+                                {rep.text || (lang === 'hi' ? 'कोई नोट नहीं लिखा गया।' : 'No note provided.')}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

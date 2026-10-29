@@ -150,6 +150,28 @@ export const submitSymptomCheckin = (text, painLevel = 0, inputMethod = 'Text', 
     language,
   });
 
+export const submitPatientCheckin = ({
+  pain_level = null,
+  chips = [],
+  sites = [],
+  trend = null,
+  text = '',
+  language = 'en',
+  input_method = 'Text',
+}) =>
+  post('/patient/me/checkins', {
+    pain_level: pain_level === null ? null : Number(pain_level),
+    chips,
+    sites,
+    trend,
+    text,
+    language,
+    input_method,
+  });
+
+export const getPatientCheckins = (days = 14) =>
+  get(`/patient/me/checkins?days=${days}`);
+
 export const getMyStatus = () => get('/patient/me/status');
 
 export const sendChatMessage = (message, language = 'en') =>

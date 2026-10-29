@@ -1238,13 +1238,23 @@ def confirm_my_dose(
     return {"status": "updated", "dose_id": log_id, "recorded_status": body.status}
 
 
-# ─── Symptom Check-in & Emergency Layer (Milestone M3) ───────────────────────
+# ─── Symptom Check-in & Emergency Layer (Milestone M3 & Phase 3) ──────────────
 
 class SymptomIn(BaseModel):
     text: str
     pain_level: int = Field(default=0, ge=0, le=10)
     input_method: str = Field(default="Text", pattern="^(Text|Voice_Transcript|Caregiver)$")
     language: str = Field(default="en", pattern="^(en|hi)$")
+
+
+class CheckinIn(BaseModel):
+    pain_level: Optional[int] = Field(None, ge=0, le=10)
+    chips: List[str] = Field(default_factory=list)
+    sites: List[str] = Field(default_factory=list)
+    trend: Optional[str] = None  # 'better' | 'same' | 'worse' | None
+    text: str = Field(default="", max_length=1000)
+    language: str = Field(default="en", pattern="^(en|hi)$")
+    input_method: str = Field(default="Text", pattern="^(Text|Voice_Transcript|Caregiver)$")
 
 
 def extract_and_save_symptom_tags(report_id: int, symptom_text: str):
@@ -1278,41 +1288,107 @@ def extract_and_save_symptom_tags(report_id: int, symptom_text: str):
         pass
 
 
-@app.post("/patient/me/symptoms")
-def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+@app.post("/patient/me/checkins")
+def submit_patient_checkin(
+    body: CheckinIn,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
     """
-    Symptom Check-in Endpoint:
-    - Runs deterministic emergency keyword check (English + Hindi) instantly.
-    - Inserts into symptom_reports table.
-    - Database AFTER INSERT trigger trg_symptom_rules_after_insert creates Urgent_Review
-      flag (for emergency hit) or Review_Soon flag (if pain_level >= clinician threshold).
-    - Writes to audit_log.
-    - Emergency guidance is returned immediately without waiting for any LLM call!
-    - Tags extracted asynchronously/inline via LLM.
+    Phase 3 Daily Check-in Endpoint (Brief Sec 6.4 & 8.4):
+    - Multi-select symptom chips, pain location sites, trend vs yesterday.
+    - Deterministic emergency detector (English + Hindi words + emergency chips: short_of_breath, chest_pain).
+    - Emergency guidance returned immediately without waiting for LLM!
+    - Duplicate protection: same patient, same text, same pain within 60s returns existing report.
+    - Tags written to symptom_report_tags with extracted_by = 'Patient_Form'.
+    - Patient audit_log recorded.
     """
     pid = get_effective_patient_id(user)
-    emergency = has_emergency_term(body.text)
+
+    # Emergency detection on chips or note
+    emergency_chips = {"short_of_breath", "chest_pain", "सांस_लेने_में_तकलीफ", "सीने_में_दर्द"}
+    has_emergency_chip = any(c.strip().lower().replace(" ", "_") in emergency_chips for c in body.chips)
+    emergency = has_emergency_chip or has_emergency_term(body.text)
     guidance = EMERGENCY_GUIDANCE.get(body.language, EMERGENCY_GUIDANCE["en"]) if emergency else None
 
+    # Assemble text if empty
+    effective_text = body.text.strip()
+    if not effective_text:
+        parts = []
+        if body.pain_level is not None:
+            parts.append(f"Pain {body.pain_level}/10")
+        if body.chips:
+            parts.append("Symptoms: " + ", ".join(body.chips))
+        if body.sites:
+            parts.append("Locations: " + ", ".join(body.sites))
+        if body.trend:
+            parts.append(f"Trend: {body.trend}")
+        effective_text = " | ".join(parts) if parts else "Daily check-in"
+
     with get_conn() as conn, conn.cursor() as cur:
+        # Duplicate protection (Brief Sec 6.4): same patient, same text, same pain within 60s
+        cur.execute(
+            """SELECT symptom_report_id, emergency_keyword_hit
+               FROM symptom_reports
+               WHERE patient_id = %s
+                 AND symptom_text = %s
+                 AND (pain_level = %s OR (pain_level IS NULL AND %s IS NULL))
+                 AND reported_at >= NOW() - INTERVAL 60 SECOND
+               ORDER BY reported_at DESC LIMIT 1""",
+            (pid, effective_text, body.pain_level, body.pain_level),
+        )
+        dup = cur.fetchone()
+        if dup:
+            is_emerg = bool(dup["emergency_keyword_hit"])
+            return {
+                "status": "duplicate_prevented",
+                "report_id": dup["symptom_report_id"],
+                "emergency": is_emerg,
+                "guidance": EMERGENCY_GUIDANCE.get(body.language, EMERGENCY_GUIDANCE["en"]) if is_emerg else None,
+            }
+
         cur.execute(
             """INSERT INTO symptom_reports
                (patient_id, symptom_text, pain_level, input_method, language, emergency_keyword_hit)
                VALUES (%s, %s, %s, %s, %s, %s)""",
-            (pid, body.text, body.pain_level, body.input_method, body.language, emergency),
+            (pid, effective_text, body.pain_level, body.input_method, body.language, emergency),
         )
         report_id = cur.lastrowid
 
-        # Write audit log
+        # Insert structured tags from form (Brief Sec 6.4)
+        for chip in body.chips:
+            c_tag = chip.strip().lower()[:40]
+            if c_tag and c_tag not in ("none_of_these", "none"):
+                cur.execute(
+                    """INSERT IGNORE INTO symptom_report_tags (symptom_report_id, tag, extracted_by)
+                       VALUES (%s, %s, 'Patient_Form')""",
+                    (report_id, c_tag),
+                )
+        for site in body.sites:
+            s_tag = f"site:{site.strip().lower()}"[:40]
+            cur.execute(
+                """INSERT IGNORE INTO symptom_report_tags (symptom_report_id, tag, extracted_by)
+                   VALUES (%s, %s, 'Patient_Form')""",
+                (report_id, s_tag),
+            )
+        if body.trend:
+            t_tag = f"trend:{body.trend.strip().lower()}"[:40]
+            cur.execute(
+                """INSERT IGNORE INTO symptom_report_tags (symptom_report_id, tag, extracted_by)
+                   VALUES (%s, %s, 'Patient_Form')""",
+                (report_id, t_tag),
+            )
+
+        # Audit log
         cur.execute(
             """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-               VALUES ('Patient', %s, 'SUBMIT_SYMPTOM', 'symptom_report', %s,
-                       JSON_OBJECT('emergency_hit', %s, 'pain_level', %s, 'lang', %s))""",
-            (str(user["account_id"]), report_id, emergency, body.pain_level, body.language),
+               VALUES ('Patient', %s, 'SUBMIT_CHECKIN', 'symptom_report', %s,
+                       JSON_OBJECT('emergency_hit', %s, 'pain_level', %s, 'lang', %s, 'input_method', %s))""",
+            (str(user["account_id"]), report_id, emergency, body.pain_level, body.language, body.input_method),
         )
 
-    # Extract tags via LLM
-    extract_and_save_symptom_tags(report_id, body.text)
+    # Optional background LLM tag extraction
+    if body.text.strip():
+        extract_and_save_symptom_tags(report_id, body.text)
 
     return {
         "status": "recorded",
@@ -1320,6 +1396,67 @@ def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(requi
         "emergency": emergency,
         "guidance": guidance,
     }
+
+
+@app.get("/patient/me/checkins")
+def get_patient_checkins(
+    days: int = Query(14, ge=1, le=90),
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Returns last N days of check-in reports for the authenticated patient.
+    Brief Sec 8.4:
+    - Pain score, note text, date, tags, input_method.
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT sr.symptom_report_id, sr.reported_at, sr.pain_level, sr.symptom_text,
+                      sr.input_method, sr.language, sr.emergency_keyword_hit,
+                      GROUP_CONCAT(srt.tag SEPARATOR ',') AS tags
+               FROM symptom_reports sr
+               LEFT JOIN symptom_report_tags srt ON srt.symptom_report_id = sr.symptom_report_id
+               WHERE sr.patient_id = %s
+                 AND sr.reported_at >= NOW() - INTERVAL %s DAY
+               GROUP BY sr.symptom_report_id
+               ORDER BY sr.reported_at DESC""",
+            (pid, days),
+        )
+        rows = cur.fetchall()
+        reports = [
+            {
+                "id": r["symptom_report_id"],
+                "reported_at": r["reported_at"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(r["reported_at"], datetime) else str(r["reported_at"]),
+                "formatted_date": r["reported_at"].strftime("%d %b, %I:%M %p") if isinstance(r["reported_at"], datetime) else "",
+                "date": r["reported_at"].strftime("%Y-%m-%d") if isinstance(r["reported_at"], datetime) else "",
+                "pain_level": r["pain_level"],
+                "text": r["symptom_text"],
+                "input_method": r["input_method"],
+                "language": r["language"],
+                "emergency": bool(r["emergency_keyword_hit"]),
+                "tags": [t.strip() for t in r["tags"].split(",")] if r.get("tags") else [],
+            }
+            for r in rows
+        ]
+        return {"days": days, "count": len(reports), "reports": reports}
+
+
+@app.post("/patient/me/symptoms")
+def submit_symptom_checkin(body: SymptomIn, user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver"))):
+    """
+    Legacy Symptom Check-in Endpoint (maintained for backward compatibility):
+    Forwards to submit_patient_checkin.
+    """
+    checkin_body = CheckinIn(
+        pain_level=body.pain_level,
+        chips=[],
+        sites=[],
+        trend=None,
+        text=body.text,
+        language=body.language,
+        input_method=body.input_method,
+    )
+    return submit_patient_checkin(checkin_body, user)
 
 
 # ─── Patient Status Page (Milestone M3) ──────────────────────────────────────
