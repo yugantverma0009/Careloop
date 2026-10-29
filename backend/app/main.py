@@ -2207,21 +2207,591 @@ def get_pending_follow_ups(user: Dict[str, Any] = Depends(require_role("Doctor",
         return cur.fetchall()
 
 
-@app.get("/staff/patients/{pid}/timeline")
-def get_patient_timeline(pid: int, user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+# ─── Patient Directory & Overview (Milestone D-05, D-06, D-12) ────────────────
+
+class BreakGlassIn(BaseModel):
+    reason: str
+
+
+@app.get("/staff/patients")
+def get_patient_directory(
+    filter: str = "all",      # 'all', 'mine', 'has_flags', 'silent_device'
+    search: str = "",
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
     """
-    Returns unified chronological clinical timeline for a patient from v_patient_timeline.
-    Includes readings, symptoms, doses, and flags.
+    D-05: Patient Directory table endpoint.
+    Returns: Name, age, code (CL-00001), condition, discharge date and day number,
+    attending doctor, open flag count, device status, last check-in, adherence this week.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT p.patient_id, p.patient_code, p.full_name,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+                      p.date_of_birth,
+                      d.discharge_date,
+                      DATEDIFF(CURDATE(), d.discharge_date) + 1 AS day_number,
+                      d.condition_summary,
+                      doc.full_name AS attending_doctor,
+                      nurse.full_name AS assigned_nurse,
+                      (SELECT COUNT(*) FROM flags f WHERE f.patient_id = p.patient_id AND f.status = 'Open') AS open_flag_count,
+                      COALESCE(dev.connectivity_status, 'Missing_Data') AS device_status,
+                      dev.last_seen_at AS device_last_seen,
+                      dev.minutes_since_last_seen,
+                      COALESCE(adh.self_reported_taken_pct, 100.0) AS adherence_this_week,
+                      EXISTS(SELECT 1 FROM care_assignments ca WHERE ca.patient_id = p.patient_id AND ca.staff_id = %s) AS is_assigned
+               FROM patients p
+               LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+               LEFT JOIN care_staff doc ON doc.staff_id = d.attending_staff_id
+               LEFT JOIN care_assignments ca_n ON ca_n.patient_id = p.patient_id AND ca_n.assignment_role = 'Nurse'
+               LEFT JOIN care_staff nurse ON nurse.staff_id = ca_n.staff_id
+               LEFT JOIN v_device_status dev ON dev.patient_id = p.patient_id AND dev.device_type = 'ESP32_Watch'
+               LEFT JOIN v_medication_adherence adh ON adh.patient_id = p.patient_id
+               ORDER BY p.patient_id ASC""",
+            (staff_id,),
+        )
+        rows = cur.fetchall()
+
+        # Fetch latest checkin for each patient
+        cur.execute(
+            """SELECT s.patient_id, s.pain_level, s.reported_at
+               FROM symptom_reports s
+               INNER JOIN (
+                   SELECT patient_id, MAX(reported_at) AS max_rep
+                   FROM symptom_reports
+                   GROUP BY patient_id
+               ) latest ON s.patient_id = latest.patient_id AND s.reported_at = latest.max_rep"""
+        )
+        checkins = {c["patient_id"]: c for c in cur.fetchall()}
+
+    results = []
+    for r in rows:
+        pid = r["patient_id"]
+        chk = checkins.get(pid)
+        r["last_checkin_at"] = chk["reported_at"] if chk else None
+        r["last_checkin_pain"] = chk["pain_level"] if chk else None
+        r["is_assigned"] = bool(r["is_assigned"])
+
+        # Apply filters
+        if filter == "mine" and not r["is_assigned"]:
+            continue
+        elif filter == "has_flags" and r["open_flag_count"] == 0:
+            continue
+        elif filter == "silent_device" and r["device_status"] == "Online":
+            continue
+
+        if search:
+            q = search.lower().strip()
+            match = (
+                q in r["full_name"].lower()
+                or q in (r["patient_code"] or "").lower()
+                or q in (r["condition_summary"] or "").lower()
+            )
+            if not match:
+                continue
+
+        results.append(r)
+
+    return results
+
+
+@app.get("/staff/patients/{pid}")
+def get_patient_detail(
+    pid: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-05 Overview Tab: Comprehensive patient clinical snapshot.
+    Includes identity, break-glass status (D-12), open flags, latest readings with quality,
+    7-day dose adherence grid, 14-day pain trend, device status, caregiver consent, and upcoming appointment.
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        # Check patient exists
+        cur.execute(
+            """SELECT p.patient_id, p.patient_code, p.full_name,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+                      p.date_of_birth, p.phone, ua.email,
+                      d.discharge_date,
+                      DATEDIFF(CURDATE(), d.discharge_date) + 1 AS day_number,
+                      d.condition_summary, d.instructions, d.follow_up_due,
+                      doc.full_name AS attending_doctor
+               FROM patients p
+               LEFT JOIN user_accounts ua ON ua.patient_id = p.patient_id
+               LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+               LEFT JOIN care_staff doc ON doc.staff_id = d.attending_staff_id
+               WHERE p.patient_id = %s""",
+            (pid,),
+        )
+        p = cur.fetchone()
+        if not p:
+            raise HTTPException(status_code=404, detail="Patient not found")
+
+        # Assignment & Break-Glass check (D-12)
+        cur.execute(
+            """SELECT 1 FROM care_assignments WHERE patient_id = %s AND staff_id = %s""",
+            (pid, staff_id),
+        )
+        is_assigned = cur.fetchone() is not None
+
+        outside_assignment = False
+        requires_break_glass = False
+        if not is_assigned:
+            outside_assignment = True
+            cur.execute(
+                """SELECT 1 FROM audit_log
+                   WHERE actor_id = %s AND action = 'BREAK_GLASS_VIEW'
+                     AND entity_type = 'patient' AND entity_id = %s
+                     AND created_at >= NOW() - INTERVAL 12 HOUR""",
+                (str(staff_id), pid),
+            )
+            if not cur.fetchone():
+                requires_break_glass = True
+
+        # Caregivers & Consent
+        cur.execute(
+            """SELECT caregiver_id, full_name, phone, relationship, consent_granted, is_primary
+               FROM caregivers WHERE patient_id = %s ORDER BY is_primary DESC""",
+            (pid,),
+        )
+        caregivers = cur.fetchall()
+
+        # Open Flags
+        cur.execute(
+            """SELECT flag_id, severity, source_type, reason, created_at, status
+               FROM flags WHERE patient_id = %s AND status IN ('Open', 'Acknowledged')
+               ORDER BY FIELD(severity, 'Urgent_Review', 'Review_Soon', 'Info'), created_at DESC""",
+            (pid,),
+        )
+        open_flags = cur.fetchall()
+
+        # Latest readings with quality markers (D-18)
+        cur.execute(
+            """SELECT reading_id, measurement_type, measurement_value, unit, measured_at,
+                      quality_status, device_id
+               FROM sensor_readings
+               WHERE patient_id = %s AND measured_at >= NOW() - INTERVAL 7 DAY
+               ORDER BY measured_at DESC LIMIT 20""",
+            (pid,),
+        )
+        recent_readings = cur.fetchall()
+
+        latest_readings = {"Heart_Rate": None, "SpO2": None}
+        for r in recent_readings:
+            m_type = r["measurement_type"]
+            if m_type in latest_readings and latest_readings[m_type] is None:
+                latest_readings[m_type] = r
+
+        # 7-day adherence grid
+        cur.execute(
+            """SELECT DATE(scheduled_for) AS log_date,
+                      COUNT(*) AS total_doses,
+                      SUM(status = 'Taken_Confirmed') AS taken_count,
+                      SUM(status = 'Skipped') AS skipped_count,
+                      SUM(status = 'Missed') AS missed_count,
+                      SUM(status = 'Unconfirmed') AS pending_count
+               FROM medication_logs l
+               JOIN prescriptions pr ON pr.prescription_id = l.prescription_id
+               WHERE pr.patient_id = %s AND l.scheduled_for >= NOW() - INTERVAL 7 DAY
+               GROUP BY DATE(scheduled_for)
+               ORDER BY log_date ASC""",
+            (pid,),
+        )
+        adherence_grid = cur.fetchall()
+
+        # 14-day pain trend
+        cur.execute(
+            """SELECT symptom_report_id, pain_level, symptom_text, reported_at, emergency_keyword_hit
+               FROM symptom_reports
+               WHERE patient_id = %s AND reported_at >= NOW() - INTERVAL 14 DAY
+               ORDER BY reported_at ASC""",
+            (pid,),
+        )
+        pain_trend = cur.fetchall()
+
+        # Device status
+        cur.execute(
+            """SELECT device_id, device_type, connectivity_status, last_seen_at, minutes_since_last_seen
+               FROM v_device_status WHERE patient_id = %s LIMIT 1""",
+            (pid,),
+        )
+        device = cur.fetchone()
+
+        # Next appointment
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status, a.notes,
+                      cs.full_name AS doctor_name
+               FROM appointments a
+               LEFT JOIN care_staff cs ON cs.staff_id = a.staff_id
+               WHERE a.patient_id = %s AND a.appointment_date >= NOW()
+               ORDER BY a.appointment_date ASC LIMIT 1""",
+            (pid,),
+        )
+        next_apt = cur.fetchone()
+
+        # Draft summary status
+        cur.execute(
+            """SELECT summary_id, status, generated_at, model_name
+               FROM ai_summaries
+               WHERE patient_id = %s
+               ORDER BY generated_at DESC LIMIT 1""",
+            (pid,),
+        )
+        draft_sum = cur.fetchone()
+
+    return {
+        "patient": p,
+        "is_assigned": is_assigned,
+        "outside_assignment": outside_assignment,
+        "requires_break_glass": requires_break_glass,
+        "caregivers": caregivers,
+        "open_flags": open_flags,
+        "latest_readings": latest_readings,
+        "adherence_grid": adherence_grid,
+        "pain_trend": pain_trend,
+        "device": device,
+        "next_appointment": next_apt,
+        "draft_summary": draft_sum,
+    }
+
+
+@app.post("/staff/patients/{pid}/break-glass")
+def break_glass_access(
+    pid: int,
+    body: BreakGlassIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-12 Break-Glass Access Endpoint:
+    Logs audited justification for reviewing an unassigned patient.
+    """
+    reason = (body.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="A clinical reason of at least 5 characters is required for break-glass access.",
+        )
+
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT patient_id FROM patients WHERE patient_id = %s", (pid,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Patient not found")
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'BREAK_GLASS_VIEW', 'patient', %s, JSON_OBJECT('reason', %s))""",
+            (str(staff_id), pid, reason),
+        )
+        conn.commit()
+
+    return {"status": "access_granted", "patient_id": pid}
+
+
+@app.get("/staff/patients/{pid}/medicines")
+def get_patient_medicines(
+    pid: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-05 Medicines Tab Endpoint:
+    Discharge prescriptions, 7-day adherence history, and skipped/unconfirmed logs with notes.
+    Wording strictly uses 'Self-reported', not 'adherence outcome'.
     """
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT patient_id, event_time, event_type, summary
-               FROM v_patient_timeline
-               WHERE patient_id = %s
-               ORDER BY event_time DESC LIMIT 200""",
+            """SELECT pr.prescription_id, pr.dose_instructions, pr.active_status,
+                      pr.start_date, pr.end_date, m.medicine_name, m.general_notes
+               FROM prescriptions pr
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s
+               ORDER BY pr.prescription_id ASC""",
             (pid,),
         )
-        return cur.fetchall()
+        prescriptions = cur.fetchall()
+
+        cur.execute(
+            """SELECT l.medication_log_id, l.prescription_id, l.scheduled_for, l.status,
+                      l.recorded_at, l.recorded_by, l.patient_note, m.medicine_name
+               FROM medication_logs l
+               JOIN prescriptions pr ON pr.prescription_id = l.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s AND l.status IN ('Skipped', 'Missed', 'Unconfirmed')
+               ORDER BY l.scheduled_for DESC LIMIT 30""",
+            (pid,),
+        )
+        exceptions = cur.fetchall()
+
+    now = datetime.now()
+    formatted_exceptions = []
+    for ex in exceptions:
+        sched = ex["scheduled_for"]
+        st = ex["status"]
+        if st == "Unconfirmed":
+            display_status = "Scheduled" if sched > now else "Not confirmed"
+        elif st == "Skipped":
+            display_status = "Skipped"
+        else:
+            display_status = "Missed"
+
+        formatted_exceptions.append({
+            "log_id": ex["medication_log_id"],
+            "medicine_name": ex["medicine_name"],
+            "scheduled_for": sched,
+            "status": display_status,
+            "patient_note": ex["patient_note"] or "No note provided",
+            "recorded_by": ex["recorded_by"] or "Patient",
+        })
+
+    return {
+        "prescriptions": prescriptions,
+        "exceptions": formatted_exceptions,
+        "adherence_label": "Self-reported",
+    }
+
+
+@app.get("/staff/patients/{pid}/rules")
+def get_patient_rules(
+    pid: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-05 Rules Tab Endpoint:
+    Alert rules with threshold, window, severity, approver, 30-day fired count, and false alarm dismissals.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT r.rule_id, r.rule_type, r.measurement_type, r.threshold_value,
+                      r.window_hours, r.severity, r.approved_at, r.is_active,
+                      cs.full_name AS approved_by_name,
+                      (SELECT COUNT(*) FROM flags f WHERE f.rule_id = r.rule_id AND f.created_at >= NOW() - INTERVAL 30 DAY) AS fired_count_30d,
+                      (SELECT COUNT(*) FROM flags f WHERE f.rule_id = r.rule_id AND f.status = 'Dismissed' AND f.resolution_code = 'False_Alarm') AS dismissed_false_count
+               FROM alert_rules r
+               LEFT JOIN care_staff cs ON cs.staff_id = r.approved_by_staff_id
+               WHERE r.patient_id = %s
+               ORDER BY r.is_active DESC, r.rule_id ASC""",
+            (pid,),
+        )
+        return {"rules": cur.fetchall()}
+
+
+@app.get("/staff/patients/{pid}/timeline")
+def get_patient_timeline(
+    pid: int,
+    event_types: str = "All",   # 'All' or comma-separated e.g. 'Readings,Symptoms,Doses,Flags,Calls,Notes'
+    date_range: str = "all",     # 'today', '7days', 'all'
+    limit: int = 200,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-06 Upgraded Clinical Timeline Endpoint:
+    - Filter chips: Readings, Symptoms, Doses, Flags, Calls, Notes.
+    - Date range: 'today', '7days', 'all'.
+    - Grouped by day with sticky date headers and repeated event collapsing.
+    - Future doses show 'Scheduled', past unconfirmed show 'Not confirmed'.
+    - Sensor readings telemetry chart with quality markers and approved rule limits.
+    """
+    limit = min(limit, 200)
+    now = datetime.now()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Patient identity
+        cur.execute(
+            """SELECT patient_id, patient_code, full_name,
+                      TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) AS age_years
+               FROM patients WHERE patient_id = %s""",
+            (pid,),
+        )
+        patient_info = cur.fetchone()
+        if not patient_info:
+            raise HTTPException(status_code=404, detail="Patient not found")
+
+        # 1. Readings
+        cur.execute(
+            """SELECT sr.reading_id AS event_id, sr.measured_at AS event_time, 'Reading' AS event_type,
+                      CONCAT(sr.measurement_type, ' ', sr.measurement_value, ' ', sr.unit) AS summary,
+                      'Sensor Telemetry' AS actor, sr.quality_status,
+                      sr.measurement_type, sr.measurement_value, sr.unit
+               FROM sensor_readings sr
+               WHERE sr.patient_id = %s
+               ORDER BY sr.measured_at DESC LIMIT %s""",
+            (pid, limit),
+        )
+        readings = cur.fetchall()
+
+        # 2. Symptoms
+        cur.execute(
+            """SELECT s.symptom_report_id AS event_id, s.reported_at AS event_time, 'Symptom' AS event_type,
+                      CONCAT('Pain ', COALESCE(s.pain_level, 'n/a'), '/10: ', LEFT(s.symptom_text, 120)) AS summary,
+                      'Patient' AS actor, NULL AS quality_status, s.emergency_keyword_hit
+               FROM symptom_reports s
+               WHERE s.patient_id = %s
+               ORDER BY s.reported_at DESC LIMIT %s""",
+            (pid, limit),
+        )
+        symptoms = cur.fetchall()
+
+        # 3. Doses
+        cur.execute(
+            """SELECT ml.medication_log_id AS event_id, ml.scheduled_for AS event_time, 'Dose' AS event_type,
+                      ml.status, ml.scheduled_for, m.medicine_name,
+                      COALESCE(ml.recorded_by, 'Patient') AS actor, NULL AS quality_status
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s
+               ORDER BY ml.scheduled_for DESC LIMIT %s""",
+            (pid, limit),
+        )
+        doses_raw = cur.fetchall()
+        doses = []
+        for d in doses_raw:
+            st = d["status"]
+            sched = d["scheduled_for"]
+            if st == "Unconfirmed":
+                disp = "Scheduled" if sched > now else "Not confirmed"
+            elif st == "Taken_Confirmed":
+                disp = "Taken"
+            elif st == "Skipped":
+                disp = "Skipped"
+            else:
+                disp = "Missed"
+            doses.append({
+                "event_id": d["event_id"],
+                "event_time": sched,
+                "event_type": "Dose",
+                "summary": f"{d['medicine_name']} — {disp}",
+                "actor": d["actor"],
+                "quality_status": None,
+                "dose_status": disp,
+            })
+
+        # 4. Flags
+        cur.execute(
+            """SELECT f.flag_id AS event_id, f.created_at AS event_time, 'Flag' AS event_type,
+                      CONCAT(f.severity, ': ', f.reason) AS summary,
+                      COALESCE(ack_s.full_name, 'System Rule') AS actor, NULL AS quality_status,
+                      f.severity, f.status
+               FROM flags f
+               LEFT JOIN care_staff ack_s ON ack_s.staff_id = f.acknowledged_by_staff_id
+               WHERE f.patient_id = %s
+               ORDER BY f.created_at DESC LIMIT %s""",
+            (pid, limit),
+        )
+        flags = cur.fetchall()
+
+        # 5. Calls & Contacts
+        cur.execute(
+            """SELECT c.contact_id AS event_id, c.contacted_at AS event_time, 'Call' AS event_type,
+                      CONCAT(c.channel, ' (', c.outcome, '): ', COALESCE(c.summary, 'Clinical outreach')) AS summary,
+                      cs.full_name AS actor, NULL AS quality_status
+               FROM contact_log c
+               LEFT JOIN care_staff cs ON cs.staff_id = c.staff_id
+               WHERE c.patient_id = %s
+               ORDER BY c.contacted_at DESC LIMIT %s""",
+            (pid, limit),
+        )
+        calls = cur.fetchall()
+
+        # 6. Notes
+        cur.execute(
+            """SELECT n.note_id AS event_id, n.created_at AS event_time, 'Note' AS event_type,
+                      CONCAT(n.note_type, ': ', LEFT(n.note_text, 120)) AS summary,
+                      cs.full_name AS actor, NULL AS quality_status
+               FROM clinician_notes n
+               LEFT JOIN care_staff cs ON cs.staff_id = n.staff_id
+               WHERE n.patient_id = %s
+               ORDER BY n.created_at DESC LIMIT %s""",
+            (pid, limit),
+        )
+        notes = cur.fetchall()
+
+        # 7. Approved Rule Limits for Chart
+        cur.execute(
+            """SELECT rule_type, measurement_type, threshold_value
+               FROM alert_rules
+               WHERE patient_id = %s AND is_active = 1""",
+            (pid,),
+        )
+        rules = cur.fetchall()
+        chart_limits = {}
+        for r in rules:
+            if r["measurement_type"] == "Heart_Rate" and r["rule_type"] == "Reading_Above":
+                chart_limits["hr_max"] = float(r["threshold_value"])
+            elif r["measurement_type"] == "SpO2" and r["rule_type"] == "Reading_Below":
+                chart_limits["spo2_min"] = float(r["threshold_value"])
+
+    # Combine and filter events
+    all_events = []
+    selected_types = [t.strip().lower() for t in event_types.split(",")] if event_types != "All" else None
+
+    candidates = list(readings) + list(symptoms) + list(doses) + list(flags) + list(calls) + list(notes)
+    for ev in candidates:
+        ev_type = ev["event_type"].lower()
+        if selected_types and ev_type not in selected_types and "all" not in selected_types:
+            continue
+
+        ev_time = ev["event_time"]
+        if date_range == "today" and ev_time.date() != now.date():
+            continue
+        elif date_range == "7days" and (now - ev_time).days > 7:
+            continue
+
+        all_events.append(ev)
+
+    # Sort all events chronologically descending
+    all_events.sort(key=lambda x: x["event_time"], reverse=True)
+    all_events = all_events[:limit]
+
+    # Group by Day with deduplication/collapse of repeated events (D-06)
+    day_groups = {}
+    for ev in all_events:
+        day_str = ev["event_time"].strftime("%Y-%m-%d")
+        if day_str not in day_groups:
+            day_groups[day_str] = []
+        day_groups[day_str].append(ev)
+
+    grouped_result = []
+    for day_str, items in day_groups.items():
+        collapsed_items = []
+        seen_keys = {}
+        for item in items:
+            key = (item["event_type"], item["summary"])
+            if key not in seen_keys:
+                item_copy = dict(item)
+                item_copy["repeat_count"] = 1
+                seen_keys[key] = len(collapsed_items)
+                collapsed_items.append(item_copy)
+            else:
+                idx = seen_keys[key]
+                collapsed_items[idx]["repeat_count"] += 1
+
+        grouped_result.append({
+            "date": day_str,
+            "display_date": datetime.strptime(day_str, "%Y-%m-%d").strftime("%A, %d %b %Y"),
+            "events": collapsed_items,
+        })
+
+    # Prepare chart readings (chronological ascending)
+    chart_readings = []
+    for r in reversed(readings):
+        chart_readings.append({
+            "time": r["event_time"].isoformat(),
+            "metric": r.get("measurement_type"),
+            "value": float(r.get("measurement_value") or 0),
+            "unit": r.get("unit"),
+            "quality": r.get("quality_status", "Good"),
+        })
+
+    return {
+        "patient": patient_info,
+        "total_events": len(all_events),
+        "day_groups": grouped_result,
+        "events": all_events,
+        "chart_limits": chart_limits,
+        "chart_readings": chart_readings,
+    }
 
 
 # ─── Patient Chat & RAG (Milestone M5) ────────────────────────────────────────

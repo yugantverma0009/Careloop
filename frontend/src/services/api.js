@@ -217,8 +217,23 @@ export const escalateFlagNow = (flagId, note = '') =>
 
 export const getFollowUps = () => get('/staff/follow-ups');
 
-export const getPatientTimeline = (patientId) =>
-  get(`/staff/patients/${patientId}/timeline`);
+export const getPatientDirectory = (filter = 'all', search = '') =>
+  get(`/staff/patients?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`);
+
+export const getPatientDetail = (patientId) =>
+  get(`/staff/patients/${patientId}`);
+
+export const breakGlassAccess = (patientId, reason) =>
+  post(`/staff/patients/${patientId}/break-glass`, { reason });
+
+export const getPatientMedicines = (patientId) =>
+  get(`/staff/patients/${patientId}/medicines`);
+
+export const getPatientRules = (patientId) =>
+  get(`/staff/patients/${patientId}/rules`);
+
+export const getPatientTimeline = (patientId, eventTypes = 'All', dateRange = 'all', limit = 200) =>
+  get(`/staff/patients/${patientId}/timeline?event_types=${encodeURIComponent(eventTypes)}&date_range=${encodeURIComponent(dateRange)}&limit=${limit}`);
 
 export const generateSummary = (patientId, summaryDate = null) => {
   const query = summaryDate ? `?summary_date=${summaryDate}` : '';

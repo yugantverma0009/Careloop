@@ -13,6 +13,8 @@ import {
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import FlagDrawer from './FlagDrawer';
+import PatientDirectory from './PatientDirectory';
+import PatientOverviewTab from './PatientOverviewTab';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -25,6 +27,7 @@ import {
   IconShieldCheck,
   IconClock,
   IconSearch,
+  IconPatient,
 } from './Icons';
 
 export default function CareLoopStaffPortal({ user }) {
@@ -37,6 +40,7 @@ export default function CareLoopStaffPortal({ user }) {
   const [severityFilter, setSeverityFilter] = useState('all'); // 'all', 'immediate', 'urgent', 'review_soon', 'routine'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFlag, setSelectedFlag] = useState(null);
+  const [selectedPatientId, setSelectedPatientId] = useState(1);
   const [hoveredScorePid, setHoveredScorePid] = useState(null);
   const searchInputRef = useRef(null);
 
@@ -262,11 +266,12 @@ export default function CareLoopStaffPortal({ user }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '22px' }}>
               {[
                 { id: 'triage', label: 'Who needs attention', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
+                { id: 'patients', label: 'Patient directory', Icon: IconPatient },
                 { id: 'timeline', label: 'Patient timeline', Icon: IconActivity },
                 { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
                 { id: 'summaries', label: 'Draft summaries', Icon: IconFileText, badge: summaries.length },
               ].map((item) => {
-                const isActive = activeNav === item.id;
+                const isActive = activeNav === item.id || (item.id === 'patients' && activeNav === 'patient_chart');
                 const ItemIcon = item.Icon;
                 return (
                   <button
@@ -469,72 +474,71 @@ export default function CareLoopStaffPortal({ user }) {
             </div>
           )}
 
-          {/* Title */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              marginBottom: '26px',
-            }}
-          >
-            <div>
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '11px',
-                  fontWeight: 800,
-                  color: '#0284c7',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  marginBottom: '6px',
-                }}
-              >
-                <IconShieldCheck width={14} height={14} />
-                <span>WHO NEEDS ATTENTION FIRST</span>
-              </div>
-              <h1
-                style={{
-                  fontSize: '26px',
-                  fontWeight: 800,
-                  color: 'var(--text-primary, #0f172a)',
-                  letterSpacing: '-0.025em',
-                  marginBottom: '4px',
-                }}
-              >
-                Who needs attention first
-              </h1>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-                Every flag shows why it was raised. Open flags are listed by severity.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-strong, #cbd5e1)',
-                background: 'var(--bg-surface, #ffffff)',
-                color: 'var(--text-primary, #0f172a)',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              <span>Export flags (CSV)</span>
-            </button>
-          </div>
-
           {/* TAB 1: GROUPED CLINICIAN WORKLIST (D-02, D-03, D-04) */}
           {activeNav === 'triage' && (
             <>
+              {/* Title */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  marginBottom: '26px',
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      color: '#0284c7',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <IconShieldCheck width={14} height={14} />
+                    <span>WHO NEEDS ATTENTION FIRST</span>
+                  </div>
+                  <h1
+                    style={{
+                      fontSize: '26px',
+                      fontWeight: 800,
+                      color: 'var(--text-primary, #0f172a)',
+                      letterSpacing: '-0.025em',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    Who needs attention first
+                  </h1>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
+                    Every flag shows why it was raised. Open flags are listed by severity.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-strong, #cbd5e1)',
+                    background: 'var(--bg-surface, #ffffff)',
+                    color: 'var(--text-primary, #0f172a)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>Export flags (CSV)</span>
+                </button>
+              </div>
               {/* 4 KPI Summary Cards */}
               <div
                 style={{
@@ -1142,6 +1146,27 @@ export default function CareLoopStaffPortal({ user }) {
                               >
                                 {isExpanded ? 'Collapse' : `View Flags (${patient.open_flag_count})`}
                               </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedPatientId(patient.patient_id);
+                                  setActiveNav('patient_chart');
+                                }}
+                                style={{
+                                  padding: '6px 12px',
+                                  borderRadius: '6px',
+                                  border: 'none',
+                                  background: '#0b1528',
+                                  color: '#ffffff',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Open Chart →
+                              </button>
                             </div>
                           </div>
 
@@ -1315,21 +1340,47 @@ export default function CareLoopStaffPortal({ user }) {
             </>
           )}
 
-          {/* TAB 2: TIMELINE */}
-          {activeNav === 'timeline' && (
-            <div
-              style={{
-                background: 'var(--bg-surface, #ffffff)',
-                border: '1px solid var(--border-subtle, #e2e8f0)',
-                borderRadius: '12px',
-                padding: '24px',
-                boxShadow: 'var(--shadow-card)',
+          {/* TAB: PATIENT DIRECTORY (Phase 2, D-05) */}
+          {activeNav === 'patients' && (
+            <PatientDirectory
+              onSelectPatient={(pid) => {
+                setSelectedPatientId(pid);
+                setActiveNav('patient_chart');
               }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              currentStaffId={user?.staff_id}
+            />
+          )}
+
+          {/* TAB: PATIENT CLINICAL CHART (Phase 2, D-05, D-06, D-12, D-18) */}
+          {activeNav === 'patient_chart' && (
+            <PatientOverviewTab
+              patientId={selectedPatientId || 1}
+              onBackToDirectory={() => setActiveNav('patients')}
+              onOpenFlagDrawer={handleOpenFlagDrawer}
+              user={user}
+            />
+          )}
+
+          {/* TAB 2: UPGRADED TIMELINE (Phase 2, D-06) */}
+          {activeNav === 'timeline' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  boxShadow: 'var(--shadow-card)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
                 <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0' }}>Patient event timeline</h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Recorded events in chronological order</p>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0' }}>Patient Telemetry & Event Timeline</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Select a post-discharge patient to inspect chronological telemetry, symptoms, and self-reported doses</p>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: '680px' }}>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((pid) => (
@@ -1341,71 +1392,24 @@ export default function CareLoopStaffPortal({ user }) {
                         padding: '5px 12px',
                         borderRadius: '6px',
                         border: '1px solid var(--border-strong, #cbd5e1)',
-                        background: timelinePatientId === pid ? '#0f172a' : '#ffffff',
-                        color: timelinePatientId === pid ? '#ffffff' : '#0f172a',
+                        background: timelinePatientId === pid ? '#0b1528' : 'var(--bg-surface, #ffffff)',
+                        color: timelinePatientId === pid ? '#ffffff' : 'var(--text-primary, #0f172a)',
                         fontSize: '12px',
                         fontWeight: 600,
                         cursor: 'pointer',
                       }}
                     >
-                      Patient #{pid}
+                      CL-0000{pid}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {timelineEvents.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8', fontSize: '13px' }}>
-                  No recorded events for Patient #{timelinePatientId}.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {timelineEvents.map((evt, idx) => {
-                    const eventType = evt.event_type || evt.type || 'Clinical Event';
-                    const summary = evt.summary || evt.description || evt.title || 'Verified event entry';
-                    const time = evt.event_time || evt.timestamp || '';
-                    const timeStr = time ? time.slice(0, 19).replace('T', ' ') : 'Logged';
-
-                    let badgeClass = 'status-pill-blue';
-                    if (eventType === 'Flag') badgeClass = 'status-pill-red';
-                    else if (eventType === 'Dose') badgeClass = 'status-pill-green';
-                    else if (eventType === 'Symptom') badgeClass = 'status-pill-amber';
-
-                    return (
-                      <div
-                        key={idx}
-                        style={{
-                          padding: '12px 16px',
-                          borderRadius: '8px',
-                          background: 'var(--bg-base, #f8fafc)',
-                          border: '1px solid var(--border-subtle, #e2e8f0)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '14px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
-                          <span className={`status-pill ${badgeClass}`} style={{ fontSize: '10px', minWidth: '65px', textAlign: 'center', flexShrink: 0 }}>
-                            {eventType}
-                          </span>
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', wordBreak: 'break-word' }}>
-                              {summary}
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                              Patient #{evt.patient_id || timelinePatientId} · Event log
-                            </div>
-                          </div>
-                        </div>
-                        <span style={{ fontSize: '11px', color: '#94a3b8', fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>
-                          {timeStr}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <PatientOverviewTab
+                patientId={timelinePatientId || 1}
+                onOpenFlagDrawer={handleOpenFlagDrawer}
+                user={user}
+              />
             </div>
           )}
 

@@ -152,11 +152,11 @@ SELECT p.patient_id, p.patient_code, p.full_name,
        SUM(f.status = 'Open') AS not_yet_seen,
        MIN(f.created_at) AS first_flag_at,
        MAX(f.created_at) AS latest_flag_at,
-       f.owner_staff_id
+       MAX(f.owner_staff_id) AS owner_staff_id
 FROM flags f
 JOIN patients p ON p.patient_id = f.patient_id
 WHERE f.status IN ('Open','Acknowledged')
-GROUP BY p.patient_id, p.patient_code, p.full_name, p.date_of_birth, f.owner_staff_id;
+GROUP BY p.patient_id, p.patient_code, p.full_name, p.date_of_birth;
 
 
 -- ─── 8. STORED PROCEDURES ───────────────────────────────────────────────────
