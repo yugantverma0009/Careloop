@@ -101,6 +101,31 @@ export const getMe = () => get('/auth/me');
 
 export const getPatientToday = () => get('/patient/me/today');
 
+export const getPatientCalendar = (month = null) =>
+  get(`/patient/me/calendar${month ? `?month=${month}` : ''}`);
+
+export const getPatientDay = (date) =>
+  get(`/patient/me/day?date=${encodeURIComponent(date)}`);
+
+export const downloadAppointmentIcs = async (appointmentId) => {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/patient/me/appointments/${appointmentId}.ics`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to download calendar event: HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `appointment_${appointmentId}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 export const markDoseTaken = (logId, takenAt = null) =>
   post(`/patient/me/doses/${logId}/taken`, { taken_at: takenAt });
 

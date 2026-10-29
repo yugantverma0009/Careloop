@@ -6,10 +6,12 @@ All patient endpoints strictly extract patient_id from the authenticated JWT tok
 """
 
 import os
-from datetime import datetime, timedelta
+import calendar
+import re
+from datetime import datetime, timedelta, date, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, Header, HTTPException, Depends, Request
+from fastapi import FastAPI, Header, HTTPException, Depends, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -561,6 +563,38 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
                 "checkin": has_checkin,
             })
 
+        # 8. Plan checklist (Brief Sec 6.6)
+        cur.execute(
+            """SELECT MAX(end_date) AS course_end FROM prescriptions
+               WHERE patient_id = %s AND active_status = TRUE""",
+            (pid,)
+        )
+        course_row = cur.fetchone()
+        course_end = course_row["course_end"] if course_row else None
+        course_end_str = course_end.strftime("%d %b %Y") if course_end else None
+
+        cur.execute(
+            """SELECT COUNT(DISTINCT DATE(reported_at)) AS checkins_count
+               FROM symptom_reports
+               WHERE patient_id = %s
+                 AND reported_at >= %s AND reported_at < %s + INTERVAL 7 DAY""",
+            (pid, start_of_week, start_of_week)
+        )
+        c_row = cur.fetchone() or {"checkins_count": 0}
+        checkins_this_week_str = f"{int(c_row['checkins_count'] or 0)} of 7 days"
+
+        plan_checklist = {
+            "next_appointment": {
+                "id": next_appt["id"] if next_appt else None,
+                "date": next_appt["formatted_date"] if next_appt else None,
+                "doctor": next_appt["with"] if next_appt else None,
+                "type": next_appt["type"] if next_appt else None,
+            } if next_appt else None,
+            "course_end_date": course_end_str,
+            "checkins_this_week": checkins_this_week_str,
+            "day_after_discharge": day_after_discharge,
+        }
+
     return {
         "date": today_ist.strftime("%Y-%m-%d"),
         "formatted_date": now_ist.strftime("%A, %d %B %Y"),
@@ -591,6 +625,7 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_role("Patient", "Ca
         "device": device_status,
         "next_appointment": next_appt,
         "week": week,
+        "plan_checklist": plan_checklist,
     }
 
 
@@ -769,6 +804,352 @@ def undo_dose(
         )
 
     return {"status": "updated", "dose_id": log_id, "recorded_status": "Unconfirmed"}
+
+
+@app.get("/patient/me/calendar")
+def get_patient_calendar(
+    month: Optional[str] = None,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Calendar Month Summary endpoint (Brief Sec 8.3 & 6.3):
+    Returns month summary of doses (planned, taken, skipped, not_confirmed),
+    appointments, check-ins, max pain score for each day, and upcoming appointments.
+    """
+    pid = get_effective_patient_id(user)
+    now_ist = datetime.now(IST)
+    today_ist = now_ist.date()
+
+    if not month:
+        month = now_ist.strftime("%Y-%m")
+    elif not re.match(r"^\d{4}-(0[1-9]|1[0-2])$", month):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_month_format", "message": "Month must be in YYYY-MM format (e.g. 2026-10)"}
+        )
+
+    year, month_num = map(int, month.split("-"))
+    num_days = calendar.monthrange(year, month_num)[1]
+    start_dt = date(year, month_num, 1)
+    end_dt = date(year + 1, 1, 1) if month_num == 12 else date(year, month_num + 1, 1)
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Dose aggregation by day (range predicate instead of DATE on scheduled_for)
+        cur.execute(
+            """SELECT DATE(ml.scheduled_for) AS log_day,
+                      COUNT(*) AS planned,
+                      SUM(ml.status = 'Taken_Confirmed') AS taken,
+                      SUM(ml.status = 'Skipped') AS skipped,
+                      SUM(ml.status IN ('Missed', 'Unconfirmed')) AS not_confirmed
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               WHERE pr.patient_id = %s
+                 AND ml.scheduled_for >= %s AND ml.scheduled_for < %s
+               GROUP BY DATE(ml.scheduled_for)""",
+            (pid, start_dt, end_dt)
+        )
+        dose_rows = cur.fetchall()
+        doses_by_day = {
+            r["log_day"]: {
+                "planned": int(r["planned"] or 0),
+                "taken": int(r["taken"] or 0),
+                "skipped": int(r["skipped"] or 0),
+                "not_confirmed": int(r["not_confirmed"] or 0),
+            }
+            for r in dose_rows
+        }
+
+        # 2. Appointments in month
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status,
+                      s.full_name AS doctor_name, s.specialization
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id = %s
+                 AND a.appointment_date >= %s AND a.appointment_date < %s
+               ORDER BY a.appointment_date ASC""",
+            (pid, start_dt, end_dt)
+        )
+        appts = cur.fetchall()
+        appts_by_day = {}
+        for a in appts:
+            a_date = a["appointment_date"].date() if isinstance(a["appointment_date"], datetime) else a["appointment_date"]
+            if a_date not in appts_by_day:
+                appts_by_day[a_date] = []
+            appts_by_day[a_date].append({
+                "id": a["appointment_id"],
+                "scheduled_at": a["appointment_date"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(a["appointment_date"], datetime) else str(a["appointment_date"]),
+                "formatted_time": a["appointment_date"].strftime("%I:%M %p") if isinstance(a["appointment_date"], datetime) else "",
+                "doctor_name": a["doctor_name"],
+                "department": a["specialization"] or "Care Clinic",
+                "type": a["appointment_type"],
+                "status": a["status"],
+            })
+
+        # 3. Check-ins in month
+        cur.execute(
+            """SELECT symptom_report_id, reported_at, pain_level
+               FROM symptom_reports
+               WHERE patient_id = %s
+                 AND reported_at >= %s AND reported_at < %s
+               ORDER BY reported_at ASC""",
+            (pid, start_dt, end_dt)
+        )
+        checkin_rows = cur.fetchall()
+        checkins_by_day = {}
+        for c in checkin_rows:
+            c_date = c["reported_at"].date() if isinstance(c["reported_at"], datetime) else c["reported_at"]
+            if c_date not in checkins_by_day:
+                checkins_by_day[c_date] = []
+            checkins_by_day[c_date].append(c)
+
+        # 4. Upcoming scheduled appointments for this patient
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status,
+                      s.full_name AS doctor_name, s.specialization, a.notes
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id = %s AND a.status = 'Scheduled'
+                 AND a.appointment_date >= NOW() - INTERVAL 1 DAY
+               ORDER BY a.appointment_date ASC LIMIT 5""",
+            (pid,)
+        )
+        upcoming_rows = cur.fetchall()
+        upcoming_appointments = [
+            {
+                "id": u["appointment_id"],
+                "scheduled_at": u["appointment_date"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(u["appointment_date"], datetime) else str(u["appointment_date"]),
+                "formatted_date": u["appointment_date"].strftime("%a, %d %b %Y at %I:%M %p") if isinstance(u["appointment_date"], datetime) else "",
+                "doctor_name": u["doctor_name"],
+                "department": u["specialization"] or "Care Clinic",
+                "type": u["appointment_type"],
+                "status": u["status"],
+            }
+            for u in upcoming_rows
+        ]
+
+        # 5. Build days array
+        days = []
+        for d in range(1, num_days + 1):
+            curr_date = date(year, month_num, d)
+            d_doses = doses_by_day.get(curr_date, {"planned": 0, "taken": 0, "skipped": 0, "not_confirmed": 0})
+            d_appts = appts_by_day.get(curr_date, [])
+            d_checkins = checkins_by_day.get(curr_date, [])
+            pain_scores = [c["pain_level"] for c in d_checkins if c["pain_level"] is not None]
+            max_pain = max(pain_scores) if pain_scores else None
+
+            days.append({
+                "date": curr_date.strftime("%Y-%m-%d"),
+                "day": d,
+                "day_of_week": curr_date.weekday(),  # 0=Monday, 6=Sunday
+                "is_today": curr_date == today_ist,
+                "is_past": curr_date < today_ist,
+                "is_future": curr_date > today_ist,
+                "planned": d_doses["planned"],
+                "taken": d_doses["taken"],
+                "skipped": d_doses["skipped"],
+                "not_confirmed": d_doses["not_confirmed"],
+                "has_appointment": len(d_appts) > 0,
+                "appointments": d_appts,
+                "has_checkin": len(d_checkins) > 0,
+                "checkin_count": len(d_checkins),
+                "max_pain": max_pain,
+            })
+
+    return {
+        "month": month,
+        "month_name": start_dt.strftime("%B %Y"),
+        "days": days,
+        "upcoming_appointments": upcoming_appointments,
+    }
+
+
+@app.get("/patient/me/day")
+def get_patient_day(
+    date_str: str = Query(..., alias="date"),
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Day Inspection Sheet endpoint (Brief Sec 8.3 & 6.3):
+    Returns full detail for the day sheet drawer:
+    all doses with status, appointments, and check-ins (pain score and notes).
+    """
+    pid = get_effective_patient_id(user)
+    if not re.match(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", date_str):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_date_format", "message": "Date must be in YYYY-MM-DD format"}
+        )
+
+    try:
+        y, m, d = map(int, date_str.split("-"))
+        target_date = date(y, m, d)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_date", "message": "Invalid calendar date"}
+        )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Doses
+        cur.execute(
+            """SELECT ml.medication_log_id, m.medicine_name, pr.dose_instructions,
+                      ml.scheduled_for, ml.status, ml.recorded_at, ml.patient_note
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               JOIN medicines m ON m.medicine_id = pr.medicine_id
+               WHERE pr.patient_id = %s
+                 AND ml.scheduled_for >= %s AND ml.scheduled_for < %s + INTERVAL 1 DAY
+               ORDER BY ml.scheduled_for ASC""",
+            (pid, target_date, target_date)
+        )
+        dose_rows = cur.fetchall()
+        doses = [
+            {
+                "id": d["medication_log_id"],
+                "medicine": d["medicine_name"],
+                "dose_instructions": d["dose_instructions"] or "Prescribed dose",
+                "scheduled_for": d["scheduled_for"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(d["scheduled_for"], datetime) else str(d["scheduled_for"]),
+                "scheduled_time": d["scheduled_for"].strftime("%I:%M %p") if isinstance(d["scheduled_for"], datetime) else "",
+                "status": d["status"],
+                "recorded_at": d["recorded_at"].strftime("%I:%M %p") if isinstance(d.get("recorded_at"), datetime) else None,
+                "patient_note": d.get("patient_note"),
+            }
+            for d in dose_rows
+        ]
+
+        # Appointments
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status,
+                      s.full_name AS doctor_name, s.specialization, a.notes
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.patient_id = %s
+                 AND a.appointment_date >= %s AND a.appointment_date < %s + INTERVAL 1 DAY
+               ORDER BY a.appointment_date ASC""",
+            (pid, target_date, target_date)
+        )
+        appts_rows = cur.fetchall()
+        appointments = [
+            {
+                "id": a["appointment_id"],
+                "scheduled_at": a["appointment_date"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(a["appointment_date"], datetime) else str(a["appointment_date"]),
+                "formatted_time": a["appointment_date"].strftime("%I:%M %p") if isinstance(a["appointment_date"], datetime) else "",
+                "doctor_name": a["doctor_name"],
+                "department": a["specialization"] or "Care Clinic",
+                "type": a["appointment_type"],
+                "status": a["status"],
+            }
+            for a in appts_rows
+        ]
+
+        # Checkins
+        cur.execute(
+            """SELECT sr.symptom_report_id, sr.reported_at, sr.pain_level, sr.symptom_text, sr.input_method
+               FROM symptom_reports sr
+               WHERE sr.patient_id = %s
+                 AND sr.reported_at >= %s AND sr.reported_at < %s + INTERVAL 1 DAY
+               ORDER BY sr.reported_at ASC""",
+            (pid, target_date, target_date)
+        )
+        checkin_rows = cur.fetchall()
+        checkins = [
+            {
+                "id": c["symptom_report_id"],
+                "reported_at": c["reported_at"].strftime("%I:%M %p") if isinstance(c["reported_at"], datetime) else str(c["reported_at"]),
+                "pain_level": c["pain_level"],
+                "note": c["symptom_text"],
+                "input_method": c["input_method"],
+            }
+            for c in checkin_rows
+        ]
+
+    return {
+        "date": date_str,
+        "formatted_date": target_date.strftime("%A, %d %B %Y"),
+        "doses": doses,
+        "appointments": appointments,
+        "checkins": checkins,
+    }
+
+
+@app.get("/patient/me/appointments/{appointment_id}.ics")
+def download_appointment_ics(
+    appointment_id: int,
+    user: Dict[str, Any] = Depends(require_role("Patient", "Caregiver")),
+):
+    """
+    Export appointment to standard RFC 5545 iCalendar file (.ics).
+    Brief Sec 8.3 & 8.5:
+    - Times converted to UTC (IST is UTC+5:30)
+    - Strictly no clinical diagnosis details in summary or description
+    - 404 if not found or belongs to another patient
+    """
+    pid = get_effective_patient_id(user)
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT a.appointment_id, a.appointment_date, a.appointment_type, a.status,
+                      s.full_name AS doctor_name, s.specialization
+               FROM appointments a
+               JOIN care_staff s ON s.staff_id = a.staff_id
+               WHERE a.appointment_id = %s AND a.patient_id = %s""",
+            (appointment_id, pid),
+        )
+        appt = cur.fetchone()
+        if not appt:
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "not_found", "message": "Appointment not found for this patient"}
+            )
+
+        appt_dt = appt["appointment_date"]
+        # Convert IST datetime to UTC
+        if appt_dt.tzinfo is None:
+            appt_dt_ist = appt_dt.replace(tzinfo=IST)
+        else:
+            appt_dt_ist = appt_dt.astimezone(IST)
+        appt_dt_utc = appt_dt_ist.astimezone(timezone.utc)
+        appt_end_utc = appt_dt_utc + timedelta(minutes=30)
+
+        dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        dtstart = appt_dt_utc.strftime("%Y%m%dT%H%M%SZ")
+        dtend = appt_end_utc.strftime("%Y%m%dT%H%M%SZ")
+
+        doc_name = appt["doctor_name"] or "Care Team Clinician"
+        dept = appt["specialization"] or "Follow-up Clinic"
+
+        # Strictly non-clinical text (Brief Sec 8.5)
+        summary = f"Follow-up visit with {doc_name}"
+        description = f"Follow-up appointment at CareLoop ({dept}). Please arrive 10 minutes early with your discharge summary papers."
+
+        ics_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//CareLoop//EN",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "BEGIN:VEVENT",
+            f"UID:appointment-{appointment_id}@careloop",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART:{dtstart}",
+            f"DTEND:{dtend}",
+            f"SUMMARY:{summary}",
+            f"DESCRIPTION:{description}",
+            "STATUS:CONFIRMED",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ]
+        ics_content = "\r\n".join(ics_lines) + "\r\n"
+
+        return Response(
+            content=ics_content,
+            media_type="text/calendar; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="appointment_{appointment_id}.ics"',
+                "Cache-Control": "no-cache",
+            },
+        )
 
 
 @app.get("/patient/me/doses")

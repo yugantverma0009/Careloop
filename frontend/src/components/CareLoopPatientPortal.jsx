@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   getPatientToday,
+  getPatientCalendar,
+  getPatientDay,
+  downloadAppointmentIcs,
   markDoseTaken,
   skipDose,
   undoDose,
@@ -25,6 +28,7 @@ import {
   IconSearch,
   IconCalendar,
   IconClock,
+  IconBell,
 } from './Icons';
 
 const SKIP_REASONS = [
@@ -44,7 +48,7 @@ export default function CareLoopPatientPortal({ user }) {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Active navigation sidebar tab: 'recovery', 'prescriptions', 'checkin', 'chat'
+  // Active navigation sidebar tab: 'recovery', 'prescriptions', 'calendar', 'checkin', 'chat'
   const [activeNav, setActiveNav] = useState('recovery');
 
   // Skip Modal State
@@ -54,6 +58,18 @@ export default function CareLoopPatientPortal({ user }) {
 
   // Undo Toast State
   const [undoToast, setUndoToast] = useState(null);
+
+  // Calendar State (Brief Sec 6.3)
+  const [calendarMonth, setCalendarMonth] = useState('2026-10');
+  const [calendarData, setCalendarData] = useState(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState('2026-10-29');
+  const [dayDetail, setDayDetail] = useState(null);
+  const [dayDetailLoading, setDayDetailLoading] = useState(false);
+  const [downloadingIcsId, setDownloadingIcsId] = useState(null);
+
+  // In-App Reminders State (Brief Sec 6.8)
+  const [remindersOpen, setRemindersOpen] = useState(false);
 
   // Symptom check-in state (retained from existing)
   const [symptomText, setSymptomText] = useState('');
@@ -98,6 +114,131 @@ export default function CareLoopPatientPortal({ user }) {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
+
+  // Calendar Loader Functions (Brief Sec 6.3 & 8.3)
+  const loadCalendarData = async (month) => {
+    try {
+      setCalendarLoading(true);
+      const data = await getPatientCalendar(month);
+      setCalendarData(data);
+    } catch (err) {
+      console.error('Failed to load calendar data', err);
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  const loadDayDetailData = async (dateStr) => {
+    try {
+      setDayDetailLoading(true);
+      const data = await getPatientDay(dateStr);
+      setDayDetail(data);
+    } catch (err) {
+      console.error('Failed to load day detail', err);
+    } finally {
+      setDayDetailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeNav === 'calendar') {
+      loadCalendarData(calendarMonth);
+    }
+  }, [activeNav, calendarMonth]);
+
+  useEffect(() => {
+    if (activeNav === 'calendar' && selectedCalendarDate) {
+      loadDayDetailData(selectedCalendarDate);
+    }
+  }, [activeNav, selectedCalendarDate]);
+
+  const handlePrevMonth = () => {
+    const [yStr, mStr] = calendarMonth.split('-');
+    let y = parseInt(yStr, 10);
+    let m = parseInt(mStr, 10) - 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    const newMonth = `${y}-${String(m).padStart(2, '0')}`;
+    setCalendarMonth(newMonth);
+  };
+
+  const handleNextMonth = () => {
+    const [yStr, mStr] = calendarMonth.split('-');
+    let y = parseInt(yStr, 10);
+    let m = parseInt(mStr, 10) + 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    const newMonth = `${y}-${String(m).padStart(2, '0')}`;
+    setCalendarMonth(newMonth);
+  };
+
+  const handleJumpToToday = () => {
+    const todayStr = todayData?.date || '2026-10-29';
+    const monthStr = todayStr.slice(0, 7);
+    setCalendarMonth(monthStr);
+    setSelectedCalendarDate(todayStr);
+  };
+
+  const handleSelectDay = (dateStr) => {
+    setSelectedCalendarDate(dateStr);
+  };
+
+  const handleDownloadAppointmentIcs = async (apptId) => {
+    try {
+      setDownloadingIcsId(apptId);
+      await downloadAppointmentIcs(apptId);
+    } catch (err) {
+      console.error('Failed to download .ics', err);
+      alert(lang === 'hi' ? 'कैलेंडर फाइल डाउनलोड नहीं हो सकी।' : 'Failed to download calendar event file.');
+    } finally {
+      setDownloadingIcsId(null);
+    }
+  };
+
+  // In-App Reminders list (Brief Sec 6.8) - Strictly factual, no clinical diagnoses
+  const remindersList = [];
+  if (todayData?.next_dose) {
+    remindersList.push({
+      id: 'next_dose',
+      title: lang === 'hi' ? 'अगली दवा' : 'Next Medicine Due',
+      desc: `${todayData.next_dose.medicine} · ${todayData.next_dose.scheduled_time} (${todayData.next_dose.pill_label})`,
+      action: () => {
+        setActiveNav('prescriptions');
+        setRemindersOpen(false);
+      },
+      actionLabel: lang === 'hi' ? 'दवाइयाँ देखें' : 'View medicines',
+    });
+  }
+  if (todayData?.counts?.not_confirmed > 0) {
+    remindersList.push({
+      id: 'not_confirmed',
+      title: lang === 'hi' ? 'पुष्टि बाकी' : 'Dose Not Confirmed',
+      desc: lang === 'hi'
+        ? `${todayData.counts.not_confirmed} खुराक की पुष्टि लंबित है`
+        : `${todayData.counts.not_confirmed} scheduled dose awaiting confirmation`,
+      action: () => {
+        setActiveNav('prescriptions');
+        setRemindersOpen(false);
+      },
+      actionLabel: lang === 'hi' ? 'खुराक देखें' : 'Review doses',
+    });
+  }
+  if (todayData?.next_appointment) {
+    remindersList.push({
+      id: 'appointment',
+      title: lang === 'hi' ? 'फॉलो-अप अपॉइंटमेंट' : 'Upcoming Follow-up Visit',
+      desc: `${todayData.next_appointment.formatted_date} · ${todayData.next_appointment.with}`,
+      action: () => {
+        setActiveNav('calendar');
+        setRemindersOpen(false);
+      },
+      actionLabel: lang === 'hi' ? 'कैलेंडर में देखें' : 'View calendar',
+    });
+  }
 
   // Handle One-Tap Taken (Brief Sec 6.2)
   const handleTakeDose = async (dose) => {
@@ -385,6 +526,7 @@ export default function CareLoopPatientPortal({ user }) {
                   Icon: IconPill,
                   badge: remainingDosesCount > 0 ? remainingDosesCount : undefined, // hidden at 0 (Brief Sec 6.1)
                 },
+                { id: 'calendar', label: lang === 'hi' ? 'मेरा कैलेंडर' : 'My calendar', Icon: IconCalendar },
                 { id: 'checkin', label: lang === 'hi' ? 'दैनिक चेक-इन' : 'Daily check-in', Icon: IconShieldCheck },
               ].map((item) => {
                 const isActive = activeNav === item.id;
@@ -623,6 +765,120 @@ export default function CareLoopPatientPortal({ user }) {
               >
                 HI
               </button>
+            </div>
+
+            {/* In-App Reminders Bell (Brief Sec 6.8) */}
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setRemindersOpen(!remindersOpen)}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  background: 'var(--bg-surface, #ffffff)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: remindersOpen ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                  position: 'relative',
+                  transition: 'all 0.15s ease',
+                }}
+                aria-label="In-app reminders"
+                title={lang === 'hi' ? 'रिमाइंडर' : 'Care Reminders'}
+              >
+                <IconBell width={17} height={17} />
+                {remindersList.length > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      right: '6px',
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      background: 'var(--alert-red, #dc2626)',
+                    }}
+                  />
+                )}
+              </button>
+
+              {/* Reminders Popover Menu */}
+              {remindersOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '44px',
+                    right: 0,
+                    width: '320px',
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                    borderRadius: '12px',
+                    boxShadow: 'var(--shadow-float)',
+                    padding: '16px',
+                    zIndex: 100,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      {lang === 'hi' ? 'केयर रिमाइंडर' : 'Care Reminders'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRemindersOpen(false)}
+                      style={{ background: 'none', border: 'none', fontSize: '13px', cursor: 'pointer', color: 'var(--text-muted, #64748b)' }}
+                      aria-label="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {remindersList.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {remindersList.map((rem) => (
+                        <div
+                          key={rem.id}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: 'var(--bg-base, #f8fafc)',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                          }}
+                        >
+                          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                            {rem.title}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', margin: '3px 0 8px' }}>
+                            {rem.desc}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={rem.action}
+                            style={{
+                              background: 'var(--accent-teal, #0d9488)',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '5px 10px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {rem.actionLabel}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding: '14px 8px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      {lang === 'hi' ? 'सब ठीक है! कोई लंबित रिमाइंडर नहीं है।' : 'All clear! No pending reminders.'}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <SwitchDemoWorkspace currentUser={user} />
@@ -1485,6 +1741,262 @@ export default function CareLoopPatientPortal({ user }) {
                 )}
               </div>
 
+              {/* ─── RECOVERY PLAN CHECKLIST (Brief Sec 6.6) ─── */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '22px 24px',
+                  boxShadow: 'var(--shadow-card)',
+                  marginBottom: '24px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '6px',
+                        background: 'var(--accent-teal-soft, #ecfdf5)',
+                        color: 'var(--accent-teal, #0d9488)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <IconShieldCheck width={16} height={16} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                        {lang === 'hi' ? 'रिकवरी प्लान चेकलिस्ट' : 'Recovery Plan Checklist'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
+                        {lang === 'hi' ? 'डिस्चार्ज सारांश के आधार पर वास्तविक रिकॉर्ड' : 'Factual items verified from your care plan records'}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '3px 8px',
+                      borderRadius: '12px',
+                      background: 'var(--accent-blue-soft, #eff6ff)',
+                      color: 'var(--accent-blue, #0284c7)',
+                    }}
+                  >
+                    {lang === 'hi' ? 'सक्रिय' : 'Active'}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '14px',
+                  }}
+                >
+                  {/* Checklist Item 1: Next Appointment */}
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '6px',
+                          background: 'var(--accent-blue-soft, #eff6ff)',
+                          color: 'var(--accent-blue, #0284c7)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          marginTop: '2px',
+                        }}
+                      >
+                        <IconCalendar width={14} height={14} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                          {lang === 'hi' ? 'फॉलो-अप अपॉइंटमेंट' : 'Follow-up visit'}
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                          {todayData?.plan_checklist?.next_appointment?.date || (lang === 'hi' ? 'कोई निर्धारित नहीं' : 'None scheduled')}
+                        </div>
+                        {todayData?.plan_checklist?.next_appointment?.doctor && (
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                            {todayData.plan_checklist.next_appointment.doctor}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {todayData?.plan_checklist?.next_appointment?.id && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadAppointmentIcs(todayData.plan_checklist.next_appointment.id)}
+                        disabled={downloadingIcsId === todayData.plan_checklist.next_appointment.id}
+                        style={{
+                          alignSelf: 'flex-start',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--accent-blue, #0284c7)',
+                          background: 'transparent',
+                          color: 'var(--accent-blue, #0284c7)',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <IconCalendar width={12} height={12} />
+                        <span>{downloadingIcsId === todayData.plan_checklist.next_appointment.id ? (lang === 'hi' ? 'डाउनलोड हो रहा है...' : 'Downloading...') : (lang === 'hi' ? 'कैलेंडर में जोड़ें (.ics)' : 'Add to calendar (.ics)')}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Checklist Item 2: Medicine Course */}
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        background: 'var(--accent-teal-soft, #ecfdf5)',
+                        color: 'var(--accent-teal, #0d9488)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        marginTop: '2px',
+                      }}
+                    >
+                      <IconPill width={14} height={14} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                        {lang === 'hi' ? 'दवा कोर्स' : 'Medicine course'}
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                        {todayData?.plan_checklist?.course_end_date
+                          ? (lang === 'hi' ? `${todayData.plan_checklist.course_end_date} तक सक्रिय` : `Active through ${todayData.plan_checklist.course_end_date}`)
+                          : (lang === 'hi' ? 'सक्रिय प्रिस्क्रिप्शन' : 'Active prescription course')}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                        {lang === 'hi' ? 'डॉक्टर के निर्देशानुसार' : 'As prescribed in discharge papers'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Checklist Item 3: Check-ins this week */}
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        background: 'var(--success-green-soft, #f0fdf4)',
+                        color: 'var(--success-green, #059669)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        marginTop: '2px',
+                      }}
+                    >
+                      <IconCheck width={14} height={14} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                        {lang === 'hi' ? 'इस सप्ताह चेक-इन' : 'Check-ins this week'}
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                        {todayData?.plan_checklist?.checkins_this_week || '0 of 7 days'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                        {lang === 'hi' ? 'केयर टीम को दैनिक स्थिति भेजें' : 'Reported to your care team'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Checklist Item 4: Day after discharge */}
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        background: 'var(--accent-blue-soft, #eff6ff)',
+                        color: 'var(--accent-blue, #0284c7)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        marginTop: '2px',
+                      }}
+                    >
+                      <IconActivity width={14} height={14} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                        {lang === 'hi' ? 'रिकवरी अवधि' : 'Recovery progress'}
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                        {lang === 'hi'
+                          ? `डिस्चार्ज के बाद दिन ${todayData?.plan_checklist?.day_after_discharge || 1}`
+                          : `Day ${todayData?.plan_checklist?.day_after_discharge || 1} after discharge`}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                        {lang === 'hi' ? 'घर पर स्वास्थ्य लाभ' : 'Post-hospital recovery at home'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* ─── 8. WEEK STRIP (Brief Sec 5.2, 6.3) ─── */}
               <div
                 style={{
@@ -1496,21 +2008,44 @@ export default function CareLoopPatientPortal({ user }) {
                   marginBottom: '24px',
                 }}
               >
-                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '12px' }}>
-                  {lang === 'hi' ? 'इस सप्ताह का संक्षिप्त विवरण' : 'This week'}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                    {lang === 'hi' ? 'इस सप्ताह का संक्षिप्त विवरण' : 'This week'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveNav('calendar')}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--accent-teal, #0d9488)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'hi' ? 'पूरा कैलेंडर देखें →' : 'View full calendar →'}
+                  </button>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '10px' }}>
                   {(todayData?.week || []).map((wDay) => (
                     <div
                       key={wDay.date}
+                      onClick={() => {
+                        setSelectedCalendarDate(wDay.date);
+                        setActiveNav('calendar');
+                      }}
                       style={{
                         padding: '12px 10px',
                         borderRadius: '8px',
                         border: wDay.is_today ? '2px solid var(--accent-blue, #0284c7)' : '1px solid var(--border-subtle, #e2e8f0)',
                         background: wDay.is_today ? 'var(--accent-blue-soft, #eff6ff)' : 'var(--bg-base, #f8fafc)',
                         textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
                       }}
+                      title="Click to view day in calendar"
                     >
                       <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
                         {wDay.day_name}
@@ -1551,6 +2086,625 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
             </>
+          )}
+
+          {/* ─── TAB: MY CALENDAR (Brief Sec 6.3 & 8.3) ─── */}
+          {activeNav === 'calendar' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* Header and Month Controls */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '18px 24px',
+                  boxShadow: 'var(--shadow-card)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    {lang === 'hi' ? 'शेड्यूल और अपॉइंटमेंट्स' : 'SCHEDULE & APPOINTMENTS'}
+                  </div>
+                  <h1 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: '2px 0 0' }}>
+                    {lang === 'hi' ? 'मेरा कैलेंडर' : 'My calendar'}
+                  </h1>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={handleJumpToToday}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-strong, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      color: 'var(--text-primary, #0f172a)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'hi' ? 'आज' : 'Today'}
+                  </button>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      background: 'var(--bg-base, #f8fafc)',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      padding: '2px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={handlePrevMonth}
+                      style={{
+                        padding: '6px 12px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                      }}
+                      title="Previous month"
+                      aria-label="Previous month"
+                    >
+                      ‹
+                    </button>
+                    <span
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        color: 'var(--text-primary, #0f172a)',
+                        padding: '0 12px',
+                        minWidth: '130px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {calendarData?.month_name || calendarMonth}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleNextMonth}
+                      style={{
+                        padding: '6px 12px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                      }}
+                      title="Next month"
+                      aria-label="Next month"
+                    >
+                      ›
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Two Column Layout: Left Month Grid & Upcoming; Right Day Inspection Sheet */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.4fr 1fr',
+                  gap: '24px',
+                  alignItems: 'start',
+                }}
+              >
+                {/* Left Column: Month Grid */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div
+                    style={{
+                      background: 'var(--bg-surface, #ffffff)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '12px',
+                      padding: '22px 24px',
+                      boxShadow: 'var(--shadow-card)',
+                    }}
+                  >
+                    {/* Weekday headers */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(7, 1fr)',
+                        gap: '6px',
+                        marginBottom: '10px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayName, idx) => {
+                        const hindiNames = ['सोम', 'मंगल', 'बुध', 'गुरु', 'शुक्र', 'शनि', 'रवि'];
+                        return (
+                          <div
+                            key={dayName}
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: 'var(--text-muted, #94a3b8)',
+                              textTransform: 'uppercase',
+                              padding: '4px 0',
+                            }}
+                          >
+                            {lang === 'hi' ? hindiNames[idx] : dayName}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Month Days Grid */}
+                    {calendarLoading ? (
+                      <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                        {lang === 'hi' ? 'कैलेंडर लोड हो रहा है...' : 'Loading calendar...'}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(7, 1fr)',
+                          gap: '6px',
+                        }}
+                      >
+                        {/* Pad leading empty cells for day_of_week of 1st day */}
+                        {calendarData?.days?.length > 0 &&
+                          Array.from({ length: calendarData.days[0].day_of_week }).map((_, i) => (
+                            <div key={`empty-${i}`} style={{ height: '70px', background: 'transparent' }} />
+                          ))}
+
+                        {/* Actual day cells */}
+                        {(calendarData?.days || []).map((d) => {
+                          const isSelected = selectedCalendarDate === d.date;
+                          const isToday = d.is_today;
+
+                          // Accessible label
+                          const doseStatusText =
+                            d.planned > 0
+                              ? `${d.taken} of ${d.planned} medicines taken`
+                              : 'No medicines';
+                          const apptText = d.has_appointment ? 'Appointment scheduled' : '';
+                          const checkinText = d.has_checkin ? 'Check-in reported' : '';
+                          const ariaLabel = `${d.date}, ${doseStatusText}, ${apptText}, ${checkinText}`.trim();
+
+                          return (
+                            <button
+                              key={d.date}
+                              type="button"
+                              onClick={() => handleSelectDay(d.date)}
+                              aria-label={ariaLabel}
+                              style={{
+                                height: '72px',
+                                padding: '6px 8px',
+                                borderRadius: '8px',
+                                border: isSelected
+                                  ? '2px solid var(--accent-teal, #0d9488)'
+                                  : isToday
+                                  ? '2px solid var(--accent-blue, #0284c7)'
+                                  : '1px solid var(--border-subtle, #e2e8f0)',
+                                background: isSelected
+                                  ? 'var(--accent-teal-soft, #ecfdf5)'
+                                  : isToday
+                                  ? 'var(--accent-blue-soft, #eff6ff)'
+                                  : 'var(--bg-base, #f8fafc)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                <span
+                                  style={{
+                                    fontSize: '13px',
+                                    fontWeight: isToday || isSelected ? 800 : 600,
+                                    color: isToday
+                                      ? 'var(--accent-blue, #0284c7)'
+                                      : 'var(--text-primary, #0f172a)',
+                                  }}
+                                >
+                                  {d.day}
+                                </span>
+                                {d.has_appointment && (
+                                  <span
+                                    title="Appointment scheduled"
+                                    style={{
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '50%',
+                                      background: 'var(--accent-blue, #0284c7)',
+                                    }}
+                                  />
+                                )}
+                              </div>
+
+                              {/* Indicators Row */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                {d.is_future && d.planned > 0 ? (
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 700,
+                                      color: 'var(--text-muted, #64748b)',
+                                      fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                                    }}
+                                  >
+                                    {d.planned}rx
+                                  </span>
+                                ) : d.planned > 0 ? (
+                                  <div
+                                    title={`${d.taken} of ${d.planned} doses taken`}
+                                    style={{
+                                      width: '7px',
+                                      height: '7px',
+                                      borderRadius: '50%',
+                                      background:
+                                        d.taken >= d.planned
+                                          ? 'var(--success-green, #059669)'
+                                          : 'var(--warning-amber, #d97706)',
+                                    }}
+                                  />
+                                ) : null}
+
+                                {d.has_checkin && (
+                                  <div
+                                    title={`Check-in reported${d.max_pain !== null ? ` (Pain: ${d.max_pain}/10)` : ''}`}
+                                    style={{
+                                      width: '7px',
+                                      height: '7px',
+                                      borderRadius: '50%',
+                                      background: 'var(--accent-teal, #0d9488)',
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Legend */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '16px',
+                        marginTop: '18px',
+                        paddingTop: '14px',
+                        borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                        fontSize: '11px',
+                        color: 'var(--text-muted, #64748b)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success-green, #059669)' }} />
+                        <span>{lang === 'hi' ? 'सभी दवाइयाँ लीं' : 'All medicines taken'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--warning-amber, #d97706)' }} />
+                        <span>{lang === 'hi' ? 'छूटी या लंबित' : 'Doses missed / unconfirmed'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-blue, #0284c7)' }} />
+                        <span>{lang === 'hi' ? 'अपॉइंटमेंट' : 'Appointment'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-teal, #0d9488)' }} />
+                        <span>{lang === 'hi' ? 'दैनिक चेक-इन' : 'Daily check-in'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Upcoming Appointments List */}
+                  <div
+                    style={{
+                      background: 'var(--bg-surface, #ffffff)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '12px',
+                      padding: '22px 24px',
+                      boxShadow: 'var(--shadow-card)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <IconCalendar width={16} height={16} style={{ color: 'var(--accent-blue, #0284c7)' }} />
+                        <h2 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
+                          {lang === 'hi' ? 'आगामी फॉलो-अप अपॉइंटमेंट्स' : 'Upcoming Follow-up Appointments'}
+                        </h2>
+                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                        {calendarData?.upcoming_appointments?.length || 0} {lang === 'hi' ? 'निर्धारित' : 'scheduled'}
+                      </span>
+                    </div>
+
+                    {calendarData?.upcoming_appointments?.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {calendarData.upcoming_appointments.map((appt) => (
+                          <div
+                            key={appt.id}
+                            style={{
+                              padding: '14px 16px',
+                              borderRadius: '10px',
+                              border: '1px solid var(--border-subtle, #e2e8f0)',
+                              background: 'var(--bg-base, #f8fafc)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '12px',
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                                {appt.formatted_date}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                                {appt.doctor_name} · <span style={{ color: 'var(--text-muted, #64748b)' }}>{appt.department}</span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--accent-blue, #0284c7)', fontWeight: 600, marginTop: '2px' }}>
+                                {appt.type}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadAppointmentIcs(appt.id)}
+                              disabled={downloadingIcsId === appt.id}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '8px 14px',
+                                borderRadius: '8px',
+                                border: '1px solid var(--accent-blue, #0284c7)',
+                                background: 'transparent',
+                                color: 'var(--accent-blue, #0284c7)',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                minHeight: '38px',
+                              }}
+                            >
+                              <IconCalendar width={14} height={14} />
+                              <span>
+                                {downloadingIcsId === appt.id
+                                  ? (lang === 'hi' ? 'डाउनलोड हो रहा है...' : 'Downloading...')
+                                  : (lang === 'hi' ? 'अपने कैलेंडर में जोड़ें (.ics)' : 'Add to my calendar (.ics)')}
+                              </span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                        {lang === 'hi' ? 'कोई आगामी अपॉइंटमेंट निर्धारित नहीं है।' : 'No upcoming appointments scheduled.'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Column: Day Inspection Sheet */}
+                <div
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '22px 24px',
+                    boxShadow: 'var(--shadow-card)',
+                    position: 'sticky',
+                    top: '84px',
+                  }}
+                >
+                  <div style={{ borderBottom: '1px solid var(--border-subtle, #e2e8f0)', paddingBottom: '14px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 700, textTransform: 'uppercase' }}>
+                      {lang === 'hi' ? 'दिन का विवरण' : 'DAY INSPECTION'}
+                    </div>
+                    <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                      {dayDetail?.formatted_date || selectedCalendarDate}
+                    </div>
+                  </div>
+
+                  {dayDetailLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      {lang === 'hi' ? 'विवरण लोड हो रहा है...' : 'Loading day detail...'}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Section 1: Prescribed Doses */}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', marginBottom: '10px' }}>
+                          {lang === 'hi' ? 'निर्धारित दवाइयाँ' : 'PRESCRIBED DOSES'} ({dayDetail?.doses?.length || 0})
+                        </div>
+                        {dayDetail?.doses?.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {dayDetail.doses.map((dose) => (
+                              <div
+                                key={dose.id}
+                                style={{
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                                    {dose.medicine}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)' }}>
+                                    {dose.scheduled_time} · {dose.dose_instructions}
+                                  </div>
+                                  {dose.patient_note && (
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontStyle: 'italic', marginTop: '2px' }}>
+                                      Note: {dose.patient_note}
+                                    </div>
+                                  )}
+                                </div>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    padding: '3px 8px',
+                                    borderRadius: '12px',
+                                    background:
+                                      dose.status === 'Taken_Confirmed' || dose.status === 'Taken'
+                                        ? 'var(--success-green-soft, #f0fdf4)'
+                                        : dose.status === 'Skipped'
+                                        ? 'var(--bg-card-hover, #f1f5f9)'
+                                        : 'var(--warning-amber-soft, #fffbeb)',
+                                    color:
+                                      dose.status === 'Taken_Confirmed' || dose.status === 'Taken'
+                                        ? 'var(--success-green-text, #166534)'
+                                        : dose.status === 'Skipped'
+                                        ? 'var(--text-muted, #64748b)'
+                                        : 'var(--warning-amber-text, #92400e)',
+                                  }}
+                                >
+                                  {dose.status === 'Taken_Confirmed'
+                                    ? (lang === 'hi' ? 'ले ली' : 'Taken')
+                                    : dose.status === 'Skipped'
+                                    ? (lang === 'hi' ? 'छोड़ी गई' : 'Skipped')
+                                    : (lang === 'hi' ? 'लंबित' : 'Not confirmed')}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontStyle: 'italic', padding: '6px 0' }}>
+                            {lang === 'hi' ? 'इस दिन कोई दवा निर्धारित नहीं थी।' : 'No medicines scheduled on this day.'}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Section 2: Appointments */}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', marginBottom: '10px' }}>
+                          {lang === 'hi' ? 'अपॉइंटमेंट्स' : 'APPOINTMENTS'} ({dayDetail?.appointments?.length || 0})
+                        </div>
+                        {dayDetail?.appointments?.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {dayDetail.appointments.map((appt) => (
+                              <div
+                                key={appt.id}
+                                style={{
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <div>
+                                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                                      {appt.doctor_name}
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)' }}>
+                                      {appt.formatted_time} · {appt.department}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadAppointmentIcs(appt.id)}
+                                    disabled={downloadingIcsId === appt.id}
+                                    style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--accent-blue, #0284c7)',
+                                      background: 'transparent',
+                                      color: 'var(--accent-blue, #0284c7)',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    .ics
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontStyle: 'italic', padding: '6px 0' }}>
+                            {lang === 'hi' ? 'कोई अपॉइंटमेंट निर्धारित नहीं था।' : 'No appointments scheduled.'}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Section 3: Check-in / Symptoms */}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', marginBottom: '10px' }}>
+                          {lang === 'hi' ? 'दैनिक चेक-इन और दर्द' : 'CHECK-IN & SYMPTOMS'} ({dayDetail?.checkins?.length || 0})
+                        </div>
+                        {dayDetail?.checkins?.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {dayDetail.checkins.map((chk) => (
+                              <div
+                                key={chk.id}
+                                style={{
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                                    {chk.reported_at}
+                                  </span>
+                                  {chk.pain_level !== null && (
+                                    <span
+                                      style={{
+                                        fontSize: '12px',
+                                        fontWeight: 800,
+                                        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                                        color:
+                                          chk.pain_level >= 7
+                                            ? 'var(--alert-red, #dc2626)'
+                                            : chk.pain_level >= 4
+                                            ? 'var(--warning-amber, #d97706)'
+                                            : 'var(--success-green, #059669)',
+                                      }}
+                                    >
+                                      Pain: {chk.pain_level}/10
+                                    </span>
+                                  )}
+                                </div>
+                                {chk.note && (
+                                  <div style={{ fontSize: '12px', color: 'var(--text-primary, #0f172a)', marginTop: '4px' }}>
+                                    {chk.note}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontStyle: 'italic', padding: '6px 0' }}>
+                            {lang === 'hi' ? 'इस दिन कोई चेक-इन दर्ज नहीं किया गया।' : 'No check-in recorded on this day.'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* ─── 9. TAB: CHECK-IN (Retained from existing, refined styling) ─── */}
