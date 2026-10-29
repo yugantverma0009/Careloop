@@ -21,6 +21,7 @@ import TaskQueue from './TaskQueue';
 import ClinicalSummaries from './ClinicalSummaries';
 import ShiftHandoff from './ShiftHandoff';
 import AuditLogViewer from './AuditLogViewer';
+import OperationalInsights from './OperationalInsights';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -389,6 +390,7 @@ export default function CareLoopStaffPortal({ user }) {
                 { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
                 { id: 'summaries', label: 'Draft summaries', Icon: IconFileText, badge: summaries.length },
                 { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
+                { id: 'insights', label: 'Operational insights', Icon: IconActivity },
                 { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
               ].map((item) => {
                 const isActive = activeNav === item.id || (item.id === 'patients' && activeNav === 'patient_chart');
@@ -1691,7 +1693,12 @@ export default function CareLoopStaffPortal({ user }) {
             />
           )}
 
-          {/* TAB 6: AUDIT LOG VIEWER (Feature D-17) */}
+          {/* TAB 6: OPERATIONAL INSIGHTS (Feature D-14) */}
+          {activeNav === 'insights' && (
+            <OperationalInsights />
+          )}
+
+          {/* TAB 7: AUDIT LOG VIEWER (Feature D-17) */}
           {activeNav === 'audit' && (
             <AuditLogViewer />
           )}

@@ -29,6 +29,12 @@ from .clinical_summaries import (
     run_summary_guard,
     generate_fallback_summary,
 )
+from .governance_interop import (
+    PATHWAY_TEMPLATES,
+    compute_lace_score,
+    compute_operational_insights,
+    build_fhir_r4_bundle,
+)
 from . import scheduler
 
 
@@ -4442,3 +4448,404 @@ def global_search(
         "tasks": tasks,
         "notes": notes,
     }
+
+
+# ─── Care Rules & Pathway Templates (Feature D-13) ───────────────────────────
+
+class ApplyPathwayRuleIn(BaseModel):
+    rule_type: str
+    measurement_type: Optional[str] = None
+    threshold_value: float
+    window_hours: Optional[int] = None
+    severity: str = "Review_Soon"
+
+
+class ApplyPathwayIn(BaseModel):
+    template_id: str
+    rules: List[ApplyPathwayRuleIn]
+
+
+class UpdateRuleIn(BaseModel):
+    threshold_value: float
+    window_hours: Optional[int] = None
+    severity: Optional[str] = None
+    change_reason: str
+
+
+@app.get("/staff/pathway-templates")
+def get_pathway_templates(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-13: Return available clinical pathway templates with BLANK thresholds.
+    The system ships zero default medical thresholds.
+    """
+    return {"templates": PATHWAY_TEMPLATES}
+
+
+@app.post("/staff/patients/{pid}/apply-pathway")
+def apply_pathway_template(
+    pid: int,
+    body: ApplyPathwayIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-13: Apply a pathway template to a patient.
+    STRICT CLINICAL GOVERNANCE:
+    - Only attending doctors can approve and apply clinical pathway templates (403 for nurses).
+    - Every rule threshold must be filled by the doctor (no defaults or blanks).
+    """
+    user_role = user.get("role") or user.get("account_role")
+    if user_role != "Doctor":
+        raise HTTPException(
+            status_code=403,
+            detail="Clinical Governance Restriction: Only an attending doctor can approve and apply clinical pathway templates.",
+        )
+
+    if not body.rules or len(body.rules) == 0:
+        raise HTTPException(status_code=400, detail="At least one clinical rule must be configured.")
+
+    for r in body.rules:
+        if r.threshold_value is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Blank threshold detected for {r.rule_type}. All clinical thresholds must be explicitly set by the doctor.",
+            )
+
+    doctor_id = user["staff_id"]
+    template_name = next((t["name"] for t in PATHWAY_TEMPLATES if t["template_id"] == body.template_id), body.template_id)
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Verify patient exists
+        cur.execute("SELECT patient_id FROM patients WHERE patient_id = %s", (pid,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Patient not found")
+
+        created_rule_ids = []
+        for r in body.rules:
+            # Check if active rule already exists for patient and measurement
+            cur.execute(
+                """SELECT rule_id, threshold_value, window_hours, severity FROM alert_rules
+                   WHERE patient_id = %s AND rule_type = %s
+                     AND (measurement_type = %s OR (measurement_type IS NULL AND %s IS NULL))
+                     AND is_active = 1 LIMIT 1""",
+                (pid, r.rule_type, r.measurement_type, r.measurement_type),
+            )
+            existing_rule = cur.fetchone()
+
+            if existing_rule:
+                rule_id = existing_rule["rule_id"]
+                old_val = {
+                    "threshold_value": float(existing_rule["threshold_value"]),
+                    "window_hours": existing_rule["window_hours"],
+                    "severity": existing_rule["severity"],
+                }
+                cur.execute(
+                    """UPDATE alert_rules
+                       SET threshold_value = %s, window_hours = %s, severity = %s,
+                           approved_by_staff_id = %s, approved_at = NOW(), is_active = 1
+                       WHERE rule_id = %s""",
+                    (r.threshold_value, r.window_hours, r.severity, doctor_id, rule_id),
+                )
+            else:
+                old_val = {}
+                cur.execute(
+                    """INSERT INTO alert_rules (patient_id, rule_type, measurement_type, threshold_value,
+                                              window_hours, severity, approved_by_staff_id, approved_at, is_active)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), 1)""",
+                    (pid, r.rule_type, r.measurement_type, r.threshold_value, r.window_hours, r.severity, doctor_id),
+                )
+                rule_id = cur.lastrowid
+
+            created_rule_ids.append(rule_id)
+
+            # Record in alert_rules_history
+            new_val = {
+                "threshold_value": r.threshold_value,
+                "window_hours": r.window_hours,
+                "severity": r.severity,
+                "rule_type": r.rule_type,
+                "measurement_type": r.measurement_type,
+            }
+            cur.execute(
+                """INSERT INTO alert_rules_history (rule_id, changed_by_staff_id, change_reason, old_values, new_values)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (rule_id, doctor_id, f"Pathway activation: {template_name}", json.dumps(old_val), json.dumps(new_val)),
+            )
+
+        # Audit log entry
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'APPLY_PATHWAY_TEMPLATE', 'patient', %s,
+                       JSON_OBJECT('template_id', %s, 'rules_count', %s, 'doctor_id', %s))""",
+            (str(doctor_id), pid, body.template_id, len(created_rule_ids), doctor_id),
+        )
+        conn.commit()
+
+    return {
+        "status": "applied",
+        "applied": True,
+        "template_id": body.template_id,
+        "rules_created": len(created_rule_ids),
+        "approved_by_doctor_id": doctor_id,
+    }
+
+
+@app.get("/staff/rules/{rule_id}/history")
+def get_rule_history(
+    rule_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-13: Return complete modification audit trail for an alert rule."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT h.history_id, h.rule_id, h.changed_by_staff_id, cs.full_name AS changed_by_name,
+                      cs.staff_role AS changed_by_role, h.change_reason, h.old_values, h.new_values, h.changed_at
+               FROM alert_rules_history h
+               LEFT JOIN care_staff cs ON cs.staff_id = h.changed_by_staff_id
+               WHERE h.rule_id = %s
+               ORDER BY h.changed_at DESC, h.history_id DESC""",
+            (rule_id,),
+        )
+        rows = cur.fetchall() or []
+
+    for r in rows:
+        for fld in ("old_values", "new_values"):
+            if isinstance(r.get(fld), str):
+                try:
+                    r[fld] = json.loads(r[fld])
+                except Exception:
+                    r[fld] = {}
+            elif not isinstance(r.get(fld), dict):
+                r[fld] = {}
+        r["old_threshold"] = (r.get("old_values") or {}).get("threshold_value")
+        r["new_threshold"] = (r.get("new_values") or {}).get("threshold_value")
+        r["approved_by_doctor"] = not (r.get("new_values") or {}).get("proposed_only", False)
+
+    return {"rule_id": rule_id, "history": rows}
+
+
+@app.post("/staff/rules/{rule_id}/update")
+def update_alert_rule(
+    rule_id: int,
+    body: UpdateRuleIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-13: Update or propose an alert rule threshold.
+    - Doctors apply changes directly with audit history.
+    - Nurses submit proposed updates requiring doctor approval.
+    """
+    if not body.change_reason or len(body.change_reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A clinical justification of at least 5 characters is required.")
+
+    staff_id = user["staff_id"]
+    is_doctor = (user.get("role") or user.get("account_role")) == "Doctor"
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT rule_id, patient_id, threshold_value, window_hours, severity, is_active
+               FROM alert_rules WHERE rule_id = %s""",
+            (rule_id,),
+        )
+        current = cur.fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Alert rule not found")
+
+        old_val = {
+            "threshold_value": float(current["threshold_value"]),
+            "window_hours": current["window_hours"],
+            "severity": current["severity"],
+            "is_active": current["is_active"],
+        }
+        new_val = {
+            "threshold_value": body.threshold_value,
+            "window_hours": body.window_hours if body.window_hours is not None else current["window_hours"],
+            "severity": body.severity or current["severity"],
+            "is_active": current["is_active"],
+            "proposed_only": not is_doctor,
+        }
+
+        if is_doctor:
+            cur.execute(
+                """UPDATE alert_rules
+                   SET threshold_value = %s, window_hours = %s, severity = %s,
+                       approved_by_staff_id = %s, approved_at = NOW()
+                   WHERE rule_id = %s""",
+                (new_val["threshold_value"], new_val["window_hours"], new_val["severity"], staff_id, rule_id),
+            )
+            action_desc = "RULE_UPDATED"
+        else:
+            action_desc = "RULE_CHANGE_PROPOSED"
+
+        cur.execute(
+            """INSERT INTO alert_rules_history (rule_id, changed_by_staff_id, change_reason, old_values, new_values)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (rule_id, staff_id, body.change_reason.strip(), json.dumps(old_val), json.dumps(new_val)),
+        )
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, %s, 'alert_rule', %s,
+                       JSON_OBJECT('reason', %s, 'is_doctor', %s, 'new_threshold', %s))""",
+            (str(staff_id), action_desc, rule_id, body.change_reason.strip(), is_doctor, body.threshold_value),
+        )
+        conn.commit()
+
+    return {
+        "status": "updated" if is_doctor else "proposed",
+        "rule_id": rule_id,
+        "is_doctor_approved": is_doctor,
+        "approved_by_doctor": is_doctor,
+        "message": "Alert rule threshold updated successfully." if is_doctor else "Rule modification proposal submitted for doctor review.",
+    }
+
+
+# ─── Operational Insights (Feature D-14) ─────────────────────────────────────
+
+@app.get("/staff/insights")
+def get_operational_insights(
+    date_range: str = "30d",    # '7d', '30d', '90d'
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-14: Operational insights dashboard.
+    Returns metrics with transparent clinical definitions (NO outcome/readmission claims).
+    """
+    with get_conn() as conn:
+        return compute_operational_insights(conn, date_range=date_range)
+
+
+class ExportLogAuditIn(BaseModel):
+    date_range: Optional[str] = "30d"
+    count: Optional[int] = 0
+    filters: Optional[Dict[str, Any]] = None
+
+
+@app.post("/staff/insights/export-log")
+def log_insights_export(
+    body: ExportLogAuditIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-14: Compliance logging for insights metrics export."""
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'INSIGHTS_EXPORT', 'insights', NULL,
+                       JSON_OBJECT('format', 'CSV', 'date_range', %s, 'count', %s, 'exported_at', NOW()))""",
+            (str(staff_id), body.date_range or "30d", body.count or 0),
+        )
+        conn.commit()
+    return {"status": "logged", "logged": True}
+
+
+# ─── FHIR R4 Export (Feature D-19) ───────────────────────────────────────────
+
+@app.get("/staff/patients/{pid}/fhir")
+def get_patient_fhir_bundle(
+    pid: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-19: Returns a standard-compliant FHIR R4 JSON Bundle for follow-up data.
+    Audit logs the export operation per clinical data exchange compliance.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            bundle = build_fhir_r4_bundle(conn, pid)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'FHIR_EXPORT', 'patient', %s,
+                       JSON_OBJECT('entries_count', %s, 'exported_at', NOW()))""",
+            (str(user["staff_id"]), pid, bundle.get("total", 0)),
+        )
+        conn.commit()
+
+    return bundle
+
+
+# ─── LACE Score Context (Feature D-20) ────────────────────────────────────────
+
+class RecordLaceIn(BaseModel):
+    length_of_stay_days: int
+    acute_admission: bool
+    charlson_index: int
+    ed_visits_6m: int
+
+
+@app.get("/staff/patients/{pid}/lace")
+def get_patient_lace(
+    pid: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-20: Retrieve latest clinician-entered LACE context score for a patient."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT r.risk_context_id, r.patient_id, r.length_of_stay_days, r.acute_admission,
+                      r.charlson_index, r.ed_visits_6m, r.entered_at,
+                      cs.full_name AS entered_by_name
+               FROM risk_context r
+               LEFT JOIN care_staff cs ON cs.staff_id = r.entered_by_staff_id
+               WHERE r.patient_id = %s
+               ORDER BY r.entered_at DESC LIMIT 1""",
+            (pid,),
+        )
+        latest = cur.fetchone()
+
+    if not latest:
+        # Default placeholder context
+        return compute_lace_score(los_days=2, acute=True, charlson=1, ed_visits=0)
+
+    res = compute_lace_score(
+        los_days=latest["length_of_stay_days"],
+        acute=bool(latest["acute_admission"]),
+        charlson=latest["charlson_index"],
+        ed_visits=latest["ed_visits_6m"],
+    )
+    res["entered_at"] = latest["entered_at"].isoformat() if isinstance(latest["entered_at"], datetime) else str(latest["entered_at"])
+    res["entered_by_name"] = latest.get("entered_by_name")
+    return res
+
+
+@app.post("/staff/patients/{pid}/lace")
+def record_patient_lace(
+    pid: int,
+    body: RecordLaceIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-20: Record clinician-entered LACE parameters and compute score."""
+    staff_id = user["staff_id"]
+    lace_calc = compute_lace_score(
+        los_days=body.length_of_stay_days,
+        acute=body.acute_admission,
+        charlson=body.charlson_index,
+        ed_visits=body.ed_visits_6m,
+    )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT patient_id FROM patients WHERE patient_id = %s", (pid,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Patient not found")
+
+        cur.execute(
+            """INSERT INTO risk_context (patient_id, entered_by_staff_id, length_of_stay_days,
+                                       acute_admission, charlson_index, ed_visits_6m)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (pid, staff_id, body.length_of_stay_days, 1 if body.acute_admission else 0, body.charlson_index, body.ed_visits_6m),
+        )
+        rec_id = cur.lastrowid
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'RECORD_LACE_CONTEXT', 'risk_context', %s,
+                       JSON_OBJECT('patient_id', %s, 'score', %s))""",
+            (str(staff_id), rec_id, pid, lace_calc["score"]),
+        )
+        conn.commit()
+
+    lace_calc["risk_context_id"] = rec_id
+    return lace_calc

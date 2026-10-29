@@ -9,6 +9,13 @@ import {
   logCommunication,
   getPatientNotes,
   addPatientNote,
+  getPathwayTemplates,
+  applyPathwayTemplate,
+  getRuleHistory,
+  updateAlertRule,
+  getPatientFhirBundle,
+  getPatientLace,
+  recordPatientLace,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import {
@@ -67,15 +74,170 @@ export default function PatientOverviewTab({
   const [timelineType, setTimelineType] = useState('All');
   const [timelineRange, setTimelineRange] = useState('all');
 
+  // Phase 5: Governance & Interoperability states
+  const [fhirExporting, setFhirExporting] = useState(false);
+  const [laceData, setLaceData] = useState(null);
+  const [laceModalOpen, setLaceModalOpen] = useState(false);
+  const [laceLos, setLaceLos] = useState(2);
+  const [laceAcute, setLaceAcute] = useState(true);
+  const [laceCharlson, setLaceCharlson] = useState(1);
+  const [laceEd, setLaceEd] = useState(0);
+  const [laceSubmitting, setLaceSubmitting] = useState(false);
+
+  const [ruleHistoryModalOpen, setRuleHistoryModalOpen] = useState(false);
+  const [selectedRuleHistory, setSelectedRuleHistory] = useState([]);
+  const [ruleHistoryLoading, setRuleHistoryLoading] = useState(false);
+
+  const [ruleEditModalOpen, setRuleEditModalOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState(null);
+  const [ruleEditThreshold, setRuleEditThreshold] = useState('');
+  const [ruleEditReason, setRuleEditReason] = useState('');
+  const [ruleEditSubmitting, setRuleEditSubmitting] = useState(false);
+
+  const [pathwayModalOpen, setPathwayModalOpen] = useState(false);
+  const [pathwayTemplates, setPathwayTemplates] = useState([]);
+  const [selectedPathway, setSelectedPathway] = useState(null);
+  const [pathwayFormValues, setPathwayFormValues] = useState({});
+  const [pathwaySubmitting, setPathwaySubmitting] = useState(false);
+
   const fetchOverview = async () => {
     setLoading(true);
     try {
       const data = await getPatientDetail(patientId);
       setDetailData(data);
+      getPatientLace(patientId).then(setLaceData).catch((e) => console.error(e));
     } catch (err) {
       console.error('Failed to load patient detail:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExportFhir = async () => {
+    setFhirExporting(true);
+    try {
+      const bundle = await getPatientFhirBundle(patientId);
+      const jsonStr = JSON.stringify(bundle, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/fhir+json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `careloop_fhir_bundle_pat${patientId}_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('FHIR export failed:', err);
+      alert('Failed to export FHIR bundle.');
+    } finally {
+      setFhirExporting(false);
+    }
+  };
+
+  const handleOpenRuleHistory = async (ruleId) => {
+    setRuleHistoryModalOpen(true);
+    setRuleHistoryLoading(true);
+    try {
+      const res = await getRuleHistory(ruleId);
+      setSelectedRuleHistory(res.history || []);
+    } catch (err) {
+      console.error('Failed to load rule history:', err);
+    } finally {
+      setRuleHistoryLoading(false);
+    }
+  };
+
+  const handleOpenPathwayModal = async () => {
+    setPathwayModalOpen(true);
+    try {
+      const res = await getPathwayTemplates();
+      setPathwayTemplates(res.templates || []);
+      if (res.templates?.length) {
+        setSelectedPathway(res.templates[0]);
+        setPathwayFormValues({});
+      }
+    } catch (err) {
+      console.error('Failed to load pathway templates:', err);
+    }
+  };
+
+  const isDoctor = user?.role === 'Doctor' || user?.is_doctor === true;
+
+  const handleApplyPathway = async () => {
+    if (!selectedPathway) return;
+    setPathwaySubmitting(true);
+    try {
+      for (const rule of selectedPathway.rules || []) {
+        const val = pathwayFormValues[rule.key];
+        if (val === undefined || val === null || String(val).trim() === '') {
+          alert(`Please fill in the threshold value for "${rule.rule_type.replace(/_/g, ' ')}". Defaults are strictly blank per D-13.`);
+          setPathwaySubmitting(false);
+          return;
+        }
+      }
+      const rulesPayload = (selectedPathway.rules || []).map((r) => ({
+        rule_type: r.rule_type,
+        threshold_value: parseFloat(pathwayFormValues[r.key]) || pathwayFormValues[r.key],
+        severity: r.severity || 'Medium_Priority',
+        window_hours: r.window_hours || 4,
+        measurement_type: r.measurement_type || '',
+      }));
+      await applyPathwayTemplate(patientId, selectedPathway.template_id, rulesPayload);
+      setPathwayModalOpen(false);
+      await fetchRules();
+      alert('Pathway template applied successfully!');
+    } catch (err) {
+      console.error('Failed to apply pathway:', err);
+      alert(err.message || 'Failed to apply pathway template.');
+    } finally {
+      setPathwaySubmitting(false);
+    }
+  };
+
+  const handleSaveRuleEdit = async (e) => {
+    e.preventDefault();
+    if (!editingRule) return;
+    if (!ruleEditReason || ruleEditReason.trim().length < 5) {
+      alert('A clinical justification of at least 5 characters is mandatory.');
+      return;
+    }
+    setRuleEditSubmitting(true);
+    try {
+      const res = await updateAlertRule(editingRule.rule_id, {
+        threshold_value: parseFloat(ruleEditThreshold) || ruleEditThreshold,
+        change_reason: ruleEditReason.trim(),
+      });
+      setRuleEditModalOpen(false);
+      setEditingRule(null);
+      setRuleEditThreshold('');
+      setRuleEditReason('');
+      await fetchRules();
+      alert(res.message || 'Rule updated successfully.');
+    } catch (err) {
+      console.error('Failed to update rule:', err);
+      alert(err.message || 'Failed to update rule.');
+    } finally {
+      setRuleEditSubmitting(false);
+    }
+  };
+
+  const handleSaveLace = async (e) => {
+    e.preventDefault();
+    setLaceSubmitting(true);
+    try {
+      const res = await recordPatientLace(patientId, {
+        length_of_stay_days: parseInt(laceLos, 10) || 0,
+        acute_admission: Boolean(laceAcute),
+        charlson_index: parseInt(laceCharlson, 10) || 0,
+        ed_visits_6m: parseInt(laceEd, 10) || 0,
+      });
+      setLaceData(res);
+      setLaceModalOpen(false);
+    } catch (err) {
+      console.error('Failed to record LACE score:', err);
+      alert(err.message || 'Failed to save LACE context score.');
+    } finally {
+      setLaceSubmitting(false);
     }
   };
 
@@ -230,34 +392,61 @@ export default function PatientOverviewTab({
             />
           </div>
 
-          {/* Attending & Nurse Details */}
-          <div
-            style={{
-              display: 'flex',
-              gap: '20px',
-              padding: '10px 16px',
-              borderRadius: '8px',
-              background: 'var(--bg-base, #f8fafc)',
-              border: '1px solid var(--border-subtle, #e2e8f0)',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
-                Attending Doctor
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {/* Attending & Nurse Details */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '20px',
+                padding: '10px 16px',
+                borderRadius: '8px',
+                background: 'var(--bg-base, #f8fafc)',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                  Attending Doctor
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                  {p.attending_doctor || 'Dr. Ananya Sharma'}
+                </div>
               </div>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
-                {p.attending_doctor || 'Dr. Ananya Sharma'}
+              <div style={{ width: '1px', background: 'var(--border-subtle, #e2e8f0)' }} />
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                  Patient Phone
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                  {p.phone || '+91-98765-43210'}
+                </div>
               </div>
             </div>
-            <div style={{ width: '1px', background: 'var(--border-subtle, #e2e8f0)' }} />
-            <div>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
-                Patient Phone
-              </div>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
-                {p.phone || '+91-98765-43210'}
-              </div>
-            </div>
+
+            {/* FHIR R4 Bundle Export Button (D-19) */}
+            <button
+              type="button"
+              id="export-fhir-btn"
+              onClick={handleExportFhir}
+              disabled={fhirExporting}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 14px',
+                borderRadius: '8px',
+                border: '1px solid var(--accent-teal, #0d9488)',
+                background: 'var(--accent-teal-soft, #f0fdfa)',
+                color: 'var(--accent-teal, #0f766e)',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: fhirExporting ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <IconFileText width={14} height={14} />
+              <span>{fhirExporting ? 'Exporting FHIR...' : '📥 Export FHIR R4 Bundle'}</span>
+            </button>
           </div>
         </div>
 
@@ -642,7 +831,105 @@ export default function PatientOverviewTab({
                 )}
               </div>
 
-              {/* Card 4: Open Flags & Drawer Launcher */}
+              {/* Card 4: LACE Readmission Risk Context (D-20) */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '18px 20px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      LACE Readmission Risk Context
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
+                      Clinician-entered &bull; Context only &bull; Non-automated
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    id="update-lace-btn"
+                    onClick={() => {
+                      if (laceData) {
+                        setLaceLos(laceData.length_of_stay_days || 0);
+                        setLaceAcute(laceData.acute_admission ?? true);
+                        setLaceCharlson(laceData.charlson_index || 0);
+                        setLaceEd(laceData.ed_visits_6m || 0);
+                      }
+                      setLaceModalOpen(true);
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f1f5f9)',
+                      color: 'var(--text-secondary, #475569)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {laceData ? 'Update score' : 'Calculate LACE'}
+                  </button>
+                </div>
+
+                {laceData ? (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '28px', fontWeight: 900, color: laceData.score >= 10 ? 'var(--alert-red, #dc2626)' : 'var(--text-primary, #0f172a)' }}>
+                        {laceData.score}
+                      </span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>/ 19</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          marginLeft: 'auto',
+                          background: laceData.risk_tier === 'High' ? 'var(--alert-red-soft, #fef2f2)' : laceData.risk_tier === 'Moderate' ? 'var(--warning-amber-soft, #fffbeb)' : 'var(--success-green-soft, #f0fdf4)',
+                          color: laceData.risk_tier === 'High' ? 'var(--alert-red, #dc2626)' : laceData.risk_tier === 'Moderate' ? 'var(--warning-amber, #d97706)' : 'var(--success-green, #059669)',
+                        }}
+                      >
+                        {laceData.risk_tier} Risk Tier
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '11px', marginBottom: '12px' }}>
+                      <div style={{ padding: '6px 8px', background: 'var(--bg-base, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                        <div style={{ color: 'var(--text-muted, #64748b)' }}>Length of Stay (L)</div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>{laceData.breakdown?.length_of_stay_points || 0} pts ({laceData.length_of_stay_days}d)</div>
+                      </div>
+                      <div style={{ padding: '6px 8px', background: 'var(--bg-base, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                        <div style={{ color: 'var(--text-muted, #64748b)' }}>Acuity of Admission (A)</div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>{laceData.breakdown?.acuity_points || 0} pts ({laceData.acute_admission ? 'Acute' : 'Elective'})</div>
+                      </div>
+                      <div style={{ padding: '6px 8px', background: 'var(--bg-base, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                        <div style={{ color: 'var(--text-muted, #64748b)' }}>Comorbidity Charlson (C)</div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>{laceData.breakdown?.comorbidity_points || 0} pts (Index {laceData.charlson_index})</div>
+                      </div>
+                      <div style={{ padding: '6px 8px', background: 'var(--bg-base, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                        <div style={{ color: 'var(--text-muted, #64748b)' }}>ED Visits 6m (E)</div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>{laceData.breakdown?.ed_visits_points || 0} pts ({laceData.ed_visits_6m} visits)</div>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', background: 'var(--bg-base, #f8fafc)', padding: '6px 8px', borderRadius: '6px', border: '1px dashed var(--border-subtle, #cbd5e1)' }}>
+                      <strong>Evidence disclaimer:</strong> Published evidence on LACE discrimination is mixed (c-statistic ~0.65). CareLoop displays LACE strictly for clinician reference and never uses it to trigger automated alert suppression or clinical actions.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', padding: '12px 0', textAlign: 'center' }}>
+                    No LACE index recorded yet. Click above to calculate post-discharge readmission risk context.
+                  </div>
+                )}
+              </div>
+
+              {/* Card 5: Open Flags & Drawer Launcher */}
               <div
                 style={{
                   background: 'var(--bg-surface, #ffffff)',
@@ -858,9 +1145,45 @@ export default function PatientOverviewTab({
                 boxShadow: 'var(--shadow-card)',
               }}
             >
-              <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: '0 0 14px 0' }}>
-                Clinician-Approved Trigger Rules (D-05 Rules Tab)
-              </h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
+                    Clinician-Approved Trigger Rules & Pathway Overrides (D-05, D-13)
+                  </h3>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
+                    Threshold modifications write an append-only audit trail with mandatory clinical justification.
+                  </div>
+                </div>
+
+                {isDoctor ? (
+                  <button
+                    type="button"
+                    id="apply-pathway-btn"
+                    onClick={handleOpenPathwayModal}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--accent-teal, #0d9488)',
+                      background: 'var(--accent-teal-soft, #f0fdfa)',
+                      color: 'var(--accent-teal, #0f766e)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <IconShieldCheck width={14} height={14} />
+                    <span>Apply Pathway Template (Doctor)</span>
+                  </button>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', background: 'var(--bg-base, #f1f5f9)', padding: '5px 10px', borderRadius: '6px' }}>
+                    🔒 Pathway application requires Doctor role
+                  </div>
+                )}
+              </div>
+
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px' }}>
                   <thead>
@@ -871,6 +1194,7 @@ export default function PatientOverviewTab({
                       <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)' }}>APPROVED BY</th>
                       <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)' }}>30D FIRED</th>
                       <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)' }}>FALSE ALARMS</th>
+                      <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)' }}>ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -904,6 +1228,47 @@ export default function PatientOverviewTab({
                         </td>
                         <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
                           {r.dismissed_false_count} dismissed
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenRuleHistory(r.rule_id)}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-subtle, #cbd5e1)',
+                                background: 'var(--bg-base, #f1f5f9)',
+                                color: 'var(--text-secondary, #475569)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              History
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingRule(r);
+                                setRuleEditThreshold(r.threshold_value);
+                                setRuleEditReason('');
+                                setRuleEditModalOpen(true);
+                              }}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--accent-teal, #0d9488)',
+                                background: 'transparent',
+                                color: 'var(--accent-teal, #0f766e)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {isDoctor ? 'Edit' : 'Propose'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1676,6 +2041,638 @@ export default function PatientOverviewTab({
                     {contactSubmitting ? 'Logging...' : 'Save Contact Record'}
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Apply Pathway Template (D-13) */}
+          {pathwayModalOpen && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  borderRadius: '12px',
+                  padding: '24px 28px',
+                  width: '90%',
+                  maxWidth: '560px',
+                  boxShadow: 'var(--shadow-card)',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                    Apply Pathway Trigger Template (D-13)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setPathwayModalOpen(false)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--text-muted, #64748b)' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    background: 'var(--accent-teal-soft, #f0fdfa)',
+                    border: '1px solid rgba(13, 148, 136, 0.25)',
+                    color: 'var(--accent-teal, #0f766e)',
+                    fontSize: '12px',
+                    lineHeight: 1.45,
+                    marginBottom: '16px',
+                  }}
+                >
+                  <strong>Strict Governance Rule:</strong> Templates ship with <strong>blank thresholds</strong>. You must enter clinical values appropriate for this patient's condition. Defaults are never assumed.
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '6px' }}>
+                    Select Pathway Template
+                  </label>
+                  <select
+                    id="pathway-template-select"
+                    value={selectedPathway?.template_id || ''}
+                    onChange={(e) => {
+                      const t = pathwayTemplates.find((x) => x.template_id === e.target.value);
+                      setSelectedPathway(t);
+                      setPathwayFormValues({});
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      color: 'var(--text-primary, #0f172a)',
+                      fontSize: '13px',
+                    }}
+                  >
+                    {pathwayTemplates.map((t) => (
+                      <option key={t.template_id} value={t.template_id}>
+                        {t.name} ({t.target_population})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedPathway && (
+                  <div>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', margin: '0 0 16px 0' }}>
+                      {selectedPathway.description}
+                    </p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
+                        Required Medical Thresholds (Must not be blank)
+                      </div>
+                      {(selectedPathway.rules || []).map((r) => (
+                        <div
+                          key={r.key}
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            background: 'var(--bg-base, #f8fafc)',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                              {r.rule_type.replace(/_/g, ' ')}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                              Window: {r.window_hours}h &bull; Severity: {r.severity.replace('_', ' ')}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input
+                              type="number"
+                              step="any"
+                              required
+                              placeholder="Required"
+                              id={`pathway-input-${r.key}`}
+                              value={pathwayFormValues[r.key] ?? ''}
+                              onChange={(e) =>
+                                setPathwayFormValues((prev) => ({
+                                  ...prev,
+                                  [r.key]: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: '100px',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-subtle, #cbd5e1)',
+                                background: '#ffffff',
+                                color: 'var(--text-primary, #0f172a)',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                              }}
+                            />
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                              {r.measurement_type || ''}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPathwayModalOpen(false)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'transparent',
+                      color: 'var(--text-secondary, #475569)',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    id="confirm-apply-pathway-btn"
+                    disabled={pathwaySubmitting}
+                    onClick={handleApplyPathway}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'var(--accent-teal, #0d9488)',
+                      color: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {pathwaySubmitting ? 'Applying...' : 'Apply & Overwrite Rules'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Rule History Audit Timeline (D-13) */}
+          {ruleHistoryModalOpen && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  borderRadius: '12px',
+                  padding: '24px 28px',
+                  width: '90%',
+                  maxWidth: '680px',
+                  boxShadow: 'var(--shadow-card)',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                    Rule Threshold Audit History (D-13)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setRuleHistoryModalOpen(false)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--text-muted, #64748b)' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {ruleHistoryLoading ? (
+                  <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                    Loading audit trail...
+                  </div>
+                ) : selectedRuleHistory.length === 0 ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                    No prior threshold modifications recorded for this rule. Initial baseline intact.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+                    {selectedRuleHistory.map((h, i) => (
+                      <div
+                        key={h.history_id || i}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: '8px',
+                          background: 'var(--bg-base, #f8fafc)',
+                          border: '1px solid var(--border-subtle, #e2e8f0)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                            Threshold changed: {h.old_threshold ?? '—'} → {h.new_threshold}
+                          </span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                            {h.changed_at ? h.changed_at.replace('T', ' ').slice(0, 16) : '—'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                          Reason: <em>"{h.change_reason || 'No justification logged'}"</em>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                          <span>Modified by: {h.changed_by_name || 'Clinician'}</span>
+                          <span>Doctor approval: {h.approved_by_doctor ? '✓ Confirmed' : 'Pending'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={() => setRuleHistoryModalOpen(false)}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f1f5f9)',
+                      color: 'var(--text-secondary, #475569)',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Edit or Propose Alert Rule (D-13) */}
+          {ruleEditModalOpen && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  borderRadius: '12px',
+                  padding: '24px 28px',
+                  width: '90%',
+                  maxWidth: '500px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                    {isDoctor ? 'Update Rule Threshold' : 'Propose Rule Threshold'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setRuleEditModalOpen(false)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--text-muted, #64748b)' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveRuleEdit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      Rule Type
+                    </label>
+                    <input
+                      type="text"
+                      disabled
+                      value={editingRule?.rule_type?.replace(/_/g, ' ') || ''}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'var(--bg-base, #f8fafc)',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      New Threshold Value ({editingRule?.measurement_type || ''}) *
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      id="rule-edit-threshold-input"
+                      value={ruleEditThreshold}
+                      onChange={(e) => setRuleEditThreshold(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: '#ffffff',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      Clinical Justification (Mandatory, min 5 chars) *
+                    </label>
+                    <textarea
+                      rows={3}
+                      required
+                      placeholder="e.g. Patient has baseline chronic tachycardia; raising alert floor to prevent alarm fatigue"
+                      id="rule-edit-reason-input"
+                      value={ruleEditReason}
+                      onChange={(e) => setRuleEditReason(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: '#ffffff',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setRuleEditModalOpen(false)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'transparent',
+                        color: 'var(--text-secondary, #475569)',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      id="rule-edit-submit-btn"
+                      disabled={ruleEditSubmitting || ruleEditReason.trim().length < 5}
+                      style={{
+                        padding: '8px 18px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: 'var(--accent-teal, #0d9488)',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {ruleEditSubmitting ? 'Saving...' : isDoctor ? 'Update Rule' : 'Submit Proposal'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Calculate LACE Readmission Risk Score (D-20) */}
+          {laceModalOpen && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  borderRadius: '12px',
+                  padding: '24px 28px',
+                  width: '90%',
+                  maxWidth: '520px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                    LACE Readmission Risk Index (D-20)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setLaceModalOpen(false)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--text-muted, #64748b)' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: 'var(--bg-base, #f8fafc)',
+                    border: '1px dashed var(--border-subtle, #cbd5e1)',
+                    color: 'var(--text-muted, #64748b)',
+                    fontSize: '11px',
+                    lineHeight: 1.4,
+                    marginBottom: '16px',
+                  }}
+                >
+                  Strictly clinician-entered for context. Not used for automated alert thresholds.
+                </div>
+
+                <form onSubmit={handleSaveLace} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      Length of Stay (L) &bull; Days in Hospital
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="120"
+                      required
+                      id="lace-los-input"
+                      value={laceLos}
+                      onChange={(e) => setLaceLos(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: '#ffffff',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      Acuity of Admission (A)
+                    </label>
+                    <select
+                      id="lace-acute-select"
+                      value={laceAcute ? 'acute' : 'elective'}
+                      onChange={(e) => setLaceAcute(e.target.value === 'acute')}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: '#ffffff',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    >
+                      <option value="acute">Acute / Emergent Admission (3 points)</option>
+                      <option value="elective">Elective Admission (0 points)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      Charlson Comorbidity Index (C) &bull; 0 to 6+
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      required
+                      id="lace-charlson-input"
+                      value={laceCharlson}
+                      onChange={(e) => setLaceCharlson(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: '#ffffff',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                      Emergency Dept Visits in Prior 6 Months (E) &bull; 0 to 4+
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      required
+                      id="lace-ed-input"
+                      value={laceEd}
+                      onChange={(e) => setLaceEd(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: '#ffffff',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setLaceModalOpen(false)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'transparent',
+                        color: 'var(--text-secondary, #475569)',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      id="save-lace-btn"
+                      disabled={laceSubmitting}
+                      style={{
+                        padding: '8px 18px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: 'var(--accent-teal, #0d9488)',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {laceSubmitting ? 'Calculating...' : 'Save LACE Score'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}

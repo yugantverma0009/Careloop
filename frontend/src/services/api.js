@@ -364,3 +364,42 @@ export const submitPatientReply = () => Promise.resolve({ ok: true });
 
 export const markTaskComplete = (pid, taskId) =>
   post(`/patient/me/doses/${taskId}/confirm`, { status: 'Taken_Confirmed' }).catch(() => ({}));
+
+// ─── Phase 5: Governance & Interoperability ──────────────────────────────────
+
+export const getPathwayTemplates = () =>
+  get('/staff/pathway-templates');
+
+export const applyPathwayTemplate = (patientId, templateId, rules) =>
+  post(`/staff/patients/${patientId}/apply-pathway`, { template_id: templateId, rules });
+
+export const getRuleHistory = (ruleId) =>
+  get(`/staff/rules/${ruleId}/history`);
+
+export const updateAlertRule = (ruleId, thresholdValue, reason, windowHours = null, severity = null) =>
+  post(`/staff/rules/${ruleId}/update`, {
+    threshold_value: thresholdValue,
+    window_hours: windowHours,
+    severity: severity,
+    change_reason: reason,
+  });
+
+export const getOperationalInsights = (dateRange = '30d') =>
+  get(`/staff/insights?date_range=${encodeURIComponent(dateRange)}`);
+
+export const exportInsightsAudit = (dateRange = '30d') =>
+  post('/staff/insights/export-log', { date_range: dateRange });
+
+export const getPatientFhirBundle = (patientId) =>
+  get(`/staff/patients/${patientId}/fhir`);
+
+export const getPatientLace = (patientId) =>
+  get(`/staff/patients/${patientId}/lace`);
+
+export const recordPatientLace = (patientId, losDays, acute, charlson, edVisits) =>
+  post(`/staff/patients/${patientId}/lace`, {
+    length_of_stay_days: losDays,
+    acute_admission: acute,
+    charlson_index: charlson,
+    ed_visits_6m: edVisits,
+  });
