@@ -217,6 +217,81 @@ export const escalateFlagNow = (flagId, note = '') =>
 
 export const getFollowUps = () => get('/staff/follow-ups');
 
+export const getStaffTasks = (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return get(`/staff/tasks${query ? `?${query}` : ''}`);
+};
+
+export const claimTask = (taskId) =>
+  post(`/staff/tasks/${taskId}/claim`, {});
+
+export const assignTask = (taskId, targetStaffId, note = '') =>
+  post(`/staff/tasks/${taskId}/assign`, { target_staff_id: targetStaffId, note });
+
+export const completeTask = (taskId, outcomeCode, outcomeNotes = '') =>
+  post(`/staff/tasks/${taskId}/complete`, { outcome_code: outcomeCode, outcome_notes: outcomeNotes });
+
+export const snoozeTask = (taskId, hours, reason) =>
+  post(`/staff/tasks/${taskId}/snooze`, { hours, reason });
+
+export const getStaffSummaries = (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return get(`/staff/summaries${query ? `?${query}` : ''}`);
+};
+
+export const generateClinicalSummary = (patientId, targetDate = null) =>
+  post('/staff/summaries/generate', { patient_id: patientId, target_date: targetDate });
+
+export const approveClinicalSummary = (summaryId, editedText = null) =>
+  post(`/staff/summaries/${summaryId}/approve`, { edited_text: editedText });
+
+export const rejectClinicalSummary = (summaryId, reason) =>
+  post(`/staff/summaries/${summaryId}/reject`, { reason });
+
+export const generateAllMineSummaries = () =>
+  post('/staff/summaries/generate-all-mine', {});
+
+export const getShiftHandoff = (scope = 'mine') =>
+  get(`/staff/handoff?scope=${encodeURIComponent(scope)}`);
+
+export const receivePatientHandoff = (patientId) =>
+  post(`/staff/handoff/${patientId}/receive`, {});
+
+export const updatePatientContingency = (patientId, contingencyNote) =>
+  post(`/staff/handoff/${patientId}/contingency`, { contingency_note: contingencyNote });
+
+export const logHandoffExport = (exportFormat = 'PDF') =>
+  post('/staff/handoff/export-log', { export_format: exportFormat });
+
+export const getFlagEscalations = (flagId) =>
+  get(`/staff/flags/${flagId}/escalations`);
+
+export const getStaffNotifications = () =>
+  get('/staff/notifications');
+
+export const logCommunication = (patientId, channel, outcome, summary = '', flagId = null, taskId = null) =>
+  post('/staff/contacts/log', {
+    patient_id: patientId,
+    channel,
+    outcome,
+    summary,
+    flag_id: flagId,
+    task_id: taskId,
+  });
+
+export const getPatientContacts = (patientId) =>
+  get(`/staff/patients/${patientId}/contacts`);
+
+export const getPatientNotes = (patientId) =>
+  get(`/staff/patients/${patientId}/notes`);
+
+export const addPatientNote = (patientId, noteText, noteType = 'General', amendsNoteId = null) =>
+  post(`/staff/patients/${patientId}/notes`, {
+    note_text: noteText,
+    note_type: noteType,
+    amends_note_id: amendsNoteId,
+  });
+
 export const getPatientDirectory = (filter = 'all', search = '') =>
   get(`/staff/patients?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`);
 
@@ -263,6 +338,23 @@ export const getPatientPersonalization = () =>
   get('/patient/me/profile').catch(() => ({}));
 
 export const sendVoiceMessage = () => Promise.reject(new Error("Voice diagnosis is disabled as per safety rule."));
+
+export const getAuditLog = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.patient_id) q.set('patient_id', params.patient_id);
+  if (params.staff_id) q.set('staff_id', params.staff_id);
+  if (params.action) q.set('action', params.action);
+  if (params.start_date) q.set('start_date', params.start_date);
+  if (params.end_date) q.set('end_date', params.end_date);
+  if (params.limit) q.set('limit', params.limit);
+  return get(`/staff/audit-log?${q.toString()}`);
+};
+
+export const exportAuditLogAudit = (count, filters) =>
+  post('/staff/audit-log/export-log', { count, filters });
+
+export const globalStaffSearch = (term) =>
+  get(`/staff/search?q=${encodeURIComponent(term)}`);
 
 export const sendWoundImage = () => Promise.reject(new Error("AI wound diagnosis is disabled as per safety rule."));
 

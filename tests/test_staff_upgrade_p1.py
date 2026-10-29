@@ -89,7 +89,7 @@ def test_d01_identity_consistency_in_db():
                OR (summary_text LIKE '%Kabir%' AND patient_id != 3)
                OR (summary_text LIKE '%Sunita%' AND patient_id != 4)
                OR (summary_text LIKE '%Rajesh%' AND patient_id != 5)
-               OR (summary_text LIKE '%Ananya%' AND patient_id != 6)
+               OR (summary_text LIKE '%Ananya%' AND summary_text NOT LIKE '%Dr. Ananya%' AND patient_id != 6)
                OR (summary_text LIKE '%Vikram%' AND patient_id != 7)
                OR (summary_text LIKE '%Pooja%' AND patient_id != 8)
                OR (summary_text LIKE '%Arjun%' AND patient_id != 9)

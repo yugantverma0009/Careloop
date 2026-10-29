@@ -23,6 +23,12 @@ from .auth import verify_login, make_token, require_role, current_user
 from .safety import has_emergency_term, EMERGENCY_GUIDANCE
 from .rag import answer as rag_answer
 from .llm import generate
+from .clinical_summaries import (
+    build_deterministic_fact_sheet,
+    produce_clinical_summary,
+    run_summary_guard,
+    generate_fallback_summary,
+)
 from . import scheduler
 
 
@@ -1581,21 +1587,39 @@ def get_triage_board(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurs
 
 @app.get("/staff/worklist")
 def get_staff_worklist(
-    scope: str = "all",       # 'mine', 'team', 'unassigned', 'all'
+    scope: str = "mine",       # 'mine', 'team', 'unassigned', 'all' (D-12 defaults to 'mine')
     status_filter: str = "open", # 'open', 'seen', 'closed', 'all'
     severity_filter: str = "all", # 'immediate', 'urgent', 'review_soon', 'routine', 'all'
     search: str = "",
     user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
 ):
     """
-    D-02 / D-04: Grouped Clinician Worklist.
+    D-02 / D-04 / D-12: Grouped Clinician Worklist.
     Returns collapsed patient cards from v_worklist_by_patient with SLA tiers,
-    explainable attention score breakdown, and nested patient flags.
+    explainable attention score breakdown, nested patient flags, and assignment awareness.
+    Defaults to scope='mine' (assigned / attended patients).
     """
     current_staff_id = user["staff_id"]
+    is_doctor = user.get("account_role") == "Doctor"
 
     with get_conn() as conn, conn.cursor() as cur:
-        # 1. Fetch grouped patient rows
+        # 1. Fetch assigned patient IDs for current staff (D-12)
+        cur.execute(
+            """SELECT patient_id FROM care_assignments
+               WHERE staff_id = %s AND (ends_at IS NULL OR ends_at > NOW())""",
+            (current_staff_id,),
+        )
+        assigned_pids = {r["patient_id"] for r in (cur.fetchall() or [])}
+
+        if is_doctor:
+            cur.execute(
+                "SELECT patient_id FROM discharge_records WHERE attending_staff_id = %s",
+                (current_staff_id,),
+            )
+            for r in (cur.fetchall() or []):
+                assigned_pids.add(r["patient_id"])
+
+        # 2. Fetch grouped patient rows
         cur.execute(
             """SELECT w.patient_id, w.patient_code, w.full_name, w.age_years,
                       w.open_flag_count, w.distinct_reasons, w.top_severity_rank,
@@ -1610,7 +1634,7 @@ def get_staff_worklist(
         )
         patient_rows = cur.fetchall()
 
-        # 2. Fetch all active flags for nested display
+        # 3. Fetch all active flags for nested display
         cur.execute(
             """SELECT f.flag_id, f.patient_id, f.source_type, f.reason, f.severity, f.status,
                       f.created_at, f.acknowledged_at, f.acknowledged_by_staff_id,
@@ -1756,6 +1780,8 @@ def get_staff_worklist(
             "latest_flag_at": r["latest_flag_at"],
             "owner_staff_id": r["owner_staff_id"],
             "owner_name": r["owner_name"],
+            "is_mine": (r["owner_staff_id"] == current_staff_id or pid in assigned_pids),
+            "outside_assignment": not (r["owner_staff_id"] == current_staff_id or pid in assigned_pids),
             "tier": tier,
             "sla_target": sla_target,
             "is_overdue": is_overdue,
@@ -1767,10 +1793,10 @@ def get_staff_worklist(
         }
 
         # Filtering logic
-        # 1. Scope
-        if scope == "mine" and r["owner_staff_id"] != current_staff_id:
+        # 1. Scope (D-12)
+        if scope == "mine" and not patient_card["is_mine"]:
             continue
-        elif scope == "unassigned" and r["owner_staff_id"] is not None:
+        elif scope == "unassigned" and patient_card["is_mine"]:
             continue
 
         # 2. Status
@@ -2193,18 +2219,264 @@ def escalate_flag_now(
     return {"status": "escalated", "flag_id": flag_id}
 
 
+# ─── Follow-up Tasks Queue (Feature D-07) ────────────────────────────────────
+
+class TaskAssignIn(BaseModel):
+    target_staff_id: int
+    note: Optional[str] = ""
+
+
+class TaskCompleteIn(BaseModel):
+    outcome_code: str
+    outcome_notes: Optional[str] = ""
+
+
+class TaskSnoozeIn(BaseModel):
+    hours: int
+    reason: str
+
+
+VALID_OUTCOME_CODES = {
+    "Reached_And_Advised",
+    "Appointment_Set",
+    "No_Answer",
+    "Escalated_To_Doctor",
+    "No_Action_Needed",
+}
+
+
+def _format_due_label(diff_minutes: Optional[float], is_overdue: bool) -> str:
+    if diff_minutes is None:
+        return "No due date"
+    if is_overdue:
+        # diff_minutes is positive (minutes past due_at)
+        mins = abs(int(diff_minutes))
+        if mins < 60:
+            return f"Overdue by {mins}m"
+        hours = mins // 60
+        days = hours // 24
+        rem_h = hours % 24
+        if days > 0:
+            return f"Overdue by {days}d {rem_h}h" if rem_h > 0 else f"Overdue by {days}d"
+        return f"Overdue by {hours}h"
+    else:
+        # due in future: diff_minutes is negative or <= 0
+        mins = abs(int(diff_minutes))
+        if mins < 60:
+            return f"Due in {max(1, mins)}m"
+        hours = mins // 60
+        days = hours // 24
+        rem_h = hours % 24
+        if days > 0:
+            return f"Due in {days}d {rem_h}h" if rem_h > 0 else f"Due in {days}d"
+        return f"Due in {hours}h"
+
+
+@app.get("/staff/tasks")
+def get_staff_tasks(
+    scope: str = "mine",          # 'mine', 'team', 'unassigned', 'all'
+    status: str = "pending",      # 'pending', 'completed', 'all'
+    overdue: Optional[bool] = None,
+    priority: str = "all",        # 'all', 'Urgent_Review', 'Review_Soon', 'Routine'
+    search: str = "",
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-07: Real task work queue with due dates, overdue badges, priority labels,
+    and assigned ownership.
+    """
+    staff_id = user["staff_id"]
+    now_dt = datetime.now()
+
+    query = """
+        SELECT t.followup_id,
+               t.patient_id,
+               p.patient_code,
+               p.full_name AS patient_name,
+               TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+               t.flag_id,
+               fl.severity AS flag_severity,
+               t.assigned_staff_id,
+               u.full_name AS assigned_staff_name,
+               t.reason,
+               t.priority,
+               CASE 
+                   WHEN t.priority = 'Urgent_Review' THEN 'Urgent'
+                   WHEN t.priority = 'Review_Soon' THEN 'Review soon'
+                   ELSE 'Routine'
+               END AS priority_label,
+               t.status,
+               t.created_at,
+               t.due_at,
+               t.outcome_code,
+               t.outcome_notes,
+               t.completed_at
+        FROM follow_up_tasks t
+        JOIN patients p ON p.patient_id = t.patient_id
+        LEFT JOIN care_staff u ON u.staff_id = t.assigned_staff_id
+        LEFT JOIN flags fl ON fl.flag_id = t.flag_id
+        WHERE 1=1
+    """
+    params: List[Any] = []
+
+    # Scope filter
+    if scope == "mine":
+        query += " AND t.assigned_staff_id = %s"
+        params.append(staff_id)
+    elif scope == "unassigned":
+        query += " AND (t.assigned_staff_id IS NULL OR t.assigned_staff_id = 0)"
+    elif scope == "team":
+        query += " AND t.assigned_staff_id IS NOT NULL AND t.assigned_staff_id != 0"
+    # 'all' has no assigned filter
+
+    # Status filter
+    if status == "pending":
+        query += " AND t.status != 'Resolved'"
+    elif status == "completed":
+        query += " AND t.status = 'Resolved'"
+
+    # Overdue filter
+    if overdue is True:
+        query += " AND t.status != 'Resolved' AND t.due_at IS NOT NULL AND t.due_at < NOW()"
+    elif overdue is False:
+        query += " AND (t.due_at >= NOW() OR t.due_at IS NULL OR t.status = 'Resolved')"
+
+    # Priority filter
+    if priority != "all":
+        query += " AND t.priority = %s"
+        params.append(priority)
+
+    # Search filter
+    if search.strip():
+        term = f"%{search.strip()}%"
+        query += " AND (p.full_name LIKE %s OR p.patient_code LIKE %s OR t.reason LIKE %s)"
+        params.extend([term, term, term])
+
+    # Sorting
+    if status == "completed":
+        query += " ORDER BY t.completed_at DESC, t.followup_id DESC"
+    else:
+        # Overdue first, then Urgent priority, then earliest due_at
+        query += """ ORDER BY 
+            (t.due_at IS NOT NULL AND t.due_at < NOW()) DESC,
+            FIELD(t.priority, 'Urgent_Review', 'Review_Soon', 'Routine'),
+            t.due_at ASC,
+            t.created_at ASC"""
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall() or []
+
+    result = []
+    for r in rows:
+        due_at = r.get("due_at")
+        is_overdue = False
+        hours_overdue = 0.0
+        diff_mins = None
+
+        if due_at:
+            # calculate difference
+            diff_seconds = (now_dt - due_at).total_seconds()
+            diff_mins = diff_seconds / 60.0
+            if r.get("status") != "Resolved" and diff_seconds > 0:
+                is_overdue = True
+                hours_overdue = round(diff_seconds / 3600.0, 1)
+
+        r_dict = dict(r)
+        r_dict["is_overdue"] = is_overdue
+        r_dict["hours_overdue"] = hours_overdue
+        r_dict["overdue_label"] = _format_due_label(diff_mins, is_overdue)
+        result.append(r_dict)
+
+    return result
+
+
 @app.get("/staff/follow-ups")
 def get_pending_follow_ups(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
-    """Returns pending clinical tasks from v_pending_followups view."""
+    """Legacy backward-compatible endpoint for pending follow-ups."""
+    return get_staff_tasks(scope="all", status="pending", user=user)
+
+
+@app.post("/staff/tasks/{task_id}/claim")
+def claim_task(
+    task_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-07: Staff claims unassigned or re-assigned follow-up task."""
+    staff_id = user["staff_id"]
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT followup_id, patient_id, patient_name, priority, reason,
-                      assigned_to, status, created_at,
-                      ROUND(TIMESTAMPDIFF(MINUTE, created_at, NOW()) / 60.0, 1) AS hours_pending
-               FROM v_pending_followups
-               ORDER BY FIELD(priority, 'Urgent_Review', 'Review_Soon', 'Routine'), created_at ASC"""
+        try:
+            cur.callproc("sp_claim_task", (task_id, staff_id))
+            conn.commit()
+        except pymysql.MySQLError as e:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "claimed", "task_id": task_id, "assigned_staff_id": staff_id}
+
+
+@app.post("/staff/tasks/{task_id}/assign")
+def assign_task(
+    task_id: int,
+    body: TaskAssignIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-07: Assigns task to a specific team member with optional note."""
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_assign_task", (task_id, staff_id, body.target_staff_id, body.note or ""))
+            conn.commit()
+        except pymysql.MySQLError as e:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "assigned", "task_id": task_id, "assigned_staff_id": body.target_staff_id}
+
+
+@app.post("/staff/tasks/{task_id}/complete")
+def complete_task(
+    task_id: int,
+    body: TaskCompleteIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-07: Completes task with required outcome code and notes."""
+    if body.outcome_code not in VALID_OUTCOME_CODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid outcome_code. Allowed: {sorted(list(VALID_OUTCOME_CODES))}",
         )
-        return cur.fetchall()
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_complete_task", (task_id, staff_id, body.outcome_code, body.outcome_notes or ""))
+            conn.commit()
+        except pymysql.MySQLError as e:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "completed", "task_id": task_id, "outcome_code": body.outcome_code}
+
+
+@app.post("/staff/tasks/{task_id}/snooze")
+def snooze_task(
+    task_id: int,
+    body: TaskSnoozeIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-07: Snoozes task by X hours with required clinical reason."""
+    if body.hours <= 0:
+        raise HTTPException(status_code=400, detail="Snooze duration must be greater than 0 hours")
+    if not body.reason or len(body.reason.strip()) < 3:
+        raise HTTPException(status_code=400, detail="A reason of at least 3 characters is required to snooze")
+
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_snooze_task", (task_id, staff_id, body.hours, body.reason.strip()))
+            conn.commit()
+        except pymysql.MySQLError as e:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "snoozed", "task_id": task_id, "hours": body.hours}
+
 
 
 # ─── Patient Directory & Overview (Milestone D-05, D-06, D-12) ────────────────
@@ -3066,125 +3338,1107 @@ def submit_chat_feedback(
 
 # ─── Daily AI Summaries & Clinician Review (Milestone M5) ────────────────────
 
-@app.post("/staff/patients/{pid}/summaries/generate")
-def generate_patient_summary(
-    pid: int,
-    summary_date: Optional[str] = None,
+# ─── Clinical Summaries Rebuilt (Feature D-08) ────────────────────────────────
+
+class GenerateSummaryIn(BaseModel):
+    patient_id: int
+    target_date: Optional[str] = None
+
+
+class ApproveSummaryIn(BaseModel):
+    edited_text: Optional[str] = None
+
+
+class RejectSummaryIn(BaseModel):
+    reason: str
+
+
+@app.get("/staff/summaries")
+def get_staff_summaries(
+    status: str = "all",            # 'draft', 'approved', 'rejected', 'all'
+    patient_id: Optional[int] = None,
+    search: str = "",
     user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
 ):
     """
-    Generate factual daily AI draft summary using sp_daily_report.
-    Strict rule: 'AI draft, not reviewed'. No advice, no interpretation.
+    D-08: Clinical summaries directory with SBAR structure, source facts snapshot,
+    approver attribution, and status badges.
     """
-    target_date = summary_date or datetime.now(IST).strftime("%Y-%m-%d")
+    query = """
+        SELECT s.summary_id,
+               s.patient_id,
+               p.patient_code,
+               p.full_name AS patient_name,
+               TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+               COALESCE(d.condition_summary, 'Post-discharge recovery') AS primary_diagnosis,
+               s.period_start,
+               s.period_end,
+               s.summary_text,
+               s.model_name,
+               s.generated_at,
+               s.status,
+               s.reviewed_by_staff_id,
+               u.full_name AS reviewed_by_name,
+               s.reviewed_at,
+               s.edited_text,
+               s.reject_reason,
+               s.source_snapshot
+        FROM ai_summaries s
+        JOIN patients p ON p.patient_id = s.patient_id
+        LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+        LEFT JOIN care_staff u ON u.staff_id = s.reviewed_by_staff_id
+        WHERE 1=1
+    """
+    params: List[Any] = []
+
+    if status == "draft":
+        query += " AND s.status = 'Draft'"
+    elif status == "approved":
+        query += " AND s.status = 'Approved'"
+    elif status == "rejected":
+        query += " AND s.status = 'Rejected'"
+
+    if patient_id is not None:
+        query += " AND s.patient_id = %s"
+        params.append(patient_id)
+
+    if search.strip():
+        term = f"%{search.strip()}%"
+        query += " AND (p.full_name LIKE %s OR p.patient_code LIKE %s OR COALESCE(d.condition_summary, '') LIKE %s)"
+        params.extend([term, term, term])
+
+    query += " ORDER BY s.generated_at DESC"
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall() or []
+
+    result = []
+    for r in rows:
+        r_dict = dict(r)
+        st = r.get("status")
+        rev_name = r.get("reviewed_by_name")
+        rev_at = r.get("reviewed_at")
+
+        # Human status label
+        if st == "Draft":
+            status_label = "AI draft, not reviewed"
+        elif st == "Approved":
+            rev_time_str = rev_at.strftime("%d %b %H:%M") if rev_at else ""
+            status_label = f"Approved by Dr. {rev_name or 'Doctor'}, {rev_time_str}"
+        elif st == "Rejected":
+            status_label = f"Rejected: {r.get('reject_reason') or 'Clinical revision required'}"
+        else:
+            status_label = st
+
+        r_dict["status_label"] = status_label
+
+        # Parse source snapshot if JSON
+        snap = r.get("source_snapshot")
+        if snap and isinstance(snap, str):
+            try:
+                r_dict["source_snapshot"] = json.loads(snap)
+            except Exception:
+                pass
+
+        # Parse summary_text if JSON
+        txt = r.get("summary_text")
+        parsed_sbar = None
+        if txt and isinstance(txt, str) and txt.strip().startswith("{"):
+            try:
+                parsed_sbar = json.loads(txt)
+            except Exception:
+                pass
+        r_dict["parsed_sbar"] = parsed_sbar
+
+        result.append(r_dict)
+
+    return result
+
+
+@app.post("/staff/summaries/generate")
+def generate_clinical_summary(
+    body: GenerateSummaryIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-08: Deterministic Fact Sheet -> SBAR Rewrite -> Mandatory Safety Guard -> Store.
+    Never sends patient names to LLM ('the patient').
+    """
+    pid = body.patient_id
+    target_date = body.target_date or datetime.now(IST).strftime("%Y-%m-%d")
 
     with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.callproc("sp_daily_report", (pid, target_date))
-            pinfo_rows = cur.fetchall()
-            pinfo = pinfo_rows[0] if pinfo_rows else {"full_name": f"Patient {pid}", "patient_id": pid}
+        # 1. Build deterministic fact sheet from SQL without patient name
+        fact_sheet = build_deterministic_fact_sheet(conn, pid, target_date)
 
-            cur.nextset()
-            meds = cur.fetchall()
-            cur.nextset()
-            vitals = cur.fetchall()
-            cur.nextset()
-            symptoms = cur.fetchall()
-            cur.nextset()
-            flags = cur.fetchall()
-
-        # Build fact sheet
-        taken_count = sum(1 for m in meds if m.get("status") == "Taken")
-        fact_sheet = (
-            f"Patient: {pinfo.get('full_name')} (ID: {pid}), Date: {target_date}\n"
-            f"Medications: {len(meds)} doses scheduled, {taken_count} recorded as taken.\n"
-            f"Vitals: {[v['measurement_type'] + ': avg ' + str(v['avg_value']) for v in vitals]}\n"
-            f"Symptoms: {[s['symptom_text'] for s in symptoms]}\n"
-            f"Flags: {[f['severity'] + ': ' + f['reason'] for f in flags]}\n"
-        )
-
-        prompt = (
-            "You are a factual clinical summarizer. Rewrite the provided facts into a concise "
-            "2-3 sentence factual clinical note for staff. DO NOT add advice. DO NOT interpret. "
-            "DO NOT recommend medication changes or diagnoses. State only the recorded facts."
-        )
-        summary_text = generate(prompt, fact_sheet)
+        # 2. LLM rewrite + Guard pipeline (with automatic fallback on any guard violation)
+        draft_dict, model_name, guard_status = produce_clinical_summary(fact_sheet)
+        summary_text = json.dumps(draft_dict)
 
         period_start = f"{target_date} 00:00:00"
         period_end = f"{target_date} 23:59:59"
-        model_name = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
+        snapshot_json = json.dumps(fact_sheet)
 
         with conn.cursor() as cur:
+            # Check if an unreviewed Draft already exists for this patient on this date
             cur.execute(
-                """INSERT INTO ai_summaries
-                   (patient_id, period_start, period_end, summary_text, model_name, reviewed_by_staff_id, reviewed_at)
-                   VALUES (%s, %s, %s, %s, %s, NULL, NULL)""",
-                (pid, period_start, period_end, summary_text, model_name),
+                """SELECT summary_id FROM ai_summaries
+                   WHERE patient_id = %s AND period_start = %s AND status = 'Draft'
+                   LIMIT 1""",
+                (pid, period_start),
             )
-            summary_id = cur.lastrowid
+            existing = cur.fetchone()
+            if existing:
+                summary_id = existing["summary_id"]
+                cur.execute(
+                    """UPDATE ai_summaries
+                       SET summary_text = %s, model_name = %s, source_snapshot = %s, generated_at = NOW()
+                       WHERE summary_id = %s""",
+                    (summary_text, model_name, snapshot_json, summary_id),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO ai_summaries
+                       (patient_id, period_start, period_end, summary_text, model_name, status, source_snapshot)
+                       VALUES (%s, %s, %s, %s, %s, 'Draft', %s)""",
+                    (pid, period_start, period_end, summary_text, model_name, snapshot_json),
+                )
+                summary_id = cur.lastrowid
 
             cur.execute(
                 """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
                    VALUES ('Staff', %s, 'GENERATE_AI_SUMMARY', 'ai_summary', %s,
-                           JSON_OBJECT('patient_id', %s, 'date', %s))""",
-                (str(user["staff_id"]), summary_id, pid, target_date),
+                           JSON_OBJECT('patient_id', %s, 'date', %s, 'guard_status', %s))""",
+                (str(user["staff_id"]), summary_id, pid, target_date, guard_status),
             )
+            conn.commit()
 
     return {
         "summary_id": summary_id,
         "patient_id": pid,
-        "summary_date": target_date,
+        "period_start": period_start,
+        "period_end": period_end,
         "summary_text": summary_text,
-        "status": "AI draft, not reviewed",
+        "parsed_sbar": draft_dict,
         "model_name": model_name,
+        "guard_status": guard_status,
+        "status": "Draft",
+        "status_label": "AI draft, not reviewed",
+        "source_snapshot": fact_sheet,
     }
+
+
+@app.post("/staff/patients/{pid}/summaries/generate")
+def generate_patient_summary_legacy(
+    pid: int,
+    summary_date: Optional[str] = None,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Legacy route forwarding to modern D-08 pipeline."""
+    return generate_clinical_summary(
+        GenerateSummaryIn(patient_id=pid, target_date=summary_date),
+        user=user,
+    )
 
 
 @app.get("/staff/summaries/pending")
 def get_pending_summaries(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
-    """Returns AI draft summaries waiting for clinician review (Query Q15)."""
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT s.summary_id, s.patient_id, p.full_name AS patient_name,
-                      s.period_start, s.period_end, s.summary_text, s.model_name,
-                      s.generated_at, 'AI draft, not reviewed' AS status
-               FROM ai_summaries s
-               JOIN patients p ON p.patient_id = s.patient_id
-               WHERE s.reviewed_by_staff_id IS NULL
-               ORDER BY s.generated_at DESC"""
+    """Returns AI draft summaries waiting for clinician review."""
+    return get_staff_summaries(status="draft", user=user)
+
+
+@app.post("/staff/summaries/{summary_id}/approve")
+def approve_summary(
+    summary_id: int,
+    body: ApproveSummaryIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-08 & D-12: Approve draft summary.
+    STRICT RULE: Doctor role is required! Nurses cannot approve summaries.
+    """
+    if user.get("role") != "Doctor":
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Only doctors can approve clinical summaries. Nurses can propose but cannot approve.",
         )
-        return cur.fetchall()
+    doctor_staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_approve_summary", (summary_id, doctor_staff_id, body.edited_text))
+            conn.commit()
+        except pymysql.MySQLError as e:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "status": "Approved",
+        "summary_id": summary_id,
+        "reviewed_by_staff_id": doctor_staff_id,
+    }
+
+
+@app.post("/staff/summaries/{summary_id}/reject")
+def reject_summary(
+    summary_id: int,
+    body: RejectSummaryIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-08 & D-12: Reject draft summary with required clinical reason.
+    STRICT RULE: Doctor role is required!
+    """
+    if user.get("role") != "Doctor":
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Only doctors can reject clinical summaries.",
+        )
+    if not body.reason or len(body.reason.strip()) < 3:
+        raise HTTPException(status_code=400, detail="A reason of at least 3 characters is required to reject a summary")
+
+    doctor_staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.callproc("sp_reject_summary", (summary_id, doctor_staff_id, body.reason.strip()))
+            conn.commit()
+        except pymysql.MySQLError as e:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "status": "Rejected",
+        "summary_id": summary_id,
+        "reviewed_by_staff_id": doctor_staff_id,
+        "reason": body.reason.strip(),
+    }
 
 
 @app.post("/staff/summaries/{summary_id}/review")
-def review_summary(
+def review_summary_legacy(
     summary_id: int,
     body: ReviewSummaryIn,
     user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
 ):
-    """Clinician reviews and approves/rejects an AI draft summary."""
+    """Legacy review route redirecting to approve/reject."""
+    action = (body.action or "").lower()
+    if action == "approve":
+        return approve_summary(summary_id, ApproveSummaryIn(edited_text=body.notes), user=user)
+    else:
+        return reject_summary(summary_id, RejectSummaryIn(reason=body.notes or "Rejected by clinician"), user=user)
+
+
+@app.post("/staff/summaries/generate-all-mine")
+def generate_all_mine_summaries(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-08: Batch generates fresh draft summaries for all patients under clinician's care.
+    Never creates duplicate drafts for the same patient and period.
+    """
+    staff_id = user["staff_id"]
+    target_date = datetime.now(IST).strftime("%Y-%m-%d")
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Find all patients assigned to this staff member
+        cur.execute(
+            """SELECT DISTINCT p.patient_id
+               FROM patients p
+               LEFT JOIN care_assignments ca ON ca.patient_id = p.patient_id
+               LEFT JOIN follow_up_tasks t ON t.patient_id = p.patient_id AND t.assigned_staff_id = %s
+               LEFT JOIN flags f ON f.patient_id = p.patient_id AND f.owner_staff_id = %s
+               WHERE p.attending_doctor_id = %s
+                  OR ca.doctor_staff_id = %s
+                  OR ca.nurse_staff_id = %s
+                  OR t.assigned_staff_id = %s
+                  OR f.owner_staff_id = %s""",
+            (staff_id, staff_id, staff_id, staff_id, staff_id, staff_id, staff_id),
+        )
+        patients = cur.fetchall() or []
+
+    generated = []
+    for row in patients:
+        pid = row["patient_id"]
+        res = generate_clinical_summary(
+            GenerateSummaryIn(patient_id=pid, target_date=target_date),
+            user=user,
+        )
+        generated.append(res)
+
+    return {
+        "status": "success",
+        "generated_count": len(generated),
+        "summaries": generated,
+    }
+
+
+# ─── Shift Handoff I-PASS (Feature D-09) ──────────────────────────────────────
+
+class HandoffContingencyIn(BaseModel):
+    contingency_note: str
+
+
+class HandoffExportIn(BaseModel):
+    export_format: str = "PDF"  # 'PDF', 'Print', 'CSV'
+
+
+@app.get("/staff/handoff")
+def get_shift_handoff(
+    scope: str = "mine",  # 'mine', 'all'
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-09: Shift handoff page with I-PASS sections built from deterministic data:
+    - Illness/attention tier (Immediate, Urgent, Review soon, Routine from flags; NO stable/unstable)
+    - Patient summary: condition, day number, key facts
+    - Action list: open tasks with owners and due times
+    - Situation awareness & contingency: open flags, silent devices, upcoming appointments,
+      "If X happens call Y" contingency text
+    - Synthesis: incoming clinician received check
+    """
+    staff_id = user["staff_id"]
+    now_dt = datetime.now()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Fetch patients
+        p_query = """
+            SELECT p.patient_id, p.patient_code, p.full_name,
+                   TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+                   COALESCE(d.condition_summary, 'Post-discharge recovery') AS condition_summary,
+                   d.discharge_date,
+                   DATEDIFF(CURDATE(), d.discharge_date) + 1 AS day_number,
+                   cs.full_name AS attending_doctor
+            FROM patients p
+            LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+            LEFT JOIN care_staff cs ON cs.staff_id = d.attending_staff_id
+            LEFT JOIN care_assignments ca ON ca.patient_id = p.patient_id
+            WHERE 1=1
+        """
+        if scope == "mine":
+            p_query += """ AND (ca.doctor_staff_id = %s OR ca.nurse_staff_id = %s 
+                                OR d.attending_staff_id = %s OR EXISTS (
+                                    SELECT 1 FROM follow_up_tasks ft 
+                                    WHERE ft.patient_id = p.patient_id AND ft.assigned_staff_id = %s
+                                ))"""
+            params = (staff_id, staff_id, staff_id, staff_id)
+            cur.execute(p_query, params)
+        else:
+            cur.execute(p_query)
+        patients = cur.fetchall() or []
+
+        # If empty in mine scope, fallback to all patients so handoff is never blank
+        if not patients and scope == "mine":
+            cur.execute(
+                """SELECT p.patient_id, p.patient_code, p.full_name,
+                          TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age_years,
+                          COALESCE(d.condition_summary, 'Post-discharge recovery') AS condition_summary,
+                          d.discharge_date,
+                          DATEDIFF(CURDATE(), d.discharge_date) + 1 AS day_number,
+                          cs.full_name AS attending_doctor
+                   FROM patients p
+                   LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+                   LEFT JOIN care_staff cs ON cs.staff_id = d.attending_staff_id"""
+            )
+            patients = cur.fetchall() or []
+
+        handoff_cards = []
+        for p in patients:
+            pid = p["patient_id"]
+
+            # Open flags
+            cur.execute(
+                """SELECT flag_id, severity, reason, status, created_at
+                   FROM flags
+                   WHERE patient_id = %s AND status IN ('Open', 'Acknowledged')
+                   ORDER BY FIELD(severity, 'Immediate', 'Urgent', 'Review_Soon', 'Routine'), created_at DESC""",
+                (pid,),
+            )
+            flags = cur.fetchall() or []
+
+            # Illness tier from flags only: Immediate > Urgent > Review soon > Routine
+            if any(f["severity"] == "Immediate" for f in flags):
+                illness_tier = "Immediate"
+            elif any(f["severity"] == "Urgent" for f in flags):
+                illness_tier = "Urgent"
+            elif any(f["severity"] == "Review_Soon" for f in flags):
+                illness_tier = "Review soon"
+            else:
+                illness_tier = "Routine"
+
+            # Open tasks
+            cur.execute(
+                """SELECT t.followup_id, t.reason, t.priority, t.due_at, t.status, cs.full_name AS assigned_staff_name
+                   FROM follow_up_tasks t
+                   LEFT JOIN care_staff cs ON cs.staff_id = t.assigned_staff_id
+                   WHERE t.patient_id = %s AND t.status != 'Resolved'
+                   ORDER BY t.due_at ASC""",
+                (pid,),
+            )
+            tasks = cur.fetchall() or []
+
+            # Silent devices
+            cur.execute(
+                """SELECT device_id, device_type, last_seen_at
+                   FROM devices
+                   WHERE patient_id = %s AND (last_seen_at IS NULL OR TIMESTAMPDIFF(HOUR, last_seen_at, NOW()) >= 24)""",
+                (pid,),
+            )
+            silent_devices = cur.fetchall() or []
+
+            # Upcoming appointments
+            cur.execute(
+                """SELECT appointment_id, appointment_date, appointment_type, notes
+                   FROM appointments
+                   WHERE patient_id = %s AND appointment_date >= CURDATE()
+                   ORDER BY appointment_date ASC LIMIT 2""",
+                (pid,),
+            )
+            appts = cur.fetchall() or []
+
+            # Contingency note
+            cur.execute(
+                """SELECT note_text, created_at
+                   FROM clinician_notes
+                   WHERE patient_id = %s AND note_type IN ('Plan_Change', 'General')
+                   ORDER BY note_id DESC LIMIT 1""",
+                (pid,),
+            )
+            c_note_row = cur.fetchone()
+            contingency_note = c_note_row["note_text"] if c_note_row else "Standard escalation protocol: If SpO2 < 90% or severe chest pain, escalate to attending doctor."
+
+            # Synthesis: check if received in last 12 hours
+            cur.execute(
+                """SELECT created_at, actor_id
+                   FROM audit_log
+                   WHERE entity_type = 'handoff' AND entity_id = %s AND action = 'HANDOFF_RECEIVED'
+                     AND created_at >= NOW() - INTERVAL 12 HOUR
+                   ORDER BY log_id DESC LIMIT 1""",
+                (pid,),
+            )
+            rec_row = cur.fetchone()
+            is_received = rec_row is not None
+            received_at = rec_row["created_at"].strftime("%H:%M") if rec_row else None
+
+            handoff_cards.append({
+                "patient_id": pid,
+                "patient_code": p["patient_code"],
+                "full_name": p["full_name"],
+                "age_years": p["age_years"],
+                "attending_doctor": p["attending_doctor"] or "Attending Physician",
+                "illness_tier": illness_tier,
+                "patient_summary": {
+                    "condition": p["condition_summary"],
+                    "discharge_date": str(p["discharge_date"] or ""),
+                    "day_number": max(1, p["day_number"] or 1),
+                },
+                "action_list": [
+                    {
+                        "task_id": t["followup_id"],
+                        "reason": t["reason"],
+                        "priority": t["priority"],
+                        "due_at": str(t["due_at"]) if t["due_at"] else "Today",
+                        "owner": t["assigned_staff_name"] or "Unassigned",
+                    }
+                    for t in tasks
+                ],
+                "situation_awareness": {
+                    "open_flags": [
+                        {"flag_id": f["flag_id"], "severity": f["severity"], "reason": f["reason"]}
+                        for f in flags
+                    ],
+                    "silent_devices": [
+                        {"device_type": d["device_type"], "last_seen": str(d["last_seen_at"] or "Never")}
+                        for d in silent_devices
+                    ],
+                    "appointments": [
+                        {"date": str(a["appointment_date"]), "type": a["appointment_type"], "notes": a["notes"] or ""}
+                        for a in appts
+                    ],
+                },
+                "contingency_note": contingency_note,
+                "is_received": is_received,
+                "received_at": received_at,
+            })
+
+    return {
+        "shift_name": "Day Shift" if 8 <= now_dt.hour < 20 else "Night Shift",
+        "date": now_dt.strftime("%d %b %Y"),
+        "clinician_name": user.get("name", "Staff Clinician"),
+        "role": user.get("role", "Clinician"),
+        "patients": handoff_cards,
+    }
+
+
+@app.post("/staff/handoff/{patient_id}/receive")
+def receive_patient_handoff(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-09: Incoming clinician acknowledges receipt of patient handoff."""
     staff_id = user["staff_id"]
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT summary_id FROM ai_summaries WHERE summary_id = %s", (summary_id,))
-        if not cur.fetchone():
-            raise HTTPException(status_code=404, detail="Summary not found")
-
         cur.execute(
-            """UPDATE ai_summaries
-               SET reviewed_by_staff_id = %s, reviewed_at = NOW()
-               WHERE summary_id = %s""",
-            (staff_id, summary_id),
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'HANDOFF_RECEIVED', 'handoff', %s,
+                       JSON_OBJECT('staff_id', %s, 'role', %s, 'time', NOW()))""",
+            (str(staff_id), patient_id, staff_id, user.get("role", "Staff")),
         )
+        conn.commit()
+    return {"status": "received", "patient_id": patient_id, "staff_id": staff_id}
+
+
+@app.post("/staff/handoff/{patient_id}/contingency")
+def update_patient_contingency(
+    patient_id: int,
+    body: HandoffContingencyIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-09: Update 'If X happens call Y' contingency note."""
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO clinician_notes (patient_id, staff_id, note_type, note_text)
+               VALUES (%s, %s, 'Plan_Change', %s)""",
+            (patient_id, staff_id, body.contingency_note.strip()),
+        )
+        note_id = cur.lastrowid
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'HANDOFF_CONTINGENCY_UPDATED', 'clinician_note', %s,
+                       JSON_OBJECT('patient_id', %s, 'note_text', %s))""",
+            (str(staff_id), note_id, patient_id, body.contingency_note.strip()),
+        )
+        conn.commit()
+    return {"status": "updated", "patient_id": patient_id, "contingency_note": body.contingency_note.strip()}
+
+
+@app.post("/staff/handoff/export-log")
+def log_handoff_export(
+    body: HandoffExportIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-09: Audit log whenever a clinician prints or exports handoff."""
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'HANDOFF_EXPORTED', 'handoff_report', 0,
+                       JSON_OBJECT('staff_id', %s, 'format', %s))""",
+            (str(staff_id), staff_id, body.export_format),
+        )
+        conn.commit()
+    return {"status": "logged", "format": body.export_format}
+
+
+# ─── Escalation Ladder Visibility (Feature D-10) ──────────────────────────────
+
+@app.get("/staff/flags/{flag_id}/escalations")
+def get_flag_escalations(
+    flag_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-10: Shows the ladder as a timeline: Patient prompt, Caregiver SMS (or 'Skipped: no consent'),
+    Nurse alert, Doctor alert, with status, time, and countdown.
+    Acknowledging stops the ladder and says so.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        # Fetch flag
+        cur.execute(
+            """SELECT f.flag_id, f.severity, f.status, f.created_at, f.acknowledged_at,
+                      cs.full_name AS acknowledged_by_name, p.consent_status, p.patient_id
+               FROM flags f
+               JOIN patients p ON p.patient_id = f.patient_id
+               LEFT JOIN care_staff cs ON cs.staff_id = f.owner_staff_id
+               WHERE f.flag_id = %s""",
+            (flag_id,),
+        )
+        flag = cur.fetchone()
+        if not flag:
+            raise HTTPException(status_code=404, detail="Flag not found")
+
+        # Fetch escalation steps from DB
+        cur.execute(
+            """SELECT escalation_id, step_no, step_type, channel, sent_at, delivery_status, responded_at, notes
+               FROM escalations
+               WHERE flag_id = %s
+               ORDER BY step_no ASC""",
+            (flag_id,),
+        )
+        db_steps = cur.fetchall() or []
+
+        # If no DB steps exist yet, synthesize standard 4-step ladder
+        ladder_types = ["Patient_Prompt", "Caregiver_SMS", "Nurse_Alert", "Doctor_Alert"]
+        step_labels = {
+            "Patient_Prompt": "Step 1: Patient In-App Check-in Prompt",
+            "Caregiver_SMS": "Step 2: Caregiver Alert SMS",
+            "Nurse_Alert": "Step 3: Primary Nurse Clinical Alert",
+            "Doctor_Alert": "Step 4: Attending Physician Escalation",
+        }
+
+        ladder = []
+        is_flag_closed = flag["status"] in ("Acknowledged", "Resolved")
+        ack_by = flag.get("acknowledged_by_name") or "Care Team Member"
+        ack_time = flag.get("acknowledged_at")
+
+        for idx, stype in enumerate(ladder_types, start=1):
+            matching = next((s for s in db_steps if s["step_type"] == stype), None)
+            if matching:
+                ladder.append({
+                    "step_no": matching["step_no"],
+                    "step_type": stype,
+                    "title": step_labels.get(stype, stype),
+                    "channel": matching["channel"],
+                    "sent_at": str(matching["sent_at"]),
+                    "delivery_status": matching["delivery_status"],
+                    "notes": matching["notes"] or "",
+                })
+            else:
+                # Synthesize step
+                if stype == "Patient_Prompt":
+                    deliv = "Acknowledged" if is_flag_closed else "Sent"
+                    notes = "Delivered to patient smartphone app"
+                elif stype == "Caregiver_SMS":
+                    has_consent = flag.get("consent_status") == "Granted"
+                    deliv = "Sent" if has_consent else "Skipped_No_Consent"
+                    notes = "SMS dispatched to registered caregiver" if has_consent else "Skipped: Caregiver consent not granted"
+                elif stype == "Nurse_Alert":
+                    deliv = "Acknowledged" if is_flag_closed else "Sent"
+                    notes = "Priority card highlighted on duty nurse worklist"
+                else:
+                    deliv = "Acknowledged" if is_flag_closed else "Queued"
+                    notes = "Direct pager / SMS escalation"
+
+                ladder.append({
+                    "step_no": idx,
+                    "step_type": stype,
+                    "title": step_labels.get(stype, stype),
+                    "channel": "SMS" if "SMS" in stype else "App",
+                    "sent_at": str(flag["created_at"]),
+                    "delivery_status": deliv,
+                    "notes": notes,
+                })
+
+        stopped_banner = None
+        if is_flag_closed:
+            t_str = ack_time.strftime("%H:%M") if ack_time else ""
+            stopped_banner = f"Ladder stopped — {flag['status']} by {ack_by} at {t_str}"
+
+    return {
+        "flag_id": flag_id,
+        "severity": flag["severity"],
+        "status": flag["status"],
+        "is_stopped": is_flag_closed,
+        "stopped_banner": stopped_banner,
+        "steps": ladder,
+    }
+
+
+# ─── Notifications (Feature D-11) ─────────────────────────────────────────────
+
+@app.get("/staff/notifications")
+def get_staff_notifications(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-11: Notification bell items needing action:
+    - New urgent or immediate flags
+    - Flags escalated to me
+    - Tasks due within the hour
+    - Tasks overdue
+    """
+    staff_id = user["staff_id"]
+    notifications = []
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Urgent & Immediate open flags
+        cur.execute(
+            """SELECT f.flag_id, f.severity, f.reason, f.created_at, p.patient_code, p.full_name
+               FROM flags f
+               JOIN patients p ON p.patient_id = f.patient_id
+               WHERE f.status = 'Open' AND f.severity IN ('Immediate', 'Urgent')
+               ORDER BY FIELD(f.severity, 'Immediate', 'Urgent'), f.created_at DESC LIMIT 10"""
+        )
+        flags = cur.fetchall() or []
+        for f in flags:
+            notifications.append({
+                "id": f"flag-{f['flag_id']}",
+                "entity_type": "flag",
+                "entity_id": f["flag_id"],
+                "tier": f["severity"],
+                "title": f"🚨 {f['severity']} Flag: {f['patient_code']} {f['full_name']}",
+                "description": f["reason"],
+                "created_at": str(f["created_at"]),
+                "can_snooze": False,  # Immediate and Urgent CANNOT be snoozed
+            })
+
+        # 2. Overdue tasks
+        cur.execute(
+            """SELECT t.followup_id, t.priority, t.reason, t.due_at, p.patient_code, p.full_name,
+                      ROUND(TIMESTAMPDIFF(MINUTE, t.due_at, NOW()) / 60.0, 1) AS hours_overdue
+               FROM follow_up_tasks t
+               JOIN patients p ON p.patient_id = t.patient_id
+               WHERE t.status != 'Resolved' AND t.due_at IS NOT NULL AND t.due_at < NOW()
+                 AND (t.assigned_staff_id = %s OR t.assigned_staff_id IS NULL)
+               ORDER BY t.due_at ASC LIMIT 10""",
+            (staff_id,),
+        )
+        overdue_tasks = cur.fetchall() or []
+        for ot in overdue_tasks:
+            is_routine = ot["priority"] == "Routine"
+            notifications.append({
+                "id": f"task-od-{ot['followup_id']}",
+                "entity_type": "task",
+                "entity_id": ot["followup_id"],
+                "tier": "Urgent" if ot["priority"] == "Urgent_Review" else "Routine",
+                "title": f"⚠️ Overdue Task: {ot['patient_code']} ({ot['hours_overdue']}h overdue)",
+                "description": ot["reason"],
+                "created_at": str(ot["due_at"]),
+                "can_snooze": is_routine,  # Snooze allowed for Routine only
+            })
+
+        # 3. Tasks due within the hour
+        cur.execute(
+            """SELECT t.followup_id, t.priority, t.reason, t.due_at, p.patient_code, p.full_name
+               FROM follow_up_tasks t
+               JOIN patients p ON p.patient_id = t.patient_id
+               WHERE t.status != 'Resolved' AND t.due_at IS NOT NULL
+                 AND t.due_at BETWEEN NOW() AND NOW() + INTERVAL 1 HOUR
+                 AND (t.assigned_staff_id = %s OR t.assigned_staff_id IS NULL)
+               ORDER BY t.due_at ASC LIMIT 10""",
+            (staff_id,),
+        )
+        due_soon = cur.fetchall() or []
+        for dt in due_soon:
+            is_routine = dt["priority"] == "Routine"
+            notifications.append({
+                "id": f"task-soon-{dt['followup_id']}",
+                "entity_type": "task",
+                "entity_id": dt["followup_id"],
+                "tier": "Routine",
+                "title": f"⏰ Task Due Soon: {dt['patient_code']}",
+                "description": dt["reason"],
+                "created_at": str(dt["due_at"]),
+                "can_snooze": is_routine,
+            })
+
+    return {
+        "count": len(notifications),
+        "notifications": notifications,
+    }
+
+
+# ─── Communication Log (Feature D-15) ─────────────────────────────────────────
+
+class LogContactIn(BaseModel):
+    patient_id: int
+    flag_id: Optional[int] = None
+    task_id: Optional[int] = None
+    channel: str  # 'Phone', 'SMS', 'In_Person', 'Video'
+    outcome: str  # 'Reached', 'No_Answer', 'Left_Message', 'Wrong_Number', 'Declined'
+    summary: Optional[str] = ""
+
+
+VALID_CHANNELS = {"Phone", "SMS", "In_Person", "Video"}
+VALID_CONTACT_OUTCOMES = {"Reached", "No_Answer", "Left_Message", "Wrong_Number", "Declined"}
+
+
+@app.post("/staff/contacts/log")
+def log_contact(
+    body: LogContactIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-15: Log call or message: channel, outcome, summary, links to flag or task.
+    Saved in contact_log and audit_log.
+    """
+    if body.channel not in VALID_CHANNELS:
+        raise HTTPException(status_code=400, detail=f"Invalid channel. Allowed: {sorted(list(VALID_CHANNELS))}")
+    if body.outcome not in VALID_CONTACT_OUTCOMES:
+        raise HTTPException(status_code=400, detail=f"Invalid outcome. Allowed: {sorted(list(VALID_CONTACT_OUTCOMES))}")
+
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO contact_log (patient_id, staff_id, flag_id, task_id, channel, outcome, summary)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (body.patient_id, staff_id, body.flag_id, body.task_id, body.channel, body.outcome, body.summary or ""),
+        )
+        contact_id = cur.lastrowid
 
         cur.execute(
             """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-               VALUES ('Staff', %s, 'REVIEW_AI_SUMMARY', 'ai_summary', %s,
-                       JSON_OBJECT('action', %s, 'staff_id', %s, 'notes', %s))""",
-            (str(staff_id), summary_id, body.action, staff_id, body.notes),
+               VALUES ('Staff', %s, 'CONTACT_LOGGED', 'contact_log', %s,
+                       JSON_OBJECT('patient_id', %s, 'channel', %s, 'outcome', %s, 'summary', %s))""",
+            (str(staff_id), contact_id, body.patient_id, body.channel, body.outcome, body.summary or ""),
         )
+        conn.commit()
 
     return {
-        "status": f"{body.action}ed",
-        "summary_id": summary_id,
-        "reviewed_by_staff_id": staff_id,
+        "status": "logged",
+        "contact_id": contact_id,
+        "patient_id": body.patient_id,
+        "channel": body.channel,
+        "outcome": body.outcome,
+    }
+
+
+@app.get("/staff/patients/{patient_id}/contacts")
+def get_patient_contacts(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-15: Retrieve communication logs for a patient."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT c.contact_id, c.patient_id, c.staff_id, cs.full_name AS staff_name,
+                      c.flag_id, c.task_id, c.channel, c.outcome, c.summary, c.contacted_at
+               FROM contact_log c
+               LEFT JOIN care_staff cs ON cs.staff_id = c.staff_id
+               WHERE c.patient_id = %s
+               ORDER BY c.contacted_at DESC""",
+            (patient_id,),
+        )
+        rows = cur.fetchall() or []
+    return rows
+
+
+# ─── Clinical Notes Append-Only (Feature D-16) ────────────────────────────────
+
+class CreateNoteIn(BaseModel):
+    note_type: str = "General"  # 'Review', 'Call', 'Plan_Change', 'General'
+    note_text: str
+    amends_note_id: Optional[int] = None
+
+
+@app.get("/staff/patients/{patient_id}/notes")
+def get_patient_notes(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """D-16: Returns append-only clinical notes history."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT cn.note_id, cn.patient_id, cn.staff_id, cs.full_name AS author_name,
+                      cs.staff_role AS author_role, cn.note_type, cn.note_text,
+                      cn.amends_note_id, cn.created_at
+               FROM clinician_notes cn
+               LEFT JOIN care_staff cs ON cs.staff_id = cn.staff_id
+               WHERE cn.patient_id = %s
+               ORDER BY cn.created_at DESC""",
+            (patient_id,),
+        )
+        return cur.fetchall() or []
+
+
+@app.post("/staff/patients/{patient_id}/notes")
+def add_patient_note(
+    patient_id: int,
+    body: CreateNoteIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-16: Create or amend a clinical note.
+    Preserves author, timestamp, and link to amended note if applicable.
+    """
+    if not body.note_text or len(body.note_text.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Note text must have at least 3 characters")
+
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO clinician_notes (patient_id, staff_id, note_type, note_text, amends_note_id)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (patient_id, staff_id, body.note_type, body.note_text.strip(), body.amends_note_id),
+        )
+        note_id = cur.lastrowid
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'CLINICAL_NOTE_CREATED', 'clinician_note', %s,
+                       JSON_OBJECT('patient_id', %s, 'note_type', %s, 'amends', %s))""",
+            (str(staff_id), note_id, patient_id, body.note_type, body.amends_note_id),
+        )
+        conn.commit()
+
+    return {"status": "created", "note_id": note_id, "patient_id": patient_id}
+
+
+# ─── Audit Log Viewer (Feature D-17) ──────────────────────────────────────────
+
+@app.get("/staff/audit-log")
+def get_audit_log(
+    patient_id: Optional[int] = None,
+    staff_id: Optional[int] = None,
+    action: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 150,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-17: Audit log viewer. Filter by patient, staff, action, date.
+    Shows break-glass views, exports, acknowledgments, resolutions, approvals,
+    rule changes, notes, and communications.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        query = """
+            SELECT a.log_id, a.actor_type, a.actor_id, a.action, a.entity_type, a.entity_id,
+                   a.details, a.created_at,
+                   cs.full_name AS staff_name, cs.staff_role AS staff_role,
+                   p.full_name AS patient_name, p.patient_code
+            FROM audit_log a
+            LEFT JOIN care_staff cs ON cs.staff_id = CAST(a.actor_id AS UNSIGNED) AND a.actor_type = 'Staff'
+            LEFT JOIN patients p ON (
+                (a.entity_type IN ('Patient', 'patient') AND p.patient_id = a.entity_id)
+                OR (JSON_VALID(a.details) AND p.patient_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.details, '$.patient_id')) AS UNSIGNED))
+            )
+            WHERE 1=1
+        """
+        params = []
+        if patient_id is not None:
+            query += " AND ((a.entity_type IN ('Patient', 'patient') AND a.entity_id = %s) OR (JSON_VALID(a.details) AND JSON_UNQUOTE(JSON_EXTRACT(a.details, '$.patient_id')) = %s))"
+            params.extend([patient_id, str(patient_id)])
+        if staff_id is not None:
+            query += " AND a.actor_type = 'Staff' AND a.actor_id = %s"
+            params.append(str(staff_id))
+        if action:
+            query += " AND a.action = %s"
+            params.append(action)
+        if start_date:
+            query += " AND a.created_at >= %s"
+            params.append(f"{start_date} 00:00:00")
+        if end_date:
+            query += " AND a.created_at <= %s"
+            params.append(f"{end_date} 23:59:59")
+
+        query += " ORDER BY a.created_at DESC LIMIT %s"
+        params.append(min(limit, 500))
+
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall() or []
+
+        cur.execute("SELECT DISTINCT action FROM audit_log ORDER BY action ASC")
+        distinct_actions = [r["action"] for r in (cur.fetchall() or []) if r.get("action")]
+
+        cur.execute("SELECT staff_id, full_name, staff_role FROM care_staff ORDER BY full_name ASC")
+        staff_list = cur.fetchall() or []
+
+    for r in rows:
+        det = r.get("details")
+        if isinstance(det, str):
+            try:
+                r["details"] = json.loads(det)
+            except Exception:
+                pass
+
+    return {
+        "logs": rows,
+        "actions": distinct_actions,
+        "staff": staff_list,
+        "total": len(rows),
+    }
+
+
+class ExportLogAuditIn(BaseModel):
+    count: int = 0
+    filters: Optional[Dict[str, Any]] = None
+
+
+@app.post("/staff/audit-log/export-log")
+def log_audit_export(
+    body: ExportLogAuditIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-17: Logging audit log export event (compliance requirement).
+    """
+    staff_id = user["staff_id"]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'EXPORT_AUDIT_LOG', 'audit_log', NULL,
+                       JSON_OBJECT('record_count', %s, 'filters', %s, 'exported_at', NOW()))""",
+            (str(staff_id), body.count, json.dumps(body.filters or {})),
+        )
+        conn.commit()
+    return {"status": "logged"}
+
+
+# ─── Global Command Palette Search (Feature D-21) ────────────────────────────
+
+@app.get("/staff/search")
+def global_search(
+    q: str = "",
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    D-21 Command Palette (Ctrl+K) search endpoint.
+    Searches patients, active flags, tasks, and clinician notes.
+    """
+    term = (q or "").strip()
+    if len(term) < 2:
+        return {"patients": [], "flags": [], "tasks": [], "notes": []}
+
+    pattern = f"%{term}%"
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Patients
+        cur.execute(
+            """SELECT p.patient_id, p.patient_code, p.full_name, p.date_of_birth,
+                      d.condition_summary
+               FROM patients p
+               LEFT JOIN discharge_records d ON d.patient_id = p.patient_id
+               WHERE p.full_name LIKE %s OR p.patient_code LIKE %s
+               LIMIT 8""",
+            (pattern, pattern),
+        )
+        patients = cur.fetchall() or []
+
+        # 2. Flags
+        cur.execute(
+            """SELECT f.flag_id, f.patient_id, f.reason, f.severity, f.status, f.created_at,
+                      p.full_name, p.patient_code
+               FROM flags f
+               JOIN patients p ON p.patient_id = f.patient_id
+               WHERE (f.reason LIKE %s OR p.full_name LIKE %s)
+                 AND f.status IN ('Open', 'Acknowledged')
+               ORDER BY f.created_at DESC
+               LIMIT 8""",
+            (pattern, pattern),
+        )
+        flags = cur.fetchall() or []
+
+        # 3. Tasks
+        cur.execute(
+            """SELECT t.followup_id AS task_id, t.patient_id, t.reason AS task_description,
+                      t.priority, t.status, t.due_at, p.full_name, p.patient_code
+               FROM follow_up_tasks t
+               JOIN patients p ON p.patient_id = t.patient_id
+               WHERE (t.reason LIKE %s OR p.full_name LIKE %s)
+                 AND t.status != 'Resolved'
+               ORDER BY t.due_at ASC
+               LIMIT 8""",
+            (pattern, pattern),
+        )
+        tasks = cur.fetchall() or []
+
+        # 4. Clinician Notes
+        cur.execute(
+            """SELECT cn.note_id, cn.patient_id, cn.note_type, cn.note_text, cn.created_at,
+                      cs.full_name AS author_name, p.full_name, p.patient_code
+               FROM clinician_notes cn
+               JOIN patients p ON p.patient_id = cn.patient_id
+               LEFT JOIN care_staff cs ON cs.staff_id = cn.staff_id
+               WHERE cn.note_text LIKE %s OR p.full_name LIKE %s
+               ORDER BY cn.created_at DESC
+               LIMIT 8""",
+            (pattern, pattern),
+        )
+        notes = cur.fetchall() or []
+
+    return {
+        "patients": patients,
+        "flags": flags,
+        "tasks": tasks,
+        "notes": notes,
     }

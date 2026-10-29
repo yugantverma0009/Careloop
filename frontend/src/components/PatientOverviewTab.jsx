@@ -5,6 +5,10 @@ import {
   getPatientMedicines,
   getPatientRules,
   getPatientTimeline,
+  getPatientContacts,
+  logCommunication,
+  getPatientNotes,
+  addPatientNote,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import {
@@ -13,6 +17,7 @@ import {
   IconShieldCheck,
   IconPill,
   IconClock,
+  IconFileText,
 } from './Icons';
 
 /**
@@ -33,12 +38,25 @@ export default function PatientOverviewTab({
   onOpenFlagDrawer,
   user,
 }) {
-  const [subTab, setSubTab] = useState('overview'); // 'overview', 'medicines', 'rules', 'timeline'
+  const [subTab, setSubTab] = useState('overview'); // 'overview', 'medicines', 'rules', 'timeline', 'notes'
   const [loading, setLoading] = useState(true);
   const [detailData, setDetailData] = useState(null);
   const [medicinesData, setMedicinesData] = useState(null);
   const [rulesData, setRulesData] = useState([]);
   const [timelineData, setTimelineData] = useState(null);
+
+  // D-15 & D-16 Notes and Contacts state
+  const [contactsData, setContactsData] = useState([]);
+  const [notesData, setNotesData] = useState([]);
+  const [noteText, setNoteText] = useState('');
+  const [noteType, setNoteType] = useState('General');
+  const [amendsNoteId, setAmendsNoteId] = useState(null);
+  const [noteSubmitting, setNoteSubmitting] = useState(false);
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [contactChannel, setContactChannel] = useState('Phone');
+  const [contactOutcome, setContactOutcome] = useState('Reached');
+  const [contactSummary, setContactSummary] = useState('');
+  const [contactSubmitting, setContactSubmitting] = useState(false);
 
   // Break-glass modal state
   const [breakGlassReason, setBreakGlassReason] = useState('');
@@ -88,6 +106,19 @@ export default function PatientOverviewTab({
     }
   };
 
+  const fetchNotesAndContacts = async () => {
+    try {
+      const [notes, contacts] = await Promise.all([
+        getPatientNotes(patientId),
+        getPatientContacts(patientId),
+      ]);
+      setNotesData(notes || []);
+      setContactsData(contacts || []);
+    } catch (err) {
+      console.error('Failed to load notes and contacts:', err);
+    }
+  };
+
   useEffect(() => {
     fetchOverview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +129,7 @@ export default function PatientOverviewTab({
       if (subTab === 'medicines') fetchMedicines();
       else if (subTab === 'rules') fetchRules();
       else if (subTab === 'timeline') fetchTimeline();
+      else if (subTab === 'notes') fetchNotesAndContacts();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subTab, detailData, timelineType, timelineRange]);
@@ -266,6 +298,7 @@ export default function PatientOverviewTab({
             { id: 'medicines', label: 'Prescriptions & Adherence', Icon: IconPill },
             { id: 'rules', label: 'Trigger Rules & Limits', Icon: IconShieldCheck },
             { id: 'timeline', label: 'Upgraded Timeline', Icon: IconClock },
+            { id: 'notes', label: 'Notes & Calls', Icon: IconFileText },
           ].map((tab) => {
             const isActive = subTab === tab.id;
             const TabIcon = tab.Icon;
@@ -1119,6 +1152,530 @@ export default function PatientOverviewTab({
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Subtab 5: Notes & Calls (D-15 & D-16) */}
+          {subTab === 'notes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header Bar */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '18px 24px',
+                  boxShadow: 'var(--shadow-card)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                    Clinical Documentation & Contact Log
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
+                    Append-only clinician records (D-16) and multi-channel patient interaction audit trail (D-15).
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {p.phone && (
+                    <a
+                      href={`tel:${p.phone}`}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        background: 'var(--bg-base, #f1f5f9)',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <span>📞 Call: {p.phone}</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setContactModalOpen(true)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: 'var(--accent-teal, #0d9488)',
+                      border: 'none',
+                      color: '#ffffff',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + Log Communication
+                  </button>
+                </div>
+              </div>
+
+              {/* Add Note Card (D-16 Append-Only) */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                      {amendsNoteId ? `Amend Note #${amendsNoteId}` : 'Add New Clinical Note'}
+                    </span>
+                    {amendsNoteId && (
+                      <span style={{ fontSize: '11px', color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                        Appending correction record
+                      </span>
+                    )}
+                  </div>
+                  {amendsNoteId && (
+                    <button
+                      type="button"
+                      onClick={() => { setAmendsNoteId(null); setNoteText(''); }}
+                      style={{ border: 'none', background: 'transparent', color: 'var(--text-muted, #64748b)', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Cancel amendment
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                  {['General', 'Review', 'Call', 'Plan_Change'].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setNoteType(t)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: '6px',
+                        border: noteType === t ? '1px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #cbd5e1)',
+                        background: noteType === t ? 'var(--accent-teal-soft, #ecfdf5)' : 'var(--bg-base, #f8fafc)',
+                        color: noteType === t ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                        fontSize: '12px',
+                        fontWeight: noteType === t ? 700 : 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {t.replace('_', ' ')}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder={amendsNoteId ? "Enter clinical correction or updated note text..." : "Document observation, care decision, or clinical instructions..."}
+                  rows={3}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                    background: 'var(--bg-base, #f8fafc)',
+                    color: 'var(--text-primary, #0f172a)',
+                    fontSize: '13px',
+                    lineHeight: '1.5',
+                    boxSizing: 'border-box',
+                    marginBottom: '12px',
+                  }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    disabled={noteSubmitting || noteText.trim().length < 3}
+                    onClick={async () => {
+                      setNoteSubmitting(true);
+                      try {
+                        await addPatientNote(patientId, noteText.trim(), noteType, amendsNoteId);
+                        setNoteText('');
+                        setAmendsNoteId(null);
+                        await fetchNotesAndContacts();
+                      } catch (err) {
+                        alert(err.message || 'Failed to save clinical note.');
+                      } finally {
+                        setNoteSubmitting(false);
+                      }
+                    }}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '8px',
+                      background: noteText.trim().length >= 3 ? '#0284c7' : 'var(--bg-base, #cbd5e1)',
+                      border: 'none',
+                      color: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: noteText.trim().length >= 3 ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    {noteSubmitting ? 'Saving...' : amendsNoteId ? 'Save Amendment Note' : 'Append Clinical Note'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Split View: Notes History (Left) and Contact History (Right) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                {/* 1. Clinical Notes History */}
+                <div
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    boxShadow: 'var(--shadow-card)',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                    Notes Timeline ({notesData.length})
+                  </h4>
+
+                  {notesData.length === 0 ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      No clinical notes recorded for this patient yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {notesData.map((note) => (
+                        <div
+                          key={note.note_id}
+                          style={{
+                            padding: '14px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            background: note.amends_note_id ? '#fffbeb' : 'var(--bg-base, #f8fafc)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  background: note.note_type === 'Plan_Change' ? '#fef3c7' : note.note_type === 'Review' ? '#eff6ff' : '#f1f5f9',
+                                  color: note.note_type === 'Plan_Change' ? '#b45309' : note.note_type === 'Review' ? '#1d4ed8' : '#475569',
+                                }}
+                              >
+                                {note.note_type}
+                              </span>
+                              {note.amends_note_id && (
+                                <span style={{ fontSize: '11px', color: '#b45309', fontWeight: 600 }}>
+                                  Amends note #{note.amends_note_id}
+                                </span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                              {note.created_at ? note.created_at.replace('T', ' ').slice(0, 16) : '—'}
+                            </span>
+                          </div>
+
+                          <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: 'var(--text-primary, #0f172a)', lineHeight: '1.5' }}>
+                            {note.note_text}
+                          </p>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)' }}>
+                              By <strong>{note.author_name}</strong> ({note.author_role || 'Staff'})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAmendsNoteId(note.note_id);
+                                setNoteType(note.note_type);
+                                setNoteText(`Amended: `);
+                                window.scrollTo({ top: 300, behavior: 'smooth' });
+                              }}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--accent-teal, #0d9488)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Amend
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Communication Log History */}
+                <div
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    boxShadow: 'var(--shadow-card)',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                    Contact Log ({contactsData.length})
+                  </h4>
+
+                  {contactsData.length === 0 ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      No contact attempts recorded yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {contactsData.map((c) => (
+                        <div
+                          key={c.contact_id}
+                          style={{
+                            padding: '14px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            background: 'var(--bg-base, #f8fafc)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: '#0284c7', background: '#eff6ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                {c.channel}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  background: c.outcome === 'Reached' ? '#ecfdf5' : '#fef3c7',
+                                  color: c.outcome === 'Reached' ? '#047857' : '#b45309',
+                                }}
+                              >
+                                {c.outcome}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                              {c.contacted_at ? c.contacted_at.replace('T', ' ').slice(0, 16) : '—'}
+                            </span>
+                          </div>
+
+                          <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: 'var(--text-primary, #0f172a)' }}>
+                            {c.summary || 'No summary text provided.'}
+                          </p>
+
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                            Logged by <strong>{c.staff_name || 'Care Team'}</strong>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Log Communication (D-15) */}
+          {contactModalOpen && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  borderRadius: '12px',
+                  width: '90%',
+                  maxWidth: '520px',
+                  padding: '24px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                    Log Patient Communication
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setContactModalOpen(false)}
+                    style={{ border: 'none', background: 'transparent', fontSize: '18px', cursor: 'pointer', color: 'var(--text-muted, #64748b)' }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '6px' }}>
+                    Communication Channel
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                    {['Phone', 'SMS', 'In_Person', 'Video'].map((ch) => (
+                      <button
+                        key={ch}
+                        type="button"
+                        onClick={() => setContactChannel(ch)}
+                        style={{
+                          padding: '7px 8px',
+                          borderRadius: '6px',
+                          border: contactChannel === ch ? '1px solid #0284c7' : '1px solid var(--border-subtle, #cbd5e1)',
+                          background: contactChannel === ch ? '#eff6ff' : 'var(--bg-base, #f8fafc)',
+                          color: contactChannel === ch ? '#0284c7' : 'var(--text-secondary, #475569)',
+                          fontSize: '12px',
+                          fontWeight: contactChannel === ch ? 700 : 500,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {ch.replace('_', ' ')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '6px' }}>
+                    Contact Outcome
+                  </label>
+                  <select
+                    value={contactOutcome}
+                    onChange={(e) => setContactOutcome(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      color: 'var(--text-primary, #0f172a)',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <option value="Reached">Reached and advised</option>
+                    <option value="No_Answer">No answer</option>
+                    <option value="Left_Message">Left voicemail / family message</option>
+                    <option value="Wrong_Number">Wrong number</option>
+                    <option value="Declined">Declined to talk</option>
+                  </select>
+                </div>
+
+                {contactChannel === 'SMS' && (
+                  <div style={{ marginBottom: '14px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '6px' }}>
+                      Clinical SMS Template (No diagnosis disclosure)
+                    </label>
+                    <select
+                      onChange={(e) => setContactSummary(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'var(--bg-base, #f8fafc)',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '12px',
+                        marginBottom: '8px',
+                      }}
+                    >
+                      <option value="">Select a safe template...</option>
+                      <option value="Medication check-in: Hello from CareLoop team, please confirm your scheduled medication doses today.">Medication check-in reminder</option>
+                      <option value="Symptom follow-up: CareLoop care team has reviewed your symptom submission. Please stay resting, our team will call shortly.">Symptom submission follow-up</option>
+                      <option value="Routine check: CareLoop care team following up on your recovery progress. Please submit your daily vitals.">Routine daily vitals reminder</option>
+                    </select>
+                  </div>
+                )}
+
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '6px' }}>
+                    Summary / Notes
+                  </label>
+                  <textarea
+                    value={contactSummary}
+                    onChange={(e) => setContactSummary(e.target.value)}
+                    placeholder="Brief description of conversation, advised instructions, or next steps..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      color: 'var(--text-primary, #0f172a)',
+                      fontSize: '13px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setContactModalOpen(false)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'transparent',
+                      color: 'var(--text-secondary, #475569)',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={contactSubmitting}
+                    onClick={async () => {
+                      setContactSubmitting(true);
+                      try {
+                        await logCommunication(patientId, contactChannel, contactOutcome, contactSummary);
+                        setContactModalOpen(false);
+                        setContactSummary('');
+                        await fetchNotesAndContacts();
+                      } catch (err) {
+                        alert(err.message || 'Failed to log contact.');
+                      } finally {
+                        setContactSubmitting(false);
+                      }
+                    }}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'var(--accent-teal, #0d9488)',
+                      color: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {contactSubmitting ? 'Logging...' : 'Save Contact Record'}
+                  </button>
+                </div>
               </div>
             </div>
           )}

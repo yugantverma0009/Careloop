@@ -1,15 +1,12 @@
 """
 scripts/capture_phase4_screenshots.py
 
-Captures Phase 4 Grounded RAG & Assistant screenshots:
-- chat_empty_starter_chips_light_en.png
-- chat_answered_source_chips_light_en.png
-- chat_source_drawer_light_en.png
-- chat_refusal_ask_care_team_light_en.png
-- chat_dark_en.png
-- chat_answered_light_hi.png
-- landing_light_en.png (verification)
-- login_light_en.png (verification)
+Captures Phase 4 Care Team Portal screenshots:
+- audit_log_viewer_light.png
+- audit_log_viewer_dark.png
+- patient_notes_and_calls_light.png
+- command_palette_search.png
+- keyboard_shortcuts_modal.png
 
 Saved to docs/screenshots/phase4/
 """
@@ -24,11 +21,11 @@ import tempfile
 import requests
 import websockets
 
-OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../docs/screenshots/phase4"))
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../docs/screenshots/staff_phase4"))
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-DEBUG_PORT = 9229
+DEBUG_PORT = 9232
 
 async def send_cmd(ws, method, params=None, msg_id=1):
     msg = {"id": msg_id, "method": method, "params": params or {}}
@@ -48,171 +45,165 @@ async def capture_screenshot(ws, filename, msg_id_base):
         with open(filepath, "wb") as f:
             f.write(base64.b64decode(b64_data))
         print(f"  ✓ Saved {filename} ({len(b64_data)} bytes)")
+    else:
+        print(f"  ✗ Failed to capture {filename}")
 
 async def evaluate_js(ws, expr, msg_id):
     return await send_cmd(ws, "Runtime.evaluate", {"expression": expr, "awaitPromise": True}, msg_id=msg_id)
 
 async def main():
-    print("Fetching auth tokens from backend...")
-    pat_res = requests.post("http://127.0.0.1:8000/auth/login", json={"email": "aarav.demo@example.test", "password": "Demo@12345"}).json()
-    pat_token = pat_res["access_token"]
-    pat_user = json.dumps({"account_id": pat_res["account_id"], "email": "aarav.demo@example.test", "role": "Patient", "name": "Aarav Patel", "patient_id": pat_res["patient_id"]})
+    print("Authenticating as Dr. Ananya Sharma...")
+    doc_res = requests.post("http://127.0.0.1:8000/auth/login", json={"email": "ananya.demo@example.test", "password": "Demo@12345"}).json()
+    doc_token = doc_res["access_token"]
+    doc_user = json.dumps({
+        "account_id": doc_res["account_id"],
+        "email": "ananya.demo@example.test",
+        "role": "Doctor",
+        "name": "Dr. Ananya Sharma",
+        "staff_id": doc_res.get("staff_id", 1),
+    })
 
-    tmp_dir = tempfile.mkdtemp()
-    cmd = [
+    user_data_dir = tempfile.mkdtemp(prefix="careloop_chrome_p4_")
+    chrome_cmd = [
         CHROME_BIN,
-        "--headless=new",
         f"--remote-debugging-port={DEBUG_PORT}",
-        f"--user-data-dir={tmp_dir}",
-        "--window-size=1280,900",
+        "--headless=new",
         "--disable-gpu",
         "--no-sandbox",
-        "about:blank",
+        f"--user-data-dir={user_data_dir}",
+        "--window-size=1440,920",
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(2.0)
+
+    print("Launching Chrome...")
+    proc = subprocess.Popen(chrome_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)
 
     try:
         tab_info = requests.put(f"http://127.0.0.1:{DEBUG_PORT}/json/new").json()
         ws_url = tab_info["webSocketDebuggerUrl"]
 
-        async with websockets.connect(ws_url, max_size=50 * 1024 * 1024) as ws:
-            mid = 1
-            await send_cmd(ws, "Page.enable", msg_id=mid); mid += 1
-            await send_cmd(ws, "Runtime.enable", msg_id=mid); mid += 1
-            await send_cmd(ws, "Emulation.setDeviceMetricsOverride", {
-                "width": 1280,
-                "height": 900,
-                "deviceScaleFactor": 1,
-                "mobile": False,
-            }, msg_id=mid); mid += 1
+        async with websockets.connect(ws_url, max_size=20 * 1024 * 1024) as ws:
+            msg_id = 1
+            await send_cmd(ws, "Page.enable", msg_id=msg_id)
 
-            # ─── 1. Landing Page Verification ───
-            print("\nCapturing Landing Page (Verification)...")
-            await send_cmd(ws, "Page.navigate", {"url": "http://localhost:3000/"}, msg_id=mid); mid += 1
+            print("Navigating to staff portal...")
+            msg_id += 1
+            await send_cmd(ws, "Page.navigate", {"url": "http://localhost:3000/staff"}, msg_id=msg_id)
             await asyncio.sleep(2.0)
-            await capture_screenshot(ws, "landing_light_en.png", mid); mid += 1
 
-            # ─── 2. Login Page Verification ───
-            print("\nCapturing Login Page (Verification)...")
-            await send_cmd(ws, "Page.navigate", {"url": "http://localhost:3000/login"}, msg_id=mid); mid += 1
-            await asyncio.sleep(2.0)
-            await capture_screenshot(ws, "login_light_en.png", mid); mid += 1
-
-            # ─── 3. Patient Portal Setup ───
-            print("\nNavigating to Patient Portal...")
-            await send_cmd(ws, "Page.navigate", {"url": "http://localhost:3000/patient"}, msg_id=mid); mid += 1
-            await asyncio.sleep(1.5)
-
-            # Set Auth token
-            await evaluate_js(ws, f"""
-                localStorage.setItem('careloop_token', '{pat_token}');
-                localStorage.setItem('careloop_user', '{pat_user}');
+            # Set localStorage doctor session
+            msg_id += 1
+            setup_script = f"""
+                localStorage.setItem('careloop_token', '{doc_token}');
+                localStorage.setItem('careloop_user', '{doc_user}');
                 localStorage.setItem('careloop_theme', 'light');
-                document.documentElement.setAttribute('data-theme', 'light');
-            """, mid); mid += 1
-
-            await send_cmd(ws, "Page.navigate", {"url": "http://localhost:3000/patient"}, msg_id=mid); mid += 1
+                window.location.reload();
+            """
+            await evaluate_js(ws, setup_script, msg_id)
             await asyncio.sleep(2.5)
 
-            # Navigate to Chat tab
-            print("Switching to Chat tab...")
+            # 1. Audit Log Viewer Light
+            print("Capturing Audit Log Viewer (Light)...")
+            msg_id += 1
             await evaluate_js(ws, """
-                const chatBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Chat') || b.textContent.includes('Assistant') || b.textContent.includes('चैट'));
-                if (chatBtn) chatBtn.click();
-            """, mid); mid += 1
-            await asyncio.sleep(1.0)
-
-            # Click New Chat to ensure clean starter chips state
-            await evaluate_js(ws, """
-                const newChatBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('New chat') || b.textContent.includes('नया संवाद'));
-                if (newChatBtn) newChatBtn.click();
-            """, mid); mid += 1
-            await asyncio.sleep(1.0)
-
-            # ─── 4. Empty State with Starter Chips ───
-            print("Capturing Chat Empty State with 4 Starter Chips...")
-            await capture_screenshot(ws, "chat_empty_starter_chips_light_en.png", mid); mid += 1
-
-            # ─── 5. Ask Grounded Query (Click Starter Chip) ───
-            print("Clicking 'When is my next visit?' starter chip...")
-            await evaluate_js(ws, """
-                const starter = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('When is my next visit?'));
-                if (starter) starter.click();
-            """, mid); mid += 1
-            await asyncio.sleep(4.5)
-
-            # Capture Answered state with source pills
-            print("Capturing Chat Answered State with Grounded Source Chips...")
-            await capture_screenshot(ws, "chat_answered_source_chips_light_en.png", mid); mid += 1
-
-            # ─── 6. Open Source Inspection Modal Drawer ───
-            print("Clicking Source Pill to open Inspection Drawer...")
-            await evaluate_js(ws, """
-                const sourcePill = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Appointments') || b.textContent.includes('Discharge summary'));
-                if (sourcePill) sourcePill.click();
-            """, mid); mid += 1
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const auditBtn = buttons.find(b => b.textContent.includes('Audit log viewer'));
+                if (auditBtn) auditBtn.click();
+            """, msg_id)
             await asyncio.sleep(1.5)
+            msg_id += 1
+            await capture_screenshot(ws, "audit_log_viewer_light.png", msg_id)
 
-            print("Capturing Source Inspection Drawer...")
-            await capture_screenshot(ws, "chat_source_drawer_light_en.png", mid); mid += 1
-
-            # Close drawer
+            # 2. Audit Log Viewer Dark
+            print("Capturing Audit Log Viewer (Dark)...")
+            msg_id += 1
             await evaluate_js(ws, """
-                const closeBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Close') || b.textContent.includes('बंद'));
-                if (closeBtn) closeBtn.click();
-            """, mid); mid += 1
-            await asyncio.sleep(1.0)
-
-            # ─── 7. Refusal Query & Ask Care Team ───
-            print("Sending dose change question...")
-            await evaluate_js(ws, """
-                const input = document.querySelector('input[type="text"]');
-                if (input) {
-                    input.value = "Can I double my dose to get better faster?";
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    const form = input.closest('form');
-                    if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-                }
-            """, mid); mid += 1
-            await asyncio.sleep(3.5)
-
-            print("Capturing Dose Refusal & Ask My Care Team Button...")
-            await capture_screenshot(ws, "chat_refusal_ask_care_team_light_en.png", mid); mid += 1
-
-            # ─── 8. Dark Mode ───
-            print("Switching to Dark Mode...")
-            await evaluate_js(ws, """
-                const themeBtn = Array.from(document.querySelectorAll('button')).find(b => b.title && b.title.includes('dark') || b.getAttribute('aria-label')?.includes('theme'));
-                if (themeBtn) themeBtn.click();
+                const themeBtn = document.querySelector('button[aria-label*="theme"], button[title*="theme"]') || Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Theme') || b.querySelector('svg'));
                 document.documentElement.setAttribute('data-theme', 'dark');
-            """, mid); mid += 1
-            await asyncio.sleep(1.5)
+                document.body.classList.add('dark');
+            """, msg_id)
+            await asyncio.sleep(1.0)
+            msg_id += 1
+            await capture_screenshot(ws, "audit_log_viewer_dark.png", msg_id)
 
-            print("Capturing Chat Assistant in Dark Mode...")
-            await capture_screenshot(ws, "chat_dark_en.png", mid); mid += 1
-
-            # Reset back to light
+            # Restore light mode
+            msg_id += 1
             await evaluate_js(ws, """
                 document.documentElement.setAttribute('data-theme', 'light');
-            """, mid); mid += 1
+                document.body.classList.remove('dark');
+            """, msg_id)
+            await asyncio.sleep(0.5)
 
-            # ─── 9. Hindi Mode ───
-            print("Switching to Hindi Mode...")
+            # 3. Patient Notes & Calls Subtab
+            print("Capturing Patient Notes & Calls Subtab...")
+            msg_id += 1
             await evaluate_js(ws, """
-                const hiBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'HI' || b.textContent.trim() === 'हिन्दी');
-                if (hiBtn) hiBtn.click();
-            """, mid); mid += 1
-            await asyncio.sleep(2.0)
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const patBtn = buttons.find(b => b.textContent.includes('Patient directory'));
+                if (patBtn) patBtn.click();
+            """, msg_id)
+            await asyncio.sleep(1.5)
 
-            print("Capturing Chat Assistant in Hindi Mode...")
-            await capture_screenshot(ws, "chat_answered_light_hi.png", mid); mid += 1
+            msg_id += 1
+            await evaluate_js(ws, """
+                // Click on first patient card
+                const pRows = Array.from(document.querySelectorAll('button, div'));
+                const viewChart = pRows.find(el => el.textContent.includes('View Clinical Chart') || el.textContent.includes('Aarav Patel'));
+                if (viewChart) viewChart.click();
+            """, msg_id)
+            await asyncio.sleep(1.5)
 
-        print("\nAll Phase 4 screenshots successfully captured in docs/screenshots/phase4/!")
+            msg_id += 1
+            await evaluate_js(ws, """
+                const tabButtons = Array.from(document.querySelectorAll('button'));
+                const notesTab = tabButtons.find(b => b.textContent.includes('Notes & Calls'));
+                if (notesTab) notesTab.click();
+            """, msg_id)
+            await asyncio.sleep(1.5)
+            msg_id += 1
+            await capture_screenshot(ws, "patient_notes_and_calls_light.png", msg_id)
+
+            # 4. Command Palette Search (Ctrl+K)
+            print("Capturing Command Palette Search Modal...")
+            msg_id += 1
+            await evaluate_js(ws, """
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+            """, msg_id)
+            await asyncio.sleep(1.0)
+            msg_id += 1
+            await evaluate_js(ws, """
+                const input = document.querySelector('input[placeholder*="Search patients"]');
+                if (input) {
+                    input.value = 'Aarav';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            """, msg_id)
+            await asyncio.sleep(1.2)
+            msg_id += 1
+            await capture_screenshot(ws, "command_palette_search.png", msg_id)
+
+            # Close Command Palette
+            msg_id += 1
+            await evaluate_js(ws, """
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            """, msg_id)
+            await asyncio.sleep(0.5)
+
+            # 5. Keyboard Shortcuts Help Modal (?)
+            print("Capturing Keyboard Shortcuts Modal...")
+            msg_id += 1
+            await evaluate_js(ws, """
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+            """, msg_id)
+            await asyncio.sleep(1.0)
+            msg_id += 1
+            await capture_screenshot(ws, "keyboard_shortcuts_modal.png", msg_id)
 
     finally:
         proc.terminate()
         proc.wait()
+
+    print("\nPhase 4 screenshot capture complete!")
 
 if __name__ == "__main__":
     asyncio.run(main())

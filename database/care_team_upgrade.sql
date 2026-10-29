@@ -306,6 +306,181 @@ BEGIN
         WHERE r.patient_id = NEW.patient_id AND r.rule_type = 'Pain_At_Least' AND r.is_active = TRUE
           AND NEW.pain_level >= r.threshold_value
           AND NOT EXISTS (SELECT 1 FROM flags f WHERE f.rule_id = r.rule_id AND f.status IN ('Open','Acknowledged'));
-    END IF;
+309:     END IF;
 END$$
+
+-- ─── 10. TASK & SUMMARY PROCEDURES (Phase 3, D-07, D-08) ────────────────────
+DROP PROCEDURE IF EXISTS sp_complete_task$$
+CREATE PROCEDURE sp_complete_task(
+    IN p_task_id BIGINT,
+    IN p_staff_id INT,
+    IN p_outcome_code VARCHAR(50),
+    IN p_outcome_notes VARCHAR(500)
+)
+BEGIN
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
+    IF v_status IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
+    END IF;
+    IF v_status = 'Resolved' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task is already resolved';
+    END IF;
+
+    UPDATE follow_up_tasks
+    SET status = 'Resolved',
+        completed_at = NOW(),
+        outcome_code = p_outcome_code,
+        outcome_notes = p_outcome_notes
+    WHERE followup_id = p_task_id;
+
+    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'COMPLETE_TASK', 'task', p_task_id,
+            JSON_OBJECT('outcome_code', p_outcome_code, 'notes', p_outcome_notes));
+    COMMIT;
+END$$
+
+DROP PROCEDURE IF EXISTS sp_claim_task$$
+CREATE PROCEDURE sp_claim_task(
+    IN p_task_id BIGINT,
+    IN p_staff_id INT
+)
+BEGIN
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
+    IF v_status IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
+    END IF;
+
+    UPDATE follow_up_tasks
+    SET assigned_staff_id = p_staff_id
+    WHERE followup_id = p_task_id;
+
+    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'CLAIM_TASK', 'task', p_task_id, JSON_OBJECT('assigned_staff_id', p_staff_id));
+    COMMIT;
+END$$
+
+DROP PROCEDURE IF EXISTS sp_assign_task$$
+CREATE PROCEDURE sp_assign_task(
+    IN p_task_id BIGINT,
+    IN p_staff_id INT,
+    IN p_target_staff_id INT,
+    IN p_note VARCHAR(255)
+)
+BEGIN
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
+    IF v_status IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
+    END IF;
+
+    UPDATE follow_up_tasks
+    SET assigned_staff_id = p_target_staff_id
+    WHERE followup_id = p_task_id;
+
+    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'ASSIGN_TASK', 'task', p_task_id,
+            JSON_OBJECT('target_staff_id', p_target_staff_id, 'note', p_note));
+    COMMIT;
+END$$
+
+DROP PROCEDURE IF EXISTS sp_snooze_task$$
+CREATE PROCEDURE sp_snooze_task(
+    IN p_task_id BIGINT,
+    IN p_staff_id INT,
+    IN p_hours INT,
+    IN p_reason VARCHAR(255)
+)
+BEGIN
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
+    IF v_status IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
+    END IF;
+
+    UPDATE follow_up_tasks
+    SET due_at = NOW() + INTERVAL p_hours HOUR
+    WHERE followup_id = p_task_id;
+
+    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'SNOOZE_TASK', 'task', p_task_id,
+            JSON_OBJECT('hours', p_hours, 'reason', p_reason));
+    COMMIT;
+END$$
+
+DROP PROCEDURE IF EXISTS sp_approve_summary$$
+CREATE PROCEDURE sp_approve_summary(
+    IN p_summary_id BIGINT,
+    IN p_doctor_staff_id INT,
+    IN p_edited_text MEDIUMTEXT
+)
+BEGIN
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status FROM ai_summaries WHERE summary_id = p_summary_id FOR UPDATE;
+    IF v_status IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Summary not found';
+    END IF;
+
+    UPDATE ai_summaries
+    SET status = 'Approved',
+        reviewed_by_staff_id = p_doctor_staff_id,
+        reviewed_at = NOW(),
+        edited_text = p_edited_text
+    WHERE summary_id = p_summary_id;
+
+    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+    VALUES ('Staff', CAST(p_doctor_staff_id AS CHAR), 'APPROVE_SUMMARY', 'summary', p_summary_id,
+            JSON_OBJECT('edited', p_edited_text IS NOT NULL));
+    COMMIT;
+END$$
+
+DROP PROCEDURE IF EXISTS sp_reject_summary$$
+CREATE PROCEDURE sp_reject_summary(
+    IN p_summary_id BIGINT,
+    IN p_doctor_staff_id INT,
+    IN p_reason VARCHAR(255)
+)
+BEGIN
+    DECLARE v_status VARCHAR(20) DEFAULT NULL;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status FROM ai_summaries WHERE summary_id = p_summary_id FOR UPDATE;
+    IF v_status IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Summary not found';
+    END IF;
+
+    IF p_reason IS NULL OR CHAR_LENGTH(TRIM(p_reason)) < 3 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A reason of at least 3 characters is required to reject a summary';
+    END IF;
+
+    UPDATE ai_summaries
+    SET status = 'Rejected',
+        reviewed_by_staff_id = p_doctor_staff_id,
+        reviewed_at = NOW(),
+        reject_reason = p_reason
+    WHERE summary_id = p_summary_id;
+
+    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+    VALUES ('Staff', CAST(p_doctor_staff_id AS CHAR), 'REJECT_SUMMARY', 'summary', p_summary_id,
+            JSON_OBJECT('reason', p_reason));
+    COMMIT;
+END$$
+
 DELIMITER ;
