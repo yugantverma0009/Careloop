@@ -6,8 +6,15 @@
  * Flags and clinical workflows are backed by MySQL 8.0 views & stored procedures.
  */
 
-export const API_BASE =
-  process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+const getApiBase = () => {
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return 'http://127.0.0.1:8000';
+};
+
+export const API_BASE = getApiBase();
 
 // ─── Token & Auth Management ────────────────────────────────────────────────
 

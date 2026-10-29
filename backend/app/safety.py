@@ -105,15 +105,25 @@ DOSE_CHANGE_REFUSAL = {
 }
 
 
+import re
+
 def has_emergency_term(text: str) -> bool:
     """
     Deterministic check for emergency keywords in English and Hindi.
-    Case-insensitive, runs in O(N) string search.
+    Case-insensitive, word-boundary safe for Hindi terms (e.g. avoiding false match of दौरा inside दौरान).
     """
     if not text:
         return False
     t = text.lower()
-    return any(term in t for term in EMERGENCY_TERMS)
+    for term in EMERGENCY_TERMS:
+        if term == "दौरा":
+            # Guard against "दौरान" ("during") - must match as standalone word or दौरे
+            if re.search(r"(?<![^\s,।!?])दौरा(?![^\s,।!?])", t) or re.search(r"(?<![^\s,।!?])दौरे(?![^\s,।!?])", t):
+                return True
+            continue
+        if term in t:
+            return True
+    return False
 
 
 def is_dose_change_question(text: str) -> bool:

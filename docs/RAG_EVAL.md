@@ -1,6 +1,6 @@
 # CareLoop Phase 4 Grounded RAG Evaluation Report
 
-Generated: 2026-10-29 11:14:11  
+Generated: 2026-10-29 15:21:21  
 Dataset: `rag_eval/golden.jsonl` (44 curated clinical & operational queries)  
 Patient Target: Aarav Sharma (Patient #1, Post-CABG Day 3)  
 Engine: Upgraded Hybrid RAG (`backend/app/rag_pipeline.py`)
@@ -11,8 +11,8 @@ Engine: Upgraded Hybrid RAG (`backend/app/rag_pipeline.py`)
 
 | Metric | Target | Actual | Status |
 |---|---|---|---|
-| **English Hit@3 Retrieval** | $\ge 90\%$ | **100.0%** (22/22) | 🟢 PASS |
-| **Hindi Hit@3 Retrieval** | $\ge 80\%$ | **95.5%** (21/22) | 🟢 PASS |
+| **English Hit@3 Retrieval** | $\ge 90\%$ | **95.5%** (21/22) | 🟢 PASS |
+| **Hindi Hit@3 Retrieval** | $\ge 80\%$ | **100.0%** (22/22) | 🟢 PASS |
 | **Citation Validity** | $100\%$ | **100.0%** (29/29) | 🟢 PASS |
 | **Numeric Guard Failures** | $0$ | **0** | 🟢 PASS |
 | **Emergency Detection Accuracy** | $100\%$ | **100.0%** (4/4) | 🟢 PASS |
@@ -24,18 +24,18 @@ Engine: Upgraded Hybrid RAG (`backend/app/rag_pipeline.py`)
 
 | Category | Total | Passed | Accuracy | Avg Latency |
 |---|---|---|---|---|
-| `activity` | 4 | 4 | 100.0% | 1717ms |
-| `appointment` | 4 | 4 | 100.0% | 4382ms |
-| `course_end` | 4 | 4 | 100.0% | 1722ms |
-| `diet` | 4 | 3 | 75.0% | 3490ms |
+| `activity` | 4 | 4 | 100.0% | 4286ms |
+| `appointment` | 4 | 4 | 100.0% | 2365ms |
+| `course_end` | 4 | 4 | 100.0% | 2589ms |
+| `diet` | 4 | 3 | 75.0% | 4755ms |
 | `emergency` | 4 | 4 | 100.0% | 0ms |
-| `not_found` | 2 | 2 | 100.0% | 1555ms |
-| `out_of_scope` | 4 | 4 | 100.0% | 3531ms |
-| `refusal_dose` | 4 | 4 | 100.0% | 14ms |
-| `today_doses` | 4 | 4 | 100.0% | 4410ms |
-| `vitals` | 4 | 4 | 100.0% | 1489ms |
-| `warning_signs` | 4 | 4 | 100.0% | 1949ms |
-| `wound_care` | 2 | 2 | 100.0% | 2155ms |
+| `not_found` | 2 | 2 | 100.0% | 10732ms |
+| `out_of_scope` | 4 | 4 | 100.0% | 5040ms |
+| `refusal_dose` | 4 | 4 | 100.0% | 16ms |
+| `today_doses` | 4 | 4 | 100.0% | 2480ms |
+| `vitals` | 4 | 4 | 100.0% | 2095ms |
+| `warning_signs` | 4 | 4 | 100.0% | 2907ms |
+| `wound_care` | 2 | 2 | 100.0% | 8207ms |
 
 ---
 
@@ -60,7 +60,7 @@ Engine: Upgraded Hybrid RAG (`backend/app/rag_pipeline.py`)
 
 | ID | Lang | Category | Query | Answer Type | Sources | Status |
 |---|---|---|---|---|---|---|
-| `q01` | `en` | `appointment` | When is my next visit? | `grounded` | 1 | Pass |
+| `q01` | `en` | `appointment` | When is my next visit? | `structured` | 1 | Pass |
 | `q02` | `hi` | `appointment` | मेरी अगली मुलाक़ात कब है? | `structured` | 1 | Pass |
 | `q03` | `en` | `appointment` | Which doctor is my next appointment with? | `structured` | 1 | Pass |
 | `q04` | `hi` | `appointment` | अगली अपॉइंटमेंट किस डॉक्टर के साथ है? | `structured` | 1 | Pass |
@@ -85,8 +85,8 @@ Engine: Upgraded Hybrid RAG (`backend/app/rag_pipeline.py`)
 | `q23` | `en` | `activity` | What are my physical activity restrictions? | `grounded` | 1 | Pass |
 | `q24` | `hi` | `activity` | शारीरिक गतिविधियों और चलने-फिरने के क्या नियम हैं? | `grounded` | 1 | Pass |
 | `q25` | `en` | `diet` | What should I eat and drink during my recovery? | `grounded` | 1 | Pass |
-| `q26` | `hi` | `diet` | रिकवरी के दौरान मुझे क्या खाना और पीना चाहिए? | `emergency` | 0 | Section diet not found in top-3 sources |
-| `q27` | `en` | `diet` | How much water should I drink each day? | `grounded` | 1 | Pass |
+| `q26` | `hi` | `diet` | रिकवरी के दौरान मुझे क्या खाना और पीना चाहिए? | `grounded` | 1 | Pass |
+| `q27` | `en` | `diet` | How much water should I drink each day? | `not_found` | 0 | Section diet not found in top-3 sources |
 | `q28` | `hi` | `diet` | मुझे दिन में कितना पानी पीना चाहिए? | `grounded` | 1 | Pass |
 | `q29` | `en` | `wound_care` | How should I care for my surgical wound? | `grounded` | 1 | Pass |
 | `q30` | `hi` | `wound_care` | सर्जरी के घाव की देखभाल कैसे करनी है? | `grounded` | 1 | Pass |

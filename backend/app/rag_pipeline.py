@@ -102,6 +102,34 @@ DEFAULT_SUGGESTIONS = {
     ],
 }
 
+# Cross-lingual expansion for Hindi queries against English discharge documents
+HINDI_TO_ENGLISH_CONCEPT_EXPANSION = {
+    "खाना": ["eat", "diet", "food", "nutrition", "meals"],
+    "पीना": ["drink", "fluids", "water", "liquids"],
+    "आहार": ["diet", "food", "nutrition"],
+    "भोजन": ["meals", "food", "diet"],
+    "पानी": ["water", "fluids", "hydration"],
+    "शारीरिक": ["physical", "activity"],
+    "गतिविधि": ["activity", "exercise"],
+    "चलना": ["walking", "mobility"],
+    "वजन": ["lifting", "weight"],
+    "भारी": ["heavy"],
+    "सीढ़ियां": ["stairs"],
+    "नहाना": ["shower", "bathing"],
+    "व्यायाम": ["exercise"],
+    "घाव": ["wound", "incision"],
+    "टांके": ["stitches", "sutures"],
+    "पट्टी": ["dressing", "bandage"],
+    "ड्रेसिंग": ["dressing", "bandage"],
+    "खतरा": ["warning", "danger", "emergency"],
+    "लक्षण": ["symptoms", "signs"],
+    "चेतावनी": ["warning", "caution"],
+    "अस्पताल": ["hospital", "clinic"],
+    "दवा": ["medicine", "medication", "dose"],
+    "दवाइयाँ": ["medicines", "prescriptions"],
+    "गोली": ["tablet", "pill"],
+}
+
 
 def normalize_hindi_digits(text: str) -> str:
     """Replaces Hindi numerals with ASCII 0-9 for numeric comparisons."""
@@ -358,7 +386,14 @@ def hybrid_retrieval(
             collection = chroma_client.get_collection(col_name, embedding_function=ef)
         else:
             collection = chroma_client.get_collection(col_name)
-        res = collection.query(query_texts=[query], n_results=min(8, collection.count()))
+        
+        # If Hindi terms are present, augment dense query with English concept keywords
+        augmented_query = query
+        for hi_term, en_terms in HINDI_TO_ENGLISH_CONCEPT_EXPANSION.items():
+            if hi_term in query:
+                augmented_query += " " + " ".join(en_terms)
+
+        res = collection.query(query_texts=[augmented_query], n_results=min(8, collection.count()))
         ids = res.get("ids", [[]])[0] if res.get("ids") else []
         debug_info["dense_count"] = len(ids)
         for rank, vid in enumerate(ids):
@@ -369,6 +404,10 @@ def hybrid_retrieval(
     # 2. Keyword Matching Retrieval (top 8)
     keyword_ranks = {}
     query_words = set(re.findall(r"\w+", query.lower()))
+    for hi_term, en_terms in HINDI_TO_ENGLISH_CONCEPT_EXPANSION.items():
+        if hi_term in query:
+            query_words.update(en_terms)
+
     scored_chunks = []
     for vid, chunk in all_chunks.items():
         text_words = set(re.findall(r"\w+", chunk["chunk_text"].lower()))
@@ -385,15 +424,20 @@ def hybrid_retrieval(
     # 3. Reciprocal Rank Fusion (RRF) with Section Boost
     fused_scores = {}
     all_vids = set(dense_ranks.keys()) | set(keyword_ranks.keys())
+    intent_clean = intent.replace("intent_", "").replace("tool_", "").lower()
+
     for vid in all_vids:
         r_dense = dense_ranks.get(vid, 100)
         r_key = keyword_ranks.get(vid, 100)
         rrf = (1.0 / (60 + r_dense)) + (1.0 / (60 + r_key))
 
-        # Section boost if chunk.section_type matches intent
+        # Section boost if chunk.section_type or section_title matches intent
         chunk = all_chunks.get(vid)
-        if chunk and chunk.get("section_type") == intent:
-            rrf += 0.02
+        if chunk:
+            sec_type = (chunk.get("section_type") or "").lower()
+            sec_title = (chunk.get("section_title") or "").lower()
+            if intent_clean and (intent_clean in sec_type or intent_clean in sec_title):
+                rrf += 0.04
 
         fused_scores[vid] = rrf
 
@@ -682,6 +726,31 @@ LANGUAGE:
                 "response": ans_text,
                 "citations": sources_payload,
                 "retrieval_debug": {"intent": intent, "tool_called": intent, "fallback_tool": True},
+            }
+
+        # 2. Extractive grounded fallback from retrieved context chunks
+        if context_chunks:
+            top_chk = context_chunks[0]
+            sec = top_chk.get("section_title") or "Discharge summary"
+            p_no = top_chk.get("page_no") or 1
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", top_chk.get("chunk_text", "")) if len(s.strip()) > 15]
+            bullets = sentences[:3] if sentences else [top_chk.get("chunk_text", "")[:140]]
+            lead_text = (
+                f"According to your discharge summary ({sec}, page {p_no}):"
+                if lang == "en"
+                else f"आपके डिस्चार्ज पेपर्स ({sec}, पृष्ठ {p_no}) के अनुसार:"
+            )
+            return {
+                "answer_type": "grounded",
+                "answer": lead_text,
+                "bullets": bullets,
+                "sources": sources_payload[:2],
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": False,
+                "is_grounded": True,
+                "response": f"{lead_text} " + " ".join(bullets),
+                "citations": [s.get("chunk_id") for s in sources_payload[:2] if s.get("chunk_id")],
+                "retrieval_debug": {"intent": intent, "fallback_extractive": True, "error": str(e)},
             }
 
         unavail_ans = (
