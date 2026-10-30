@@ -163,7 +163,7 @@ export default function AuditLogViewer() {
             </h2>
           </div>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            Tamper-evident system activity record for DPDP compliance and clinical governance.
+            Every action, who did it, and when.
           </p>
         </div>
 

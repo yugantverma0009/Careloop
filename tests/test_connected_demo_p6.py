@@ -150,7 +150,7 @@ def test_connected_demo_story_flow():
         headers={"Authorization": f"Bearer {d_tok}"},
         json={
             "resolution_code": "Patient_Contacted",
-            "resolution_note": "Reviewed telemetry. Repeat SpO2 confirmed at 95%. Continue current plan.",
+            "resolution_note": "Reviewed sensor readings. Repeat SpO2 confirmed at 95%. Continue current plan.",
         },
     )
     assert resolve_res.status_code == 200

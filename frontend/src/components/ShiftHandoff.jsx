@@ -200,7 +200,7 @@ export default function ShiftHandoff({ user = {}, onSelectPatient }) {
             const openTasks = p.action_list || [];
             const openItemsText = openFlags.length > 0 || openTasks.length > 0
               ? `${openFlags.length} open flag${openFlags.length === 1 ? '' : 's'}${openFlags.length > 0 ? ` (${openFlags[0].reason})` : ''} · ${openTasks.length} pending task${openTasks.length === 1 ? '' : 's'}`
-              : 'No open flags or pending tasks · Telemetry on track';
+              : 'No open alerts or pending tasks · Sensor readings on track';
 
             return (
               <div

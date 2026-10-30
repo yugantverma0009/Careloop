@@ -52,7 +52,7 @@ export default function OperationalInsights() {
         ['Alerts Per Patient Per Day', m.alerts_per_patient_per_day, data.definitions?.alerts_per_patient_per_day],
         ['Duplicate Rate %', `${m.duplicate_rate_pct}%`, data.definitions?.duplicate_rate],
         ['Self-Reported Dose Confirmation %', `${m.self_reported_dose_confirmation_pct}%`, data.definitions?.self_reported_dose_confirmation],
-        ['Continuous Telemetry Uptime %', `${m.device_uptime_pct}%`, data.definitions?.device_uptime],
+        ['Continuous Sensor Uptime %', `${m.device_uptime_pct}%`, data.definitions?.device_uptime],
         ['Overdue Tasks Count', m.overdue_tasks_count, data.definitions?.overdue_tasks],
       ];
 
@@ -109,7 +109,7 @@ export default function OperationalInsights() {
             </h2>
           </div>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            Transparent workflow telemetry and trigger quality. (Strictly non-outcome metrics).
+            Transparent workflow activity and trigger quality. (Strictly non-outcome metrics).
           </p>
         </div>
 
@@ -357,7 +357,7 @@ export default function OperationalInsights() {
       {/* 5. Metrics Definitions Footnote */}
       <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)', borderRadius: '10px', padding: '16px 20px', fontSize: '11px', color: 'var(--text-muted, #64748b)', lineHeight: '1.6' }}>
         <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
-          Clinical Governance & Definition Lineage (D-14)
+          Clinical Policy & Definition Lineage (D-14)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '8px', marginBottom: '8px' }}>
           {Object.entries(defs).map(([k, desc]) => (

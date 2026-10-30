@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * PatientIdentity Component (D-01, Clinical Safety Governance)
+ * PatientIdentity Component (D-01, Clinical Safety Policy)
  *
  * Strict Requirement: Always display at least two patient identifiers
  * (Full Name, Age, Patient Code CL-0000X) to eliminate wrong-patient errors.

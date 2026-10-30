@@ -117,7 +117,7 @@ def test_summary_approval_and_rejection_workflow():
     good_rej = client.post(
         "/staff/summaries/1/reject",
         headers=doc_headers,
-        json={"reason": "Telemetry window incomplete for knee flexion range; regenerate after evening check-in"},
+        json={"reason": "Sensor reading window incomplete for knee flexion range; regenerate after evening check-in"},
     )
     assert good_rej.status_code == 200
     assert good_rej.json()["status"] == "Rejected"

@@ -3122,7 +3122,7 @@ def get_patient_timeline(
     - Date range: 'today', '7days', 'all'.
     - Grouped by day with sticky date headers and repeated event collapsing.
     - Future doses show 'Scheduled', past unconfirmed show 'Not confirmed'.
-    - Sensor readings telemetry chart with quality markers and approved rule limits.
+    - Sensor readings vital chart with quality markers and approved rule limits.
     """
     limit = min(limit, 200)
     now = datetime.now()
@@ -3153,7 +3153,7 @@ def get_patient_timeline(
         cur.execute(
             """SELECT sr.reading_id AS event_id, sr.measured_at AS event_time, 'Reading' AS event_type,
                       CONCAT(sr.measurement_type, ' ', sr.measurement_value, ' ', sr.unit) AS summary,
-                      'Sensor Telemetry' AS actor, sr.quality_status,
+                      'Sensor Stream' AS actor, sr.quality_status,
                       sr.measurement_type, sr.measurement_value, sr.unit
                FROM sensor_readings sr
                WHERE sr.patient_id = %s
@@ -4307,7 +4307,7 @@ def get_flag_escalations(
                 elif stype == "Caregiver_SMS":
                     has_consent = flag.get("consent_status") == "Granted"
                     deliv = "Sent" if has_consent else "Skipped_No_Consent"
-                    notes = "SMS dispatched to registered caregiver" if has_consent else "Skipped: Caregiver consent not granted"
+                    notes = "SMS alert dispatched to Neha Patel (+91-98765-43210)" if has_consent else "Skipped: Sharing turned off by patient (consent not granted)"
                 elif stype == "Nurse_Alert":
                     deliv = "Acknowledged" if is_flag_closed else "Sent"
                     notes = "Priority card highlighted on duty nurse worklist"
@@ -4799,7 +4799,7 @@ def apply_pathway_template(
 ):
     """
     D-13: Apply a pathway template to a patient.
-    STRICT CLINICAL GOVERNANCE:
+    STRICT CLINICAL ROLE BOUNDARY:
     - Only attending doctors can approve and apply clinical pathway templates (403 for nurses).
     - Every rule threshold must be filled by the doctor (no defaults or blanks).
     """
@@ -4807,7 +4807,7 @@ def apply_pathway_template(
     if user_role != "Doctor":
         raise HTTPException(
             status_code=403,
-            detail="Clinical Governance Restriction: Only an attending doctor can approve and apply clinical pathway templates.",
+            detail="Clinical Role Boundary: Only an attending doctor can approve and apply clinical pathway templates.",
         )
 
     if not body.rules or len(body.rules) == 0:

@@ -423,8 +423,8 @@ export default function FamilyPortal({ user }) {
               </h2>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
                 {lang === 'hi'
-                  ? 'आरव पटेल ने पारिवारिक साझाकरण बंद कर दिया है। आपके पास उनकी रिकवरी स्थिति देखने की अनुमति नहीं है। साझाकरण नियंत्रण पूरी तरह से रोगी के पास है और वास्तविक समय में अपडेट होता है।'
-                  : 'Aarav Patel has turned family sharing off. You do not currently have access to his recovery updates. Sharing controls belong solely to the patient and update in real time.'}
+                  ? 'आरव ने इस समय साझाकरण बंद कर रखा है। जब आरव इसे दोबारा चालू करेंगे, तब आपको अपडेट दिखेंगे।'
+                  : 'Sharing is currently turned off by Aarav. You will see updates again when Aarav turns sharing back on.'}
               </p>
               <button
                 onClick={fetchTodayData}
@@ -472,8 +472,13 @@ export default function FamilyPortal({ user }) {
               >
                 <div>
                   <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
-                    Aarav's recovery, for family
+                    {lang === 'hi' ? 'आज' : 'Today'}
                   </h1>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
+                    {lang === 'hi'
+                      ? 'जानिए आपकी ज़रूरत कब है। मरीज़ ने जो साझा करना चुना है वही देखें, और जिस खुराक में आपने मदद की उसे दर्ज करें।'
+                      : 'Know when you are needed. See what the patient chose to share, and mark a dose you helped with.'}
+                  </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
                     <span>{patient.full_name}</span>
                     <span>•</span>
@@ -624,7 +629,7 @@ export default function FamilyPortal({ user }) {
                                 transition: 'opacity 0.15s ease',
                               }}
                             >
-                              {lang === 'hi' ? 'मैंने आरव को दवा लेने में मदद की' : 'I helped Aarav take it'}
+                              {lang === 'hi' ? 'खुराक में मदद दर्ज करें' : 'Mark dose helped'}
                             </button>
                           )}
                         </div>

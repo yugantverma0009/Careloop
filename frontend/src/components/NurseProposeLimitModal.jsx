@@ -184,7 +184,7 @@ export default function NurseProposeLimitModal({
             </div>
           )}
 
-          {/* Governance Notice */}
+          {/* Role Boundary Notice */}
           <div
             style={{
               padding: '10px 14px',
@@ -196,7 +196,7 @@ export default function NurseProposeLimitModal({
               lineHeight: '1.4',
             }}
           >
-            <strong>Clinical Governance Rule:</strong> Nurses propose limit modifications based on clinical observation. Proposing sends this request directly to <strong>Dr. Ananya Sharma's Approvals Queue</strong> for mandatory physician review and sign-off.
+            <strong>Clinical Role Boundary:</strong> Nurses propose limit modifications based on clinical observation. Proposing sends this request directly to <strong>Dr. Ananya Sharma's Approvals Queue</strong> for mandatory physician review and sign-off.
           </div>
 
           {loading ? (

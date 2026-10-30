@@ -1,8 +1,38 @@
-# CareLoop: Post-Discharge Telemetry & Triage Platform
+# CareLoop: Post-Discharge Follow-up System
 
-> [!IMPORTANT]
+> **"After discharge, nothing should go quiet."**
+
+CareLoop is a follow-up system for the days after hospital discharge. It reads only the patient's own papers, raises alerts only from limits a doctor approved, and makes sure a named person closes every one.
+
+> [!NOTE]
 > **Synthetic-data prototype, not a medical device.**
-> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring workflows. All patient records, clinical notes, telemetry readings, and thresholds are synthetic test data. It is not approved for clinical diagnostic use, does not establish medical diagnoses, and never replaces professional clinical judgment.
+> All patient records, clinical notes, sensor streams, and thresholds are synthetic test data for evaluation. It does not establish medical diagnoses and never replaces professional clinical judgment.
+
+---
+
+## 🌟 What Makes CareLoop Different (The Four Pillars)
+
+1. **Papers-first answers (RAG):** The assistant reads only the patient's own discharge papers, shows the exact passage it used, checks every number against that source, says *"That is not in your discharge papers, so I will not guess"* instead of hallucinating, and never advises on doses.
+2. **A reason on every alert:** Only limits approved by the doctor can raise an alert, and each alert shows the value, time, data quality, the limit, and who approved it. The AI explains; deterministic rules decide.
+3. **A loop that closes:** Patient, then family (only with consent), then nurse, then doctor, on timers, with a named owner at every step and every action permanently recorded.
+4. **Quiet when nothing is wrong:** Alerts are grouped per patient, impossible readings are filtered out, and patients with nothing open stay out of the way.
+
+*Supporting safeguard:* **Consent you can switch off** — The patient controls what the family sees at all times; turning sharing off revokes family access immediately.
+
+---
+
+## 🤖 How the AI is Used, and What It Never Does
+
+* **What the AI does:**
+  * Reads only the patient's own discharge papers via hybrid retrieval-grounded generation (RAG).
+  * Shows the exact passage cited as evidence alongside the answer.
+  * Formats factual clinician handoff drafts from SQL fact sheets (SBAR format).
+* **What the AI NEVER does:**
+  * **Never creates or resolves alerts:** Flags and tasks are created and updated exclusively by MySQL stored triggers and human clinicians.
+  * **Never advises on doses:** Rejects dose change questions and tells the patient to follow discharge instructions or ask their care team.
+  * **Never diagnoses:** Refuses to declare whether a symptom is "safe" or "unsafe".
+  * **Never handles emergencies:** Emergency keywords in English and Hindi bypass the LLM completely in plain code and immediately display Call 112 guidance.
+  * **Never uses subjective adjectives:** AI summaries strictly prohibit judgment words (*stable*, *normal*, *optimal*, *improving*, *worsening*).
 
 ---
 
@@ -37,7 +67,7 @@
 | **Backend API** | FastAPI, Uvicorn | FastAPI 0.128.0 | REST endpoints, JWT authorization, safety guards |
 | **Database** | MySQL (InnoDB) via PyMySQL | MySQL 8.0+, PyMySQL 1.1.1 | 32 tables, 8 views, 16 stored procedures, 3 triggers |
 | **Grounded AI** | Google GenAI (Gemini) & ChromaDB | google-genai 0.1.1, Chroma 0.5.23 | Strict RAG discharge assistant & SBAR fact-sheet summaries |
-| **IoT / Hardware** | ESP32 Arduino Core / Python Simulator | C++ / Python 3.12 | MAX30102 pulse oximeter firmware and telemetry simulator |
+| **IoT / Hardware** | ESP32 Arduino Core / Python Simulator | C++ / Python 3.12 | MAX30102 pulse oximeter firmware and sensor reading simulator |
 
 ---
 
@@ -98,9 +128,9 @@ npm start
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 5. Running the Telemetry Simulator & Live Event
+### 5. Running the Sensor Simulator & Live Event
 ```bash
-# Continuous physiological telemetry streaming
+# Continuous physiological sensor reading streaming
 python3 device/simulator.py --interval 10
 
 # Trigger live SpO2 drop (91% < 94%) for Aarav Patel (demonstrates clinical escalation)
@@ -122,7 +152,7 @@ PYTHONPATH=. ./backend/env/bin/pytest tests/ -v
 ---
 
 ## 👥 Credits & Attribution
-CareLoop Post-Discharge Telemetry & Triage Platform.
+CareLoop Post-Discharge Follow-up System.
 Synthetic-data prototype, not a medical device.
 All code, database procedures, design tokens, and wearable hardware architecture preserved.
 For complete architectural details, see [PROJECT_GUIDE.md](PROJECT_GUIDE.md).

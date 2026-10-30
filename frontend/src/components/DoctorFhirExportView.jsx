@@ -104,7 +104,7 @@ export default function DoctorFhirExportView({ user = {} }) {
             Export FHIR Bundle
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            Download verifiable FHIR R4 collection bundles containing patient demographics, clinical telemetry observations, and approved care plans.
+            Download verifiable FHIR R4 collection bundles containing patient demographics, clinical vital observations, and approved care plans.
           </p>
         </div>
 

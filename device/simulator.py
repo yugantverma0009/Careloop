@@ -1,7 +1,7 @@
 """
 device/simulator.py — CareLoop IoT Device Simulator
 
-Simulates wearable sensor telemetry for CareLoop.
+Simulates wearable sensor readings for CareLoop.
 Posts Heart_Rate (bpm) and SpO2 (%) to POST /device/readings.
 Supports --low-spo2 to trigger clinical alert rules during demos and testing.
 """

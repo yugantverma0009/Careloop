@@ -889,7 +889,7 @@ export default function CareLoopPatientPortal({ user }) {
     setChatMessages([]);
   };
 
-  // Derived telemetry metrics
+  // Derived sensor metrics
   const hrReading = todayData?.readings?.find((r) => r.type?.toLowerCase().includes('heart') || r.type?.toLowerCase().includes('pulse'));
   const heartRateValue = hrReading?.value ?? 72;
   const hrQuality = hrReading?.quality ?? 'Valid';
@@ -4431,12 +4431,12 @@ export default function CareLoopPatientPortal({ user }) {
                   </div>
                   <div>
                     <h2 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
-                      {lang === 'hi' ? 'डिस्चार्ज रिकवरी सहायक' : 'Discharge recovery assistant'}
+                      {lang === 'hi' ? 'मेरे कागज़ात से पूछें' : 'Ask my papers'}
                     </h2>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
                       {lang === 'hi'
-                        ? 'उत्तर सीधे आपके डिस्चार्ज पेपर्स और केयर प्लान से प्रमाणित हैं'
-                        : 'Answers are strictly grounded in your hospital discharge papers & care plan'}
+                        ? 'जवाब आपके डिस्चार्ज कागज़ात से आते हैं, और संबंधित अंश साथ में दिखाया जाता है।'
+                        : 'Answers come from your discharge papers, with the passage shown.'}
                     </div>
                   </div>
                 </div>

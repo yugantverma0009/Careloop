@@ -208,7 +208,7 @@ PATHWAY_TEMPLATES = [
                 "key": "dka_no_data",
                 "rule_type": "No_Data_Hours",
                 "measurement_type": None,
-                "label": "Telemetry Inactivity Alert",
+                "label": "Sensor Inactivity Alert",
                 "unit": "hours",
                 "default_threshold": None,
                 "threshold_value": None,
@@ -516,7 +516,7 @@ def compute_operational_insights(conn: pymysql.Connection, date_range: str = "30
             "duplicate_rate": "Flags marked Duplicate divided by total flags generated in window",
             "false_alarm_dismissals": "Dismissals with reason False_Alarm divided by closed flags, per rule",
             "self_reported_dose_confirmation": "Taken_Confirmed divided by total scheduled doses in window",
-            "device_uptime": "Percent of expected continuous telemetry measurements received",
+            "device_uptime": "Percent of expected continuous sensor readings received",
             "overdue_tasks": "Active follow-up queue tasks past due_at without recorded completion",
         },
     }

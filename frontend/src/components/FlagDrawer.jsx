@@ -41,7 +41,7 @@ function getClinicalRationale(rule, reason, sourceType) {
     return 'Medication safety gate: Critical cardiovascular and anticoagulant therapies require unbroken compliance to prevent thromboembolic events.';
   }
   if (rt.includes('no_data') || rText.includes('silent') || rText.includes('data')) {
-    return 'Device connectivity watch: Ensures telemetry gap does not mask unmonitored physiological deterioration while the patient is at home.';
+    return 'Device connectivity watch: Ensures missing sensor data does not mask unmonitored physiological deterioration while the patient is at home.';
   }
   return 'Clinical boundary approved by attending physician as part of individualized post-discharge care protocol.';
 }
@@ -332,7 +332,7 @@ export default function FlagDrawer({
           }}
         >
           {[
-            { id: 'overview', label: 'Clinical Overview' },
+            { id: 'overview', label: 'Why this alert' },
             { id: 'evidence', label: 'Evidence & Quality' },
             { id: 'ladder', label: 'Escalation Ladder' },
             { id: 'history', label: `History (${history.length})` },
@@ -533,7 +533,7 @@ export default function FlagDrawer({
                   color: '#64748b',
                 }}
               >
-                🔒 <strong>Clinical Data Integrity:</strong> All sensor telemetry is verified against device calibration thresholds. Patient self-reports are preserved verbatim without AI alteration.
+                🔒 <strong>Clinical Data Integrity:</strong> All sensor readings are filtered against plausible physiological limits. Patient self-reports are preserved verbatim without AI alteration.
               </div>
             </div>
           )}
