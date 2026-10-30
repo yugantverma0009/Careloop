@@ -1,7 +1,7 @@
 """
 backend/app/rag_pipeline.py — CareLoop Advanced Grounded RAG & Assistant Pipeline
 
-Implements Section 7 of careloop_patient_portal_upgrade_brief.md:
+Implements the Grounded RAG Architecture documented in PROJECT_GUIDE.md Section 8:
 - 7.2 Target architecture (Safety guards -> Intent routing -> SQL tools / Hybrid retrieval -> LLM -> Numeric & Citation guard)
 - 7.4 Intent routing & read-only tools
 - 7.5 Hybrid retrieval (Dense Chroma + Keyword MySQL + Reciprocal Rank Fusion + Section boost)

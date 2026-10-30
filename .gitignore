@@ -1,10 +1,41 @@
+# Node & Frontend
 node_modules/
+frontend/node_modules/
+build/
+frontend/build/
+.npm
+*.log
+
+# Python Virtual Environments & Caches
 env/
 venv/
+backend/env/
+.venv/
 __pycache__/
-.DS_Store
-chroma_db/
-chroma/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment Variables & Secrets (NEVER track)
+.env
 backend/.env
-build/
+frontend/.env
+*.env.local
+*.env.*.local
 serviceAccountKey.json
+
+# Local Vector Databases & Chroma Caches
+chroma/
+backend/chroma/
+chroma_db/
+*.sqlite3
+
+# Operating System & IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Backups & Archives
+*.zip
+*.tar.gz
+*.bak

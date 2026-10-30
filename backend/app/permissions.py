@@ -1,7 +1,7 @@
 """
 backend/app/permissions.py — CareLoop Role and Permission Model
 
-Implements the single role contract from docs/ROLE_CONTRACT.md and Section 2.3:
+Implements the single role contract documented in PROJECT_GUIDE.md Section 9:
 - Strict role checking dependencies: require_doctor, require_nurse, require_staff, require_patient, require_family
 - Real-time family consent enforcement (caregivers.consent_granted)
 - Flag resolution authority policy:

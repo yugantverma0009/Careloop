@@ -69,9 +69,11 @@ def main():
 
     conn = get_connection()
     try:
-        # Step 1: Run reset_demo.sql
+        # Step 1: Run reset_demo.sql from database directory
         print("  1. Running reset_demo.sql...")
-        reset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "reset_demo.sql"))
+        reset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "database", "reset_demo.sql"))
+        if not os.path.exists(reset_path):
+            reset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "reset_demo.sql"))
         run_sql_file(conn, reset_path)
         print("     ✓ Database reset to clean 5-patient schema.")
 
