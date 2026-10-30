@@ -200,3 +200,4 @@ Time   | Role                  | Action                                         
   > "CareLoop proves that in post-discharge care, artificial intelligence has a clear, safe place:
   > **The LLM talks. Rules decide. Humans act.**
   > Thank you. We are ready for your questions."
+

@@ -43,6 +43,14 @@ def tokens():
     }
 
 
+@pytest.fixture(autouse=True)
+def setup_demo_state():
+    client.post("/demo/reset")
+    yield
+    client.post("/demo/reset")
+
+
+
 # ── 1. Nurse Forbidden from Doctor Actions ───────────────────────────────────
 
 def test_nurse_forbidden_from_summary_approval(tokens):

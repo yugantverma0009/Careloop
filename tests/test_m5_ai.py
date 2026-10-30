@@ -194,7 +194,7 @@ def test_m5_ai():
     r = requests.post(
         f"{BASE_URL}/staff/summaries/{summary_id}/review",
         headers={"Authorization": f"Bearer {doc_token}"},
-        json={"action": "Approve", "notes": "Reviewed and clinically validated."},
+        json={"action": "Approve", "notes": "Reviewed and approved by physician."},
     )
     assert r.status_code == 200, f"Review failed: {r.text}"
     print(f"[PASS] Clinician review recorded: {r.json()}")

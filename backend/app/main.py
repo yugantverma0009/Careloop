@@ -3909,9 +3909,9 @@ def reject_summary(
 def review_summary_legacy(
     summary_id: int,
     body: ReviewSummaryIn,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    user: Dict[str, Any] = Depends(require_doctor),
 ):
-    """Legacy review route redirecting to approve/reject."""
+    """Legacy review route redirecting to approve/reject. Strictly Doctor-only."""
     action = (body.action or "").lower()
     if action == "approve":
         return approve_summary(summary_id, ApproveSummaryIn(edited_text=body.notes), user=user)

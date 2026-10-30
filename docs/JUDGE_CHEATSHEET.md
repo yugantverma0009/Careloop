@@ -89,3 +89,4 @@
 
 **Q: What are the current limitations?**  
 *A: This is an academic research prototype evaluated with synthetic data and simulated watches. It is not cleared as a medical device and would require clinical trials and regulatory review prior to clinical deployment.*
+

@@ -1,7 +1,8 @@
-# CareLoop (Agentic Post-Discharge Care System)
-*Autonomous Clinical Post-Discharge Triage & Wearable Telemetry Platform*
+# CareLoop: Post-Discharge Telemetry & Triage Platform
 
-CareLoop is an **agentic post-discharge care management system** engineered to support patients in the vulnerable days following hospital discharge. It combines wearable physiological telemetry, deterministic clinical rule safety guards, an autonomous multi-step escalation ladder, and grounded AI retrieval.
+> [!IMPORTANT]
+> **Synthetic-data prototype, not a medical device.**
+> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring workflows. All patient records, clinical notes, telemetry readings, and thresholds are synthetic test data. It is not approved for clinical diagnostic use, does not establish medical diagnoses, and never replaces professional clinical judgment.
 
 ---
 
@@ -9,74 +10,64 @@ CareLoop is an **agentic post-discharge care management system** engineered to s
 
 > **"The LLM talks. Rules decide. Humans act."**
 
-* **LLM output is text only**: It never creates clinical flags, never changes prescriptions, never gives medical diagnoses, and never advises on dose modifications.
-* **Flags come only from clinician-approved rules** (`alert_rules`), database triggers and stored procedures (`trg_sensor_rules_after_insert`, `sp_evaluate_patient_rules`), and a deterministic emergency keyword check in plain code.
-* **Emergency guidance never waits for an LLM call**: Emergency phrases in English or Hindi immediately surface life-safety emergency guidance and alert clinical staff.
-* **All demonstration data is synthetic**: Prototype threshold values only, not clinically validated.
+* **The LLM is text-only**: The language model generates conversational drafts and answers questions strictly from discharge document excerpts. It **never** creates, closes, or modifies flags, tasks, thresholds, or prescriptions.
+* **Deterministic Rules Decide**: Clinical flags are generated exclusively by doctor-approved rule procedures, database triggers, and deterministic keyword matching in plain code. Emergency words in English and Hindi bypass the LLM entirely and immediately route to local emergency services (**112**).
+* **Humans Act**: Only clinicians (doctors and nurses) resolve flags, adjust thresholds, and contact patients.
 
 ---
 
-## ⚙️ Architectural Highlights & Milestones
+## 👥 The Four Genuinely Distinct Roles
 
-### 1. Database (Milestone M0)
-* **Single Source of Truth**: Local MySQL 8.0.16+ with 25 relational tables, 7 real-time views, 8 stored procedures, 3 automated triggers, and 2 scheduled events.
-* **Least-Privilege Security**: `careloop_api` database account with `SELECT, INSERT, UPDATE, EXECUTE` on `careloop.*` (no DDL/DELETE permissions).
-* **Guaranteed Auditability**: Append-only `audit_log` records every medication confirmation, clinical alert, escalation step, and review action.
+CareLoop provides four purpose-built workspaces with role-specific permissions, dedicated navigation, and distinct visual accent colors:
 
-### 2. Multi-Role Authentication & Isolation (Milestone M1)
-* **JWT Authentication**: HS256 JWT tokens with 8-hour expiration.
-* **Strict Role Segregation**: 4 distinct roles (`Patient`, `Caregiver`, `Doctor`, `Nurse`).
-* **IDOR Protection**: Patient routes strictly bind to `patient_id` from the authenticated token claim, completely preventing horizontal privilege escalation.
+| Role | User & Login | Section 2.1 One-Liner | Distinct Scope & Accent |
+| :--- | :--- | :--- | :--- |
+| **Doctor** | **Dr. Ananya Sharma**<br>`ananya.demo@example.test` | *"The doctor decides, approves and exports."* | **Decisions & Governance**: Approves nurse-proposed telemetry limits, reviews/signs clinical AI summaries, manages medical escalations, and exports standard HL7 FHIR R4 JSON bundles. Routine flags are omitted until escalated.<br>*(Accent: Slate / Navy `#0284c7`)* |
+| **Nurse** | **Priya Nair**<br>`priya.demo@example.test` | *"The nurse calls, logs, rechecks and escalates."* | **Execution & Care Coordination**: Triage call list, structured contact logging, patient check-in follow-ups, vital rechecks, and clinical escalation to the doctor. Proposes limit adjustments to doctor (cannot approve directly). Forbidden from approvals, audit log, and FHIR export.<br>*(Accent: Amber / Orange `#d97706`)* |
+| **Patient** | **Aarav Patel**<br>`aarav.demo@example.test` | *"The patient acts, checks in and asks their papers."* | **Action & Self-Care**: Daily medication schedule with 1-tap confirmation, 5-minute undo, and structured skip reasons; rapid bilingual symptom check-in; grounded discharge assistant answering strictly with cited document chips; immediate 112 emergency routing.<br>*(Accent: Emerald / Teal `#059669`)* |
+| **Family Helper** | **Aarav's Family Helper**<br>`caregiver1.demo@example.test` | *"The family helper supports, is informed with consent, and calls 112 if needed."* | **Consent-Gated Support**: High-contrast read-only care schedule, helped-dose confirmation, and emergency contacts. Zero access to private clinical chat, clinician notes, or free-text symptoms. Completely cut off if patient revokes sharing consent.<br>*(Accent: Violet / Purple `#7c3aed`)* |
 
-### 3. Device Telemetry & Ingestion (Milestone M2)
-* **Idempotent Ingestion**: `POST /device/readings` rejects or ignores duplicated device packets (`duplicate_ignored`).
-* **Plausibility Guard**: Sensor trigger marks non-physiological values (e.g., > 300 bpm) as `Invalid` with 0 false-positive flags.
-* **ESP32 Firmware & Hardware Simulator**: Firmware in `device/esp32_careloop/` and Python telemetry simulator (`device/simulator.py`) supporting live SpO₂ and heart-rate streaming.
-
-### 4. Patient Flows & Deterministic Safety Engine (Milestone M3)
-* **Medication Adherence**: `GET /patient/me/doses` and `POST /patient/me/doses/{log_id}/confirm` (Taken/Skipped) with audit logging.
-* **Bilingual Emergency Detection**: Deterministic keyword engine in English and Hindi (e.g., "chest pain", "सीने में दर्द").
-* **Transparent Patient Status**: Shows actual telemetry, quality badges, and explicit `"Missing data"` (never 0 or blank).
-
-### 5. Escalation Agent & Clinical Workflow (Milestone M4)
-* **Autonomous Escalation Ladder**: `Review_Soon` and `Urgent_Review` ladders progressing through Patient Prompt, Caregiver SMS, Nurse Alert, and Doctor Alert.
-* **Privacy by Design (Consent Gate)**: If caregiver consent is not granted, the caregiver step is logged as `Skipped_No_Consent`.
-* **Atomic Flag Acknowledgment**: Transactional `sp_acknowledge_flag` marks flags and escalations `Acknowledged`, creates follow-up tasks, and prevents double-acknowledgment.
-
-### 6. Grounded AI Layer (Milestone M5)
-* **One Single LLM Wrapper**: `backend/app/llm.py` wrapping Gemini API with failure resilience.
-* **Document Chunking & Vector Search**: `scripts/index_document.py` indexing synthetic discharge summaries into ChromaDB collections.
-* **Grounded RAG with Citations**: `POST /patient/me/chat` answers strictly from discharge excerpts, links citations to `chat_message_sources`, and deterministically refuses dose modifications (`is_grounded = FALSE`).
-* **Factual Daily AI Summaries**: Synthesizes `sp_daily_report` data into factual notes marked with **"AI draft, not reviewed"** until clinician review.
-
-### 7. Modern Web Portals (Milestones M6 & Care Team Upgrade)
-* **CareLoop Login**: Modern responsive glassmorphism portal with quick demo buttons for all 4 roles.
-* **Patient Recovery Portal**: Today's medications, live telemetry, bilingual symptom check-in, and grounded discharge assistant.
-* **Care Team (Doctor & Nurse) Portal**: Comprehensive clinical workstation built to the BhoomiSetu design token standard:
-  * **Phase 1 (Identity & Worklist)**: Patient-grouped clinical triage worklist, SLA adherence chips, flag detail investigation drawer with full escalation provenance, and named-clinician flag lifecycle (Acknowledge, Resolve, Dismiss with mandatory reason codes).
-  * **Phase 2 (Patient Chart & Timeline)**: Full patient directory, comprehensive chart overview with ABHA ID, vital signs timeline with signal quality chips (`Good`, `Degraded`, `Invalid`), rule threshold overlays, and medication adherence grid distinguishing past doses from scheduled future doses.
-  * **Phase 3 (Tasks & Clinical Summaries)**: Multi-staff follow-up task queue with ownership and overdue tracking; AI clinical summaries generated strictly from deterministic fact sheets with zero judgment words (e.g., no "stable" or "normal"), complete source panels, and doctor approval/edit/rejection workflows.
-  * **Phase 4 (Workflow & Clinical Operations)**: Structured shift handoff adhering to **I-PASS** protocols, live notification feed, break-glass emergency access logging, contact/call logs, rich clinician notes, audit log viewer, and global `Ctrl+K` command palette.
-  * **Phase 5 (Governance & Interoperability)**: 4 standard pathway rule templates shipping with blank default thresholds (doctor-only application), immutable threshold audit history, operational insights dashboard tracking 9 non-outcome metrics, validated **HL7 FHIR R4 JSON collection bundle** exporter, and clinician-entered **LACE readmission risk score** with evidence disclaimers.
-  * **Phase 6 (Handover & Polish)**: Full accessibility audit (WCAG 2.1 AA compliant), performance report (<30ms median API latency, 131 kB gzipped JS bundle), 5-minute doctor demo script, and known gaps catalog.
+*Password for all demo accounts:* **`Demo@12345`**
 
 ---
 
-## 📚 Technical & Clinical Reports
-* [Doctor Demo Script (5-Minute Walkthrough)](docs/DOCTOR_PORTAL_DEMO_SCRIPT.md)
-* [Performance & Latency Benchmark Report](docs/PERFORMANCE_REPORT.md)
-* [Care Team Portal Accessibility Audit (WCAG 2.1 AA)](docs/STAFF_ACCESSIBILITY_AUDIT.md)
-* [Patient Portal Accessibility Audit (WCAG 2.1 AA)](docs/ACCESSIBILITY_AUDIT.md)
-* [Known Gaps & Boundary Conditions](docs/KNOWN_GAPS.md)
-* [Visual Style Lock Specification](docs/STYLE_LOCK_STAFF.md)
+## ⚡ 1-Second Demo Reset & Event Simulator
 
+Reset the demonstration database to the clean 5-patient baseline in under 0.25 seconds:
+
+```bash
+# 1. Reset database to clean 5-patient cast (< 0.25s)
+python3 scripts/reset_demo.py
+
+# 2. Simulate live SpO2 drop (91% < 94%) for Aarav Patel
+python3 scripts/simulate_event.py
+
+# 3. Validate complete 12-check acceptance contract
+./backend/env/bin/python3 scripts/validate_demo.py
+```
+
+*In the browser:* Click the **"Switch Demo Workspace"** pill in the top navigation bar to switch between all 4 logins with 1 click or trigger an instant database reset directly from the interface.
+
+---
+
+## 🧑‍🤝‍🧑 The 5 Synthetic Demo Patients
+
+| Patient | Discharge Diagnosis | Recovery Day | Demo Scenario & Flag Status |
+| :--- | :--- | :--- | :--- |
+| **Aarav Patel** | Post-CABG recovery | **Day 3** | Baseline candidate: valid headline vitals (74 bpm, 98% SpO₂), invalid 450 bpm spike ignored, family sharing active. Target of live SpO₂ event simulation. |
+| **Meera Joshi** | Heart Failure | **Day 6** | Open `Review_Soon` flag: silent telemetry device (>24 hours without readings). Caregiver consent revoked by patient (family access blocked). |
+| **Rajesh Kumar** | Acute MI | **Day 5** | Open `Urgent_Review` flag: emergency symptom check-in (chest pressure) with immediate nurse call task. |
+| **Kabir Mehta** | Valve Replacement | **Day 9** | Historical candidate: resolved flag with full clinical audit trail, approved summary ready for review. |
+| **Sunita Rao** | Post-PCI Stenting | **Day 4** | Open `Review_Soon` flag: two consecutive missed medication doses with pending nurse call task. |
+
+---
 
 ## 🚀 Quickstart Guide
 
 ### 1. Database Setup
 ```bash
 mysql -u root -p < careloop_mysql_v2_detailed.sql
-python3 scripts/set_demo_passwords.py
+python3 scripts/reset_demo.py
 ```
 
 ### 2. Backend Setup
@@ -85,7 +76,7 @@ cd backend
 python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### 3. Frontend Setup
@@ -96,92 +87,40 @@ npm start
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 4. Run Telemetry Simulator
-```bash
-# Send normal readings every 3 seconds
-python3 device/simulator.py --interval 3
-
-# Trigger low SpO2 alert
-python3 device/simulator.py --low-spo2 --once
-```
-
-### 5. Hardware Integration
-The ESP32 wearable streams physiological data via `device/esp32_careloop/esp32_careloop.ino`.
-* **MAX30102** → Heart rate & SpO₂ monitoring
-* **MPU6050** → Motion detection
-* **OLED Display** → Real-time local feedback
-
 ---
 
-## 🏥 Patient Portal Upgrade (Phases 0 - 5)
+## 🧪 Automated Test Suites
 
-The patient portal (`/patient`) underwent an end-to-end upgrade adhering strictly to the visual style lock, clinical safety rules, and patient-first ergonomics:
+All 51 acceptance tests across Phases 2 through 7 run with 100% pass rate:
 
-* **Phase 1: Recovery Overview & Daily Regimen (`/patient`)**:
-  - Single-query overview (`GET /patient/me/today`) with real flag-driven banner (no permanent alarms).
-  - 1-tap **"Mark Taken"** (`POST /patient/me/doses/{id}/taken`) with 60-minute time window validation.
-  - Floating 5-minute **Undo** toast (`POST /patient/me/doses/{id}/undo`) reverting mistakenly logged doses.
-  - **Skip Dose Sheet** (`POST /patient/me/doses/{id}/skip`) with structured reasons (`felt_unwell`, `ran_out`, `forgot`, `side_effects`, `other`).
-* **Phase 2: Calendar & Care Plan Checklist**:
-  - Interactive month calendar (`GET /patient/me/calendar?month=YYYY-MM`) with dose status dots and appointment indicators.
-  - Detailed Day Sheet drawer (`GET /patient/me/day?date=YYYY-MM-DD`) with prescribed doses, visits, and pain check-ins.
-  - RFC 5545 compliant `.ics` calendar sync (`GET /patient/me/appointments/{id}.ics`).
-* **Phase 3: Rapid Check-in (<30s) & Duplicate Flag Window**:
-  - Step-by-step check-in flow with 0-10 numeric pain slider, symptom chips, location chips, and trend comparison.
-  - Optional multi-modal Voice STT (Web Speech API) supporting English and Hindi (`hi-IN`).
-  - 14-day pain and symptom history chart (`GET /patient/me/checkins?days=14`).
-  - Database trigger fix (`trg_symptom_rules_after_insert`) suppressing duplicate Emergency flags within a 60-minute window for the same patient.
-* **Phase 4: Grounded RAG Assistant**:
-  - Hybrid retrieval combining dense vector search (ChromaDB with Gemini embeddings) and sparse BM25/MySQL text search with Reciprocal Rank Fusion (RRF).
-  - Read-only SQL tools strictly scoped to authenticated JWT: `get_next_appointment`, `get_today_doses`, `get_medicine_plan`, and `get_latest_readings`.
-  - Deterministic safety guards: immediate emergency bypass calling `112` without LLM latency; strict dose modification refusal with automatic "Ask My Care Team" escalation; numeric guard ensuring numbers come strictly from source records.
-  - Grounded source pill chips and interactive Source Inspection Modal Drawer.
-* **Phase 5: Accessibility, Polish & Seed Cleanliness**:
-  - WCAG 2.1 AA accessibility audit: 44px tap targets, `:focus-visible` styling, Escape key dismissal, `aria-live` regions.
-  - Comprehensive Hindi copy review (`docs/HINDI_REVIEW.md`).
-  - Clean synthetic seed data schedule (`scripts/reset_seed.sql`).
-  - 5-minute clinical demo script (`docs/PATIENT_DEMO_SCRIPT.md`).
-
----
-
-## 🧪 Comprehensive Test Suites
-
-Run individual milestone tests or the complete regression suite:
 ```bash
-# Patient Portal Upgrade Suites (Phases 1 - 4)
-PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p1.py
-PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p2.py
-PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p3.py
-PYTHONPATH=. ./backend/env/bin/pytest tests/test_patient_upgrade_p4.py
-
-# RAG Benchmark Suite (44 golden test cases)
-PYTHONPATH=. ./backend/env/bin/python3 rag_eval/run_eval.py
-
-# Milestone M1: Auth & Isolation
-PYTHONPATH=. ./backend/env/bin/python3 tests/test_m1_auth.py
-
-# Milestone M2: Device Telemetry & Ingestion
-PYTHONPATH=. ./backend/env/bin/python3 tests/test_m2_device.py
-
-# Milestone M3: Patient Flows & Emergency Detection
-PYTHONPATH=. ./backend/env/bin/python3 tests/test_m3_patient_flows.py
-
-# Milestone M4: Escalation Ladder & Clinical Workflow
-PYTHONPATH=. ./backend/env/bin/python3 tests/test_m4_escalation.py
-
-# Milestone M5: Grounded RAG, Safety Boundaries & Summaries
-PYTHONPATH=. ./backend/env/bin/python3 tests/test_m5_ai.py
+# Run all Phase 2-7 acceptance tests
+PYTHONPATH=. ./backend/env/bin/pytest \
+  tests/test_role_permissions_p2.py \
+  tests/test_doctor_desk_p3.py \
+  tests/test_nurse_desk_p4.py \
+  tests/test_patient_family_p5.py \
+  tests/test_connected_demo_p6.py \
+  tests/test_phase7_acceptance.py -v
 ```
 
 ---
 
-## 🔒 Safety & Reliability Guardrails
-* **Human-in-the-Loop**: All clinical decisions, dose adjustments, and escalated alerts require human clinician review.
-* **Zero AI Diagnostic Hallucinations**: Image/audio diagnostic analysis is disabled/restricted in accordance with clinical safety principles.
-* **Graceful Degradation**: If LLM or SMS provider APIs experience outages, rules continue evaluating and staff alerts remain fully functional.
+## 🔒 Safety & Reliability Highlights
+
+1. **Grounded RAG with Citations**: Patient chat answers come strictly from discharge document excerpts indexed in ChromaDB collections. Refuses medical diagnosis and dose modification requests deterministically.
+2. **Offline LLM Resilience**: If the language model provider is unreachable or raises an error, CareLoop never crashes:
+   - Structured queries (appointments, medication times) are answered deterministically from MySQL.
+   - Discharge document queries fall back to verbatim extractive sentences.
+   - Summaries fall back to deterministic SBAR fact sheets with zero judgment words.
+3. **Emergency Bypass**: Deterministic keyword matching in English and Hindi ("chest pain", "सीने में दर्द") immediately displays 112 guidance without invoking the LLM.
+4. **Headline Vital Quality Filtering**: Telemetry spikes (e.g. 450 bpm) are flagged as `Invalid` by database triggers and omitted from headline vitals, displaying explicit data check notes instead.
+5. **HL7 FHIR R4 Interoperability**: Doctor desk exports clinical observations, conditions, and medication statements as standard-compliant FHIR R4 JSON bundles.
 
 ---
 
-## 👥 Credits & Attribution
-Autonomous Clinical Post-Discharge Triage & Wearable Telemetry Platform.
-Original team credits, design assets, and wearable hardware architecture preserved.
+## 📚 Technical Documentation & Rehearsal Guides
+* [Visual Style Lock Specification](docs/STYLE_LOCK.md)
+* [Role & Permission Audit](docs/ROLE_AUDIT.md)
+* [Connected 6:30 Minute Demo Script](docs/DEMO_SCRIPT.md)
+* [Judge Rehearsal Cheatsheet](docs/JUDGE_CHEATSHEET.md)
