@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { login, getUser } from '../services/api';
+import { login, getUser, resetDemo, simulateReading } from '../services/api';
 import {
   IconStethoscope,
   IconNurse,
   IconPatient,
   IconCaregiver,
-  IconBell,
   IconChevronDown,
   IconCheck,
   IconShieldCheck,
@@ -113,6 +112,49 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
       alert(`Could not switch role: ${err.message}`);
     } finally {
       setSwitching(false);
+    }
+  };
+
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState('');
+
+  const handleResetDemo = async () => {
+    setActionLoading(true);
+    setActionFeedback('Resetting demo state...');
+    try {
+      const res = await resetDemo();
+      setActionFeedback(res?.message || 'Reset complete: 5 patients, 3 open flags, 5 tasks');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to reset demo', err);
+      setActionFeedback(`Reset failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSimulateReading = async () => {
+    setActionLoading(true);
+    setActionFeedback('Sending SpO₂ reading 91%...');
+    try {
+      const res = await simulateReading({
+        patient_id: 1,
+        device_id: 'DEV-ESP32-001',
+        measurement_type: 'SpO2',
+        value: 91.0,
+        unit: '%',
+      });
+      setActionFeedback(res?.message || '✓ SpO₂ 91% sent! Urgent alert triggered.');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to simulate reading', err);
+      setActionFeedback(`Simulation failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -319,6 +361,80 @@ export default function SwitchDemoWorkspace({ currentUser, onSwitchSuccess }) {
                 </button>
               );
             })}
+          </div>
+
+          {/* Presenter Demo Controls (Phase 6) */}
+          <div
+            style={{
+              marginTop: '8px',
+              padding: '10px 10px 8px',
+              borderTop: '1px solid var(--border-subtle)',
+              background: 'var(--bg-surface, #f8fafc)',
+              borderRadius: '8px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Presenter Controls
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={handleSimulateReading}
+                disabled={actionLoading}
+                style={{
+                  padding: '7px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #d97706',
+                  background: '#fffbeb',
+                  color: '#b45309',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: actionLoading ? 'wait' : 'pointer',
+                  textAlign: 'center',
+                }}
+                title="Sends Aarav low SpO2 (91%) to trigger live cross-role alert"
+              >
+                ⚡ Send 91% SpO₂
+              </button>
+              <button
+                type="button"
+                onClick={handleResetDemo}
+                disabled={actionLoading}
+                style={{
+                  padding: '7px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-strong, #cbd5e1)',
+                  background: 'var(--bg-card, #ffffff)',
+                  color: 'var(--text-primary, #0f172a)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: actionLoading ? 'wait' : 'pointer',
+                  textAlign: 'center',
+                }}
+                title="Restores demo to clean 5-patient starting state (<30s)"
+              >
+                🔄 Reset Demo
+              </button>
+            </div>
+            {actionFeedback && (
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: actionFeedback.includes('failed') ? '#dc2626' : '#059669',
+                  marginTop: '2px',
+                  textAlign: 'center',
+                  background: 'rgba(0,0,0,0.03)',
+                  padding: '4px 6px',
+                  borderRadius: '4px',
+                }}
+              >
+                {actionFeedback}
+              </div>
+            )}
           </div>
 
           {/* Footer note */}

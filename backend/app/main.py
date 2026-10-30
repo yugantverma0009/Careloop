@@ -6161,3 +6161,135 @@ def get_all_approved_rules(
         cur.execute(query, tuple(params))
         return cur.fetchall()
 
+
+# ─── Demo Automation & Simulator Endpoints (Phase 6) ──────────────────────────
+
+class SimulateReadingIn(BaseModel):
+    patient_id: int = 1
+    device_id: str = "DEV-ESP32-001"
+    measurement_type: str = "SpO2"
+    value: float = 91.0
+    unit: str = "%"
+
+
+@app.post("/demo/reset")
+def post_demo_reset():
+    """
+    Reset Demo State (Phase 6 Task 1):
+    Runs scripts/seed_demo.py to restore Section 4 starting state in < 30 seconds.
+    Returns: 'Reset complete: 5 patients, 3 open flags, 5 tasks'
+    """
+    import sys
+    start_time = datetime.now()
+    try:
+        scripts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../scripts"))
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import seed_demo
+        seed_demo.main()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Demo reset failed: {str(e)}")
+
+    duration = (datetime.now() - start_time).total_seconds()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS total FROM patients")
+        patients_count = cur.fetchone()["total"]
+        cur.execute("SELECT COUNT(*) AS total FROM flags WHERE status = 'Open'")
+        open_flags = cur.fetchone()["total"]
+        cur.execute("SELECT COUNT(*) AS total FROM follow_up_tasks WHERE status = 'Pending'")
+        open_tasks = cur.fetchone()["total"]
+
+    msg = f"Reset complete: {patients_count} patients, {open_flags} open flags, {open_tasks} tasks"
+    return {
+        "status": "ok",
+        "message": msg,
+        "patients": patients_count,
+        "open_flags": open_flags,
+        "open_tasks": open_tasks,
+        "duration_seconds": round(duration, 2),
+    }
+
+
+@app.post("/demo/simulate-reading")
+def post_demo_simulate_reading(body: Optional[SimulateReadingIn] = None):
+    """
+    Simulate Sensor Reading Helper (Phase 6 Task 2):
+    Ingests a simulated low SpO2 reading (91.0%) for Aarav Patel (patient_id=1, device DEV-ESP32-001).
+    - Inserts reading with quality_status='Simulated' into sensor_readings
+    - trg_sensor_rules_after_insert automatically creates Urgent_Review flag
+    - Populates escalation ladder (Patient_Prompt, Caregiver_SMS, Nurse_Alert)
+    - Adds follow-up call task for Nurse Priya Nair
+    - Records reading and escalation events in audit_log
+    """
+    payload = body or SimulateReadingIn()
+    now = datetime.now()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Insert simulated sensor reading
+        cur.execute(
+            """INSERT INTO sensor_readings
+               (patient_id, device_id, measurement_type, measurement_value, unit, measured_at, quality_status)
+               VALUES (%s, %s, %s, %s, %s, %s, 'Simulated')""",
+            (payload.patient_id, payload.device_id, payload.measurement_type, payload.value, payload.unit, now),
+        )
+        reading_id = cur.lastrowid
+
+        # 2. Find newly generated flag by trigger
+        cur.execute(
+            """SELECT flag_id, rule_id, severity, reason FROM flags
+               WHERE patient_id = %s AND source_type = 'Sensor' AND source_ref_id = %s
+               ORDER BY flag_id DESC LIMIT 1""",
+            (payload.patient_id, reading_id),
+        )
+        flag = cur.fetchone()
+        flag_id = flag["flag_id"] if flag else None
+
+        if flag_id:
+            # 3. Create escalation ladder steps
+            cur.execute(
+                """INSERT INTO escalations (flag_id, step_no, step_type, channel, delivery_status, notes, sent_at)
+                   VALUES
+                   (%s, 1, 'Patient_Prompt', 'App', 'Sent', 'Alert shown on patient portal', %s),
+                   (%s, 2, 'Caregiver_SMS', 'SMS', 'Sent', 'SMS dispatched to Neha Patel (+91 98765 43210)', %s),
+                   (%s, 3, 'Nurse_Alert', 'Dashboard', 'Sent', 'Call task queued for triage nurse Priya Nair', %s)""",
+                (flag_id, now, flag_id, now, flag_id, now),
+            )
+
+            # 4. Create follow-up call task for Nurse Priya Nair (staff_id=2)
+            cur.execute(
+                """INSERT INTO follow_up_tasks (patient_id, flag_id, assigned_staff_id, reason, priority, status, due_at)
+                   VALUES (%s, %s, 2, %s, 'Urgent_Review', 'Pending', %s)""",
+                (payload.patient_id, flag_id, f"Low {payload.measurement_type} ({payload.value}{payload.unit}) reading below approved limit (simulated)", now + timedelta(minutes=30)),
+            )
+
+            # 5. Record to audit_log
+            audit_events = [
+                ("Device", payload.device_id, "INGEST_READING", "sensor_reading", reading_id,
+                 {"type": payload.measurement_type, "value": payload.value, "quality": "Simulated"}),
+                ("Agent", "rule_engine", "FLAG_CREATED", "flag", flag_id,
+                 {"rule_id": flag.get("rule_id"), "severity": flag.get("severity"), "reason": flag.get("reason")}),
+                ("Agent", "escalation_agent", "ESCALATION_STEP", "escalation", flag_id,
+                 {"step": 2, "type": "Caregiver_SMS", "status": "Sent", "recipient": "Neha Patel"}),
+            ]
+            for atype, aid, action, etype, eid, details in audit_events:
+                cur.execute(
+                    """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (atype, aid, action, etype, eid, json.dumps(details), now),
+                )
+
+        conn.commit()
+
+    return {
+        "status": "ok",
+        "reading_id": reading_id,
+        "flag_id": flag_id,
+        "patient_id": payload.patient_id,
+        "measurement_type": payload.measurement_type,
+        "value": payload.value,
+        "message": f"Simulated {payload.measurement_type} reading ({payload.value}{payload.unit}) ingested. Flag #{flag_id} raised and escalation ladder triggered.",
+    }
+
+

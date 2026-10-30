@@ -1,15 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { login } from '../services/api';
 import {
   IconLogo,
   IconShieldCheck,
   IconArrowRight,
   IconCheck,
-  IconActivity,
+  IconStethoscope,
+  IconNurse,
+  IconPatient,
+  IconCaregiver,
+  IconAlertTriangle,
 } from './Icons';
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const [loggingInRole, setLoggingInRole] = useState(null);
+
+  const handleRoleEnter = async (email, route, roleKey) => {
+    setLoggingInRole(roleKey);
+    try {
+      await login(email, 'Demo@12345');
+      navigate(route);
+    } catch (err) {
+      console.warn('Direct login failed, redirecting to login page', err);
+      navigate('/login');
+    } finally {
+      setLoggingInRole(null);
+    }
+  };
 
   return (
     <div
@@ -21,7 +40,7 @@ export default function LandingPage() {
       }}
     >
       {/* ======================================================== */}
-      {/* 1. TOP NAVIGATION BAR (BhoomiSetu Style)                 */}
+      {/* 1. TOP NAVIGATION BAR                                    */}
       {/* ======================================================== */}
       <header
         style={{
@@ -60,10 +79,10 @@ export default function LandingPage() {
         {/* Center Links */}
         <nav style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
           {[
-            { label: 'Platform', id: 'platform' },
-            { label: 'Capabilities', id: 'capabilities' },
-            { label: 'Impact', id: 'impact' },
-            { label: 'Public Transparency', id: 'transparency' },
+            { label: 'Platform Principle', id: 'platform' },
+            { label: 'Four Roles', id: 'roles' },
+            { label: 'How a Day Works', id: 'day-in-the-life' },
+            { label: 'Safety & Privacy', id: 'transparency' },
           ].map((item) => (
             <button
               key={item.id}
@@ -111,7 +130,7 @@ export default function LandingPage() {
 
           <button
             type="button"
-            onClick={() => navigate('/patient')}
+            onClick={() => handleRoleEnter('ananya.demo@example.test', '/doctor', 'doctor')}
             style={{
               padding: '9px 18px',
               borderRadius: '24px',
@@ -127,19 +146,19 @@ export default function LandingPage() {
               transition: 'background 0.15s ease',
             }}
           >
-            <span>See care team view</span>
+            <span>Launch demo</span>
             <IconArrowRight width={14} height={14} />
           </button>
         </div>
       </header>
 
       {/* ======================================================== */}
-      {/* 2. HERO SECTION WITH GRID & FLOATING DASHBOARD MOCKUP    */}
+      {/* 2. HERO SECTION                                          */}
       {/* ======================================================== */}
       <section
         className="bg-grid-bhoomi"
         style={{
-          padding: '60px 48px 80px',
+          padding: '60px 48px 70px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -149,7 +168,7 @@ export default function LandingPage() {
         }}
       >
         {/* Left Hero Column */}
-        <div style={{ maxWidth: '580px' }}>
+        <div style={{ maxWidth: '600px' }}>
           <div
             style={{
               display: 'inline-flex',
@@ -164,42 +183,45 @@ export default function LandingPage() {
               color: '#0284c7',
               letterSpacing: '0.04em',
               textTransform: 'uppercase',
-              marginBottom: '24px',
+              marginBottom: '20px',
             }}
           >
             <IconShieldCheck width={14} height={14} />
-            <span>POST-DISCHARGE FOLLOW-UP</span>
+            <span>POST-DISCHARGE RECOVERY SYSTEM</span>
           </div>
 
           <h1
             style={{
-              fontSize: '48px',
+              fontSize: '46px',
               fontWeight: 800,
-              lineHeight: 1.12,
+              lineHeight: 1.14,
               letterSpacing: '-0.035em',
               color: '#0b1528',
-              marginBottom: '20px',
+              marginBottom: '18px',
             }}
           >
-            Recovering at home, with your care team in the loop.
+            Four people. Four jobs. One connected recovery loop.
           </h1>
 
           <p
             style={{
-              fontSize: '15px',
+              fontSize: '16px',
               lineHeight: 1.6,
               color: '#475569',
-              marginBottom: '32px',
+              marginBottom: '28px',
             }}
           >
-            CareLoop helps patients follow their discharge plan, and shows nurses and doctors who needs attention first, with the reason for every alert.
+            CareLoop makes each role genuinely different: patients act and check in, family helpers support with consent, nurses work the prioritized queue, and doctors decide and approve.
           </p>
 
           {/* Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '28px' }}>
             <button
               type="button"
-              onClick={() => navigate('/patient')}
+              onClick={() => {
+                const el = document.getElementById('roles');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
               style={{
                 padding: '12px 24px',
                 borderRadius: '8px',
@@ -214,7 +236,7 @@ export default function LandingPage() {
                 gap: '8px',
               }}
             >
-              <span>See the care-team view</span>
+              <span>Explore the four roles</span>
               <IconArrowRight width={15} height={15} />
             </button>
 
@@ -232,13 +254,17 @@ export default function LandingPage() {
                 cursor: 'pointer',
               }}
             >
-              Sign in
+              Sign in with password
             </button>
           </div>
 
           {/* 3 Checkpoints */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            {['A separate view for each role', 'Sample patient records', 'Wearable readings (watch)'].map((item, i) => (
+            {[
+              '4 genuinely different roles',
+              'Rules create flags; LLM drafts only',
+              'Synthetic sample cohort',
+            ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span
                   style={{
@@ -260,13 +286,13 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Right Floating Dashboard Mockup matching Image 2 */}
-        <div style={{ position: 'relative', width: '560px' }}>
+        {/* Right Floating Cohort Mockup */}
+        <div style={{ position: 'relative', width: '540px' }}>
           {/* Top Floating Pill */}
           <div
             style={{
               position: 'absolute',
-              top: '-18px',
+              top: '-16px',
               right: '24px',
               background: '#ffffff',
               borderRadius: '10px',
@@ -291,14 +317,14 @@ export default function LandingPage() {
                 justifyContent: 'center',
               }}
             >
-              <IconActivity width={15} height={15} />
+              <IconAlertTriangle width={15} height={15} />
             </div>
             <div>
               <div style={{ fontSize: '9px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
-                Flags raised
+                Open flags
               </div>
               <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a' }}>
-                12 open flags
+                3 active alerts
               </div>
             </div>
           </div>
@@ -314,34 +340,34 @@ export default function LandingPage() {
             }}
           >
             <div style={{ fontSize: '10px', fontWeight: 800, color: '#0284c7', textTransform: 'uppercase', marginBottom: '4px' }}>
-              CARE OVERVIEW
+              DEMO COHORT SUMMARY
             </div>
             <div style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a', marginBottom: '16px' }}>
-              Recovery overview
+              Current Recovery Worklist
             </div>
 
             {/* Sub-cards */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>ACTIVE PATIENTS</div>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>PATIENTS</div>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>5</div>
-                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Monitored cohort</div>
+                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Synthetic cohort</div>
               </div>
 
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>TELEMETRY STREAM</div>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>Active</div>
-                <div style={{ fontSize: '9px', color: '#0284c7', fontWeight: 600 }}>Wearable watch</div>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>CARE STAFF</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>2</div>
+                <div style={{ fontSize: '9px', color: '#0284c7', fontWeight: 600 }}>1 Doctor, 1 Nurse</div>
               </div>
 
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>DOSES TRACKED</div>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>Logged</div>
-                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Self-reported</div>
+                <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>OPEN TASKS</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>5</div>
+                <div style={{ fontSize: '9px', color: '#d97706', fontWeight: 600 }}>Follow-ups due</div>
               </div>
             </div>
 
-            {/* Simulated progress area (FIXED: Bar chart aligned to bottom baseline) */}
+            {/* Signal Stream Visualization */}
             <div
               style={{
                 height: '136px',
@@ -356,7 +382,6 @@ export default function LandingPage() {
                 gap: '8px',
               }}
             >
-              {/* Bars container aligned to bottom baseline */}
               <div
                 style={{
                   display: 'flex',
@@ -370,14 +395,14 @@ export default function LandingPage() {
                 }}
               >
                 {[
-                  { h: 36, label: '08:00' },
-                  { h: 48, label: '10:00' },
-                  { h: 62, label: '12:00' },
-                  { h: 44, label: '14:00' },
+                  { h: 42, label: '08:00' },
+                  { h: 54, label: '10:00' },
+                  { h: 68, label: '12:00' },
+                  { h: 48, label: '14:00' },
                   { h: 72, label: '16:00' },
                   { h: 80, label: '18:00' },
-                  { h: 68, label: '20:00' },
-                  { h: 76, label: '22:00' },
+                  { h: 64, label: '20:00' },
+                  { h: 74, label: '22:00' },
                 ].map((item, idx) => (
                   <div
                     key={idx}
@@ -394,7 +419,6 @@ export default function LandingPage() {
                         height: `${item.h}px`,
                         borderRadius: '4px 4px 0 0',
                         background: 'linear-gradient(to top, #0284c7, #38bdf8)',
-                        transition: 'height 0.3s ease',
                       }}
                     />
                   </div>
@@ -402,7 +426,7 @@ export default function LandingPage() {
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-                <span>Heart rate and oxygen readings (not a diagnosis)</span>
+                <span>Simulated watch telemetry readings (rules decide; LLM does not diagnose)</span>
               </div>
             </div>
           </div>
@@ -440,10 +464,10 @@ export default function LandingPage() {
             </div>
             <div>
               <div style={{ fontSize: '9px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
-                Quality check
+                Quality guard
               </div>
               <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a' }}>
-                Every reading carries a quality label
+                Invalid 450 bpm filtered out from headline
               </div>
             </div>
           </div>
@@ -451,13 +475,13 @@ export default function LandingPage() {
       </section>
 
       {/* ======================================================== */}
-      {/* 3. AT A GLANCE BANNER                                    */}
+      {/* 3. AT A GLANCE BANNER (Real Database Counts)             */}
       {/* ======================================================== */}
       <section
         style={{
           background: '#070e1c',
           color: '#ffffff',
-          padding: '40px 48px',
+          padding: '36px 48px',
           borderTop: '1px solid rgba(255, 255, 255, 0.08)',
         }}
       >
@@ -468,57 +492,64 @@ export default function LandingPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '24px',
           }}
         >
-          <div style={{ maxWidth: '340px' }}>
+          <div style={{ maxWidth: '380px' }}>
             <div style={{ fontSize: '10px', fontWeight: 800, color: '#38bdf8', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              AT A GLANCE
+              DATABASE AT A GLANCE
             </div>
-            <div style={{ fontSize: '18px', fontWeight: 800, lineHeight: 1.3, marginTop: '4px' }}>
-              One record for patients, family helpers, nurses and doctors.
+            <div style={{ fontSize: '17px', fontWeight: 800, lineHeight: 1.3, marginTop: '4px' }}>
+              Real counts from local MySQL schema. No exaggerated claims.
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '64px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '48px', flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>5</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Monitored patients</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#38bdf8' }}>5</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Patients in cohort</div>
             </div>
 
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>Active</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Telemetry stream</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#34d399' }}>2</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Care staff (1 MD, 1 RN)</div>
             </div>
 
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>Logged</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Doses confirmed</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#fbbf24' }}>3</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Open baseline flags</div>
             </div>
 
             <div>
-              <div style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>4-Step</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#c084fc' }}>100%</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Doctor-approved limits</div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#f87171' }}>4-Step</div>
               <div style={{ fontSize: '11px', color: '#94a3b8' }}>Escalation ladder</div>
             </div>
           </div>
         </div>
-        <div style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '16px' }}>
-          Figures shown are sample data.
+        <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748b', marginTop: '14px' }}>
+          Synthetic demo data. All names, medicine regimens and sensor streams are generated for testing.
         </div>
       </section>
 
       {/* ======================================================== */}
-      {/* 4. PLATFORM SECTION (#platform)                          */}
+      {/* 4. PLATFORM PRINCIPLE SECTION (#platform)                */}
       {/* ======================================================== */}
       <section
         id="platform"
         style={{
-          padding: '80px 48px',
+          padding: '70px 48px',
           maxWidth: '1360px',
           margin: '0 auto',
           borderBottom: '1px solid #e2e8f0',
         }}
       >
-        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 40px' }}>
           <div
             style={{
               display: 'inline-flex',
@@ -535,64 +566,55 @@ export default function LandingPage() {
               marginBottom: '12px',
             }}
           >
-            How CareLoop Works
+            Core Architecture
           </div>
-          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '10px' }}>
             "The LLM talks. Rules decide. Humans act."
           </h2>
           <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
-            CareLoop separates medical rules from conversational AI. Clinical safety rules trigger alerts while care teams keep full oversight.
+            The LLM never raises, closes or changes a flag, task, limit or prescription. Deterministic rules detect problems; conversational AI explains; licensed clinicians decide.
           </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
           {[
             {
-              title: 'Safety Rules Engine',
-              desc: 'Safety thresholds check oxygen and pulse readings. The AI assistant never creates medical flags on its own.',
-              tag: 'Rule-Based Safety',
+              title: 'Rules Engine Safety',
+              desc: 'Threshold breaches (SpO₂ < 94%, HR > 100) are evaluated purely in SQL triggers. The LLM has zero authority to flag.',
+              tag: 'Deterministic',
               color: '#0284c7',
               bg: '#f0f9ff',
             },
             {
-              title: 'Permanent Audit Trail',
-              desc: 'Every dose confirmation, flag alert, and staff review is saved permanently in an audit log.',
-              tag: 'Tamper Evident',
-              color: '#059669',
-              bg: '#ecfdf5',
+              title: 'Emergency Keyword Path',
+              desc: 'Critical words (English and Hindi) are caught instantly by plain code and never wait for the LLM to complete.',
+              tag: 'Zero Latency',
+              color: '#dc2626',
+              bg: '#fef2f2',
             },
             {
-              title: 'Wearable Readings Check',
-              desc: 'Automatic checks filter out impossible sensor readings before alerts are created.',
-              tag: 'Quality Guard',
-              color: '#d97706',
-              bg: '#fffbeb',
-            },
-            {
-              title: 'Discharge Notes Assistant',
-              desc: 'Answers questions using only your discharge notes, citing the exact sections.',
-              tag: 'Cited Evidence',
+              title: 'Cited Assistant Papers',
+              desc: 'Answers patient questions strictly from discharge documents, displaying clickable source chips and refusing dose changes.',
+              tag: 'Grounded RAG',
               color: '#7c3aed',
               bg: '#f5f3ff',
+            },
+            {
+              title: 'Tamper-Evident Audit',
+              desc: 'Every dose confirmation, rule breach, SMS dispatch, nurse call, doctor approval and consent toggle is logged.',
+              tag: 'Full Trace',
+              color: '#059669',
+              bg: '#ecfdf5',
             },
           ].map((item, idx) => (
             <div
               key={idx}
               style={{
-                padding: '28px',
+                padding: '24px',
                 borderRadius: '12px',
                 border: '1px solid #e2e8f0',
                 background: '#ffffff',
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-4px)';
-                e.currentTarget.style.boxShadow = '0 12px 20px -2px rgba(15, 23, 42, 0.08)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05)';
               }}
             >
               <span
@@ -604,16 +626,16 @@ export default function LandingPage() {
                   background: item.bg,
                   padding: '3px 8px',
                   borderRadius: '6px',
-                  marginBottom: '16px',
+                  marginBottom: '14px',
                   textTransform: 'uppercase',
                 }}
               >
                 {item.tag}
               </span>
-              <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
                 {item.title}
               </h3>
-              <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
+              <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.55 }}>
                 {item.desc}
               </p>
             </div>
@@ -622,19 +644,19 @@ export default function LandingPage() {
       </section>
 
       {/* ======================================================== */}
-      {/* 5. CAPABILITIES SECTION (#capabilities)                  */}
+      {/* 5. FOUR ROLE CARDS (#roles)                              */}
       {/* ======================================================== */}
       <section
-        id="capabilities"
+        id="roles"
         style={{
-          padding: '80px 48px',
+          padding: '70px 48px',
           maxWidth: '1360px',
           margin: '0 auto',
           borderBottom: '1px solid #e2e8f0',
           background: '#f8fafc',
         }}
       >
-        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 40px' }}>
           <div
             style={{
               display: 'inline-flex',
@@ -642,8 +664,8 @@ export default function LandingPage() {
               gap: '6px',
               padding: '4px 12px',
               borderRadius: '12px',
-              background: '#ecfdf5',
-              color: '#059669',
+              background: '#e0e7ff',
+              color: '#4338ca',
               fontSize: '11px',
               fontWeight: 700,
               letterSpacing: '0.04em',
@@ -651,147 +673,209 @@ export default function LandingPage() {
               marginBottom: '12px',
             }}
           >
-            Portals for Each Role
+            Role Specialization
           </div>
-          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
-            Explore Portals & Live Dashboards
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '10px' }}>
+            Four Logins. Four Different Jobs.
           </h2>
           <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
-            Each member accesses a portal made for their role with protected access.
+            Each role differs by content, navigation, wording and dedicated accent colour. Click any card to launch straight into that workspace.
           </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '22px' }}>
           {[
             {
+              id: 'doctor',
               role: 'Doctor',
-              title: "Doctor's View",
+              name: 'Dr. Ananya Sharma',
+              pitch: 'The doctor decides, approves and exports.',
+              firstScreen: 'Needs my decision',
               email: 'ananya.demo@example.test',
-              desc: 'Triage list sorted by priority, symptom trends, and one-click review for daily summaries.',
-              badge: 'Doctor',
-              badgeColor: '#0284c7',
+              accent: '#7c3aed',
+              accentSoft: '#f5f3ff',
+              route: '/doctor',
+              IconComponent: IconStethoscope,
             },
             {
+              id: 'nurse',
               role: 'Nurse',
-              title: "Nurse's View",
+              name: 'Priya Nair',
+              pitch: 'The nurse calls, logs, rechecks and escalates.',
+              firstScreen: 'My call list',
               email: 'priya.demo@example.test',
-              desc: 'Alert ladder queue, follow-up task dispatching, and quick vitals acknowledgement.',
-              badge: 'Nurse',
-              badgeColor: '#059669',
+              accent: '#0d9488',
+              accentSoft: '#f0fdfa',
+              route: '/nurse',
+              IconComponent: IconNurse,
             },
             {
+              id: 'patient',
               role: 'Patient',
-              title: 'Patient Portal',
+              name: 'Aarav Patel',
+              pitch: 'The patient acts, checks in and asks their papers.',
+              firstScreen: 'Home',
               email: 'aarav.demo@example.test',
-              desc: 'Daily medicine checklist, live watch vitals, Hindi/English emergency guidance, and discharge chat.',
-              badge: 'Patient',
-              badgeColor: '#7c3aed',
+              accent: '#2563eb',
+              accentSoft: '#eff6ff',
+              route: '/patient',
+              IconComponent: IconPatient,
             },
             {
-              role: 'Caregiver',
-              title: 'Family Helper View',
+              id: 'caregiver',
+              role: 'Family Helper',
+              name: 'Neha Patel',
+              pitch: 'The family helper supports, is informed with consent, and calls 112 if needed.',
+              firstScreen: 'Today',
               email: 'caregiver1.demo@example.test',
-              desc: 'Readings with patient consent, text notifications, and daily milestones.',
-              badge: 'Caregiver',
-              badgeColor: '#d97706',
+              accent: '#ea580c',
+              accentSoft: '#fff7ed',
+              route: '/family',
+              IconComponent: IconCaregiver,
             },
-          ].map((card, idx) => (
-            <div
-              key={idx}
-              style={{
-                background: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderRadius: '16px',
-                padding: '28px',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-              }}
-            >
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      color: card.badgeColor,
-                      background: '#f1f5f9',
-                      padding: '4px 10px',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    {card.badge}
-                  </span>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8' }}>Ready</span>
-                </div>
+          ].map((card) => {
+            const RoleIcon = card.IconComponent;
+            const isPending = loggingInRole === card.id;
 
-                <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>
-                  {card.title}
-                </h3>
-                <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6, marginBottom: '16px' }}>
-                  {card.desc}
-                </p>
-
-                <div
-                  style={{
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    marginBottom: '20px',
-                  }}
-                >
-                  <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>
-                    Sign-in details (Password: Demo@12345)
-                  </div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a', fontFamily: 'monospace' }}>
-                    {card.email}
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => navigate('/login')}
+            return (
+              <div
+                key={card.id}
                 style={{
-                  width: '100%',
-                  padding: '10px 16px',
-                  borderRadius: '8px',
-                  background: '#0b1528',
-                  color: '#ffffff',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
+                  background: '#ffffff',
+                  border: `1px solid #e2e8f0`,
+                  borderTop: `4px solid ${card.accent}`,
+                  borderRadius: '16px',
+                  padding: '24px',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  transition: 'background 0.15s ease',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                 }}
               >
-                <span>Open {card.role} Portal</span>
-                <IconArrowRight width={14} height={14} />
-              </button>
-            </div>
-          ))}
+                <div>
+                  {/* Top Role Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          background: card.accentSoft,
+                          color: card.accent,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <RoleIcon width={18} height={18} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: card.accent, letterSpacing: '0.04em' }}>
+                          {card.role}
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                          {card.name}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        background: '#f1f5f9',
+                        color: '#64748b',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {card.firstScreen}
+                    </span>
+                  </div>
+
+                  {/* Exact One-Line Pitch from Section 2.1 */}
+                  <div
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      lineHeight: 1.4,
+                      marginBottom: '16px',
+                      minHeight: '44px',
+                    }}
+                  >
+                    "{card.pitch}"
+                  </div>
+
+                  {/* Sign-in Details Box (Visible for Judges) */}
+                  <div
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      marginBottom: '20px',
+                    }}
+                  >
+                    <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>
+                      Sign-in credentials (Judge Access)
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a', fontFamily: 'monospace' }}>
+                      {card.email}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                      Password: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>Demo@12345</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Direct Entry Button */}
+                <button
+                  type="button"
+                  onClick={() => handleRoleEnter(card.email, card.route, card.id)}
+                  disabled={isPending}
+                  style={{
+                    width: '100%',
+                    padding: '11px 16px',
+                    borderRadius: '8px',
+                    background: card.accent,
+                    color: '#ffffff',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: isPending ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    transition: 'opacity 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = '1.0')}
+                >
+                  <span>{isPending ? 'Signing in...' : `Enter as ${card.role}`}</span>
+                  <IconArrowRight width={14} height={14} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 
       {/* ======================================================== */}
-      {/* 6. IMPACT SECTION (#impact)                              */}
+      {/* 6. HOW A DAY WORKS STRIP (5 Chronological Steps)         */}
       {/* ======================================================== */}
       <section
-        id="impact"
+        id="day-in-the-life"
         style={{
-          padding: '80px 48px',
+          padding: '70px 48px',
           maxWidth: '1360px',
           margin: '0 auto',
           borderBottom: '1px solid #e2e8f0',
         }}
       >
-        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 40px' }}>
           <div
             style={{
               display: 'inline-flex',
@@ -808,58 +892,128 @@ export default function LandingPage() {
               marginBottom: '12px',
             }}
           >
-            Target Outcomes
+            Connected Patient Journey
           </div>
-          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
-            Clinical Follow-Up Targets
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '10px' }}>
+            How a Day Works
           </h2>
           <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
-            Supports post-discharge care coordination through wearable telemetry and clinical escalation ladders.
+            Five steps connect Aarav, Neha, Priya and Dr. Sharma when a real-world recovery event occurs.
           </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+        {/* 5-Step Horizontal Grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, 1fr)',
+            gap: '16px',
+          }}
+        >
           {[
-            { metric: 'Active', label: 'Signal Quality Checking', detail: 'Sensor check filters out impossible readings to avoid false alarms.' },
-            { metric: 'Self-Reported', label: 'Doses Confirmed by Patients', detail: 'Daily dose check-ins with caregiver and staff alerts when doses are missed.' },
-            { metric: 'Code-Level', label: 'Emergency Keyword Engine', detail: 'Immediate deterministic safety keyword checks in Hindi and English.' },
-            { metric: '4-Tier', label: 'Clinical Escalation Ladder', detail: 'Patient prompt -> Caregiver SMS (consent-gated) -> Nurse alert -> Doctor decision.' },
+            {
+              step: 'Step 1',
+              title: 'Patient Morning Action',
+              who: 'Aarav Patel (Patient)',
+              desc: 'Taps Taken on morning medicines, sends pain check-in, and asks his discharge notes when his follow-up is.',
+              color: '#2563eb',
+              bg: '#eff6ff',
+            },
+            {
+              step: 'Step 2',
+              title: 'Continuous Telemetry',
+              who: 'Wearable Watch (DEV-ESP32-001)',
+              desc: 'Streams heart rate & oxygen. Rule engine filters out impossible values (450 bpm) and evaluates valid readings.',
+              color: '#0284c7',
+              bg: '#f0f9ff',
+            },
+            {
+              step: 'Step 3',
+              title: 'Prompt & Caregiver Alert',
+              who: 'Neha Patel (Family)',
+              desc: 'SpO₂ drops to 91% (< 94% limit). Aarav sees a calm 112 guidance banner. Neha gets SMS notification with Aarav’s consent.',
+              color: '#ea580c',
+              bg: '#fff7ed',
+            },
+            {
+              step: 'Step 4',
+              title: 'Nurse Queue & Escalation',
+              who: 'Priya Nair (Lead Nurse)',
+              desc: 'Aarav appears at top of My Call List with reason. Priya calls him, logs notes, and escalates to Dr. Sharma.',
+              color: '#0d9488',
+              bg: '#f0fdfa',
+            },
+            {
+              step: 'Step 5',
+              title: 'Physician Review & Sign-Off',
+              who: 'Dr. Ananya Sharma (Attending)',
+              desc: 'Aarav appears in Needs My Decision. Dr. Sharma inspects escalation evidence, resolves flag, and approves AI summaries.',
+              color: '#7c3aed',
+              bg: '#f5f3ff',
+            },
           ].map((item, idx) => (
             <div
               key={idx}
               style={{
-                padding: '24px',
-                borderRadius: '12px',
-                background: '#f8fafc',
+                background: '#ffffff',
                 border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '20px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                position: 'relative',
               }}
             >
-              <div style={{ fontSize: '36px', fontWeight: 800, color: '#0284c7', marginBottom: '6px' }}>
-                {item.metric}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      color: item.color,
+                      background: item.bg,
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {item.step}
+                  </span>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8' }}>
+                    0{idx + 1}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                  {item.title}
+                </div>
+
+                <div style={{ fontSize: '11px', fontWeight: 700, color: item.color, marginBottom: '8px' }}>
+                  {item.who}
+                </div>
+
+                <p style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
+                  {item.desc}
+                </p>
               </div>
-              <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                {item.label}
-              </div>
-              <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.5 }}>
-                {item.detail}
-              </p>
             </div>
           ))}
         </div>
       </section>
 
       {/* ======================================================== */}
-      {/* 7. PUBLIC TRANSPARENCY SECTION (#transparency)           */}
+      {/* 7. SAFETY & PRIVACY STANDARDS (#transparency)            */}
       {/* ======================================================== */}
       <section
         id="transparency"
         style={{
-          padding: '80px 48px',
+          padding: '70px 48px',
           maxWidth: '1360px',
           margin: '0 auto',
         }}
       >
-        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 48px' }}>
+        <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 40px' }}>
           <div
             style={{
               display: 'inline-flex',
@@ -876,54 +1030,54 @@ export default function LandingPage() {
               marginBottom: '12px',
             }}
           >
-            Safety Standards
+            Safety Protocols
           </div>
-          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '12px' }}>
-            Safety and Privacy Standards
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '10px' }}>
+            Safety and Privacy Principles
           </h2>
           <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
-            CareLoop is built for clear clinical records. All sample data and limits follow standard guidelines.
+            CareLoop is built on clear clinical safeguards. We make no unprovable claims: no readmission prevention guarantees, no arbitrary accuracy percentages, no medical device classification.
           </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
           <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
             <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              Sample Data Notice
+              Sample Data & Demo Scope
             </h4>
             <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              All patient records and readings shown here are sample data. No real personal health records are used.
+              All 5 patients, discharge notes and vitals are synthetic sample records. CareLoop is an academic prototype for clinical handoffs and not a cleared medical device.
             </p>
           </div>
 
           <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
             <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              Permanent Audit Trail
+              Patient Consent Gating
             </h4>
             <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              Every dose confirmation, alert update, and care team action is saved in a permanent log.
+              The family helper sees only what the patient explicitly allowed. If the patient turns sharing off, family access is revoked immediately with a clear message.
             </p>
           </div>
 
           <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
             <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              Doctor Makes Final Decision
+              Doctor-Approved Rules
             </h4>
             <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              AI drafts are clearly marked until a doctor reviews them. The assistant cannot change medicines.
+              Every safety threshold (SpO₂ limit, HR bounds) is approved by Dr. Sharma. Proposed changes require physician sign-off before becoming active.
             </p>
           </div>
         </div>
       </section>
 
       {/* ======================================================== */}
-      {/* 8. FOOTER                                                */}
+      {/* 8. FOOTER WITH REQUIRED NOTE                             */}
       {/* ======================================================== */}
       <footer
         style={{
           background: '#0b1528',
           color: '#94a3b8',
-          padding: '40px 48px',
+          padding: '36px 48px',
           borderTop: '1px solid #1e293b',
           fontSize: '12px',
         }}
@@ -942,8 +1096,8 @@ export default function LandingPage() {
           <div>
             <span style={{ fontWeight: 700, color: '#ffffff' }}>CareLoop</span> — Follow-up after discharge
           </div>
-          <div>
-            Sample data. Not medical advice.
+          <div style={{ color: '#cbd5e1', fontWeight: 500 }}>
+            Sample data. Not medical advice. Synthetic-data prototype, not a medical device.
           </div>
         </div>
       </footer>

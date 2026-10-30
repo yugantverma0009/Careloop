@@ -477,3 +477,10 @@ export const completeCareTask = (taskId, outcomeCode, outcomeNotes = '') =>
 
 export const resolveRoutineFlag = (flagId, resolutionCode = 'Phone_Resolved', resolutionNote = 'Resolved via nurse telephone protocol') =>
   post(`/staff/flags/${flagId}/resolve`, { resolution_code: resolutionCode, resolution_note: resolutionNote });
+
+export const resetDemo = () =>
+  post('/demo/reset', {});
+
+export const simulateReading = (payload = {}) =>
+  post('/demo/simulate-reading', payload);
+
