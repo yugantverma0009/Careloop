@@ -12,6 +12,7 @@ import {
   getStaffNotifications,
   globalStaffSearch,
   getDoctorDecisions,
+  getNurseCallList,
   logout,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
@@ -25,6 +26,7 @@ import AuditLogViewer from './AuditLogViewer';
 import OperationalInsights from './OperationalInsights';
 import DoctorLimitsView from './DoctorLimitsView';
 import DoctorFhirExportView from './DoctorFhirExportView';
+import NurseCallListView from './NurseCallListView';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -41,6 +43,48 @@ import {
   IconBell,
   IconExternalLink,
 } from './Icons';
+
+function RestrictedNurseView({ pageName }) {
+  return (
+    <div
+      style={{
+        background: 'var(--bg-surface, #ffffff)',
+        border: '1px solid #fecaca',
+        borderRadius: '12px',
+        padding: '40px 24px',
+        textAlign: 'center',
+        boxShadow: 'var(--shadow-card)',
+        maxWidth: '560px',
+        margin: '40px auto',
+      }}
+    >
+      <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔒</div>
+      <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#dc2626', margin: '0 0 8px 0' }}>
+        Access Restricted to Attending Physicians
+      </h2>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', lineHeight: '1.5', margin: '0 auto 18px auto' }}>
+        Clinical Governance Policy: {pageName} is reserved exclusively for Dr. Ananya Sharma. Nurses may propose limit adjustments via the call list or patient chart.
+      </p>
+      <button
+        type="button"
+        onClick={() => { window.location.href = '/nurse'; }}
+        style={{
+          display: 'inline-block',
+          padding: '8px 18px',
+          borderRadius: '8px',
+          border: 'none',
+          background: '#0284c7',
+          color: '#ffffff',
+          fontSize: '12px',
+          fontWeight: 700,
+          cursor: 'pointer',
+        }}
+      >
+        ← Return to My Call List
+      </button>
+    </div>
+  );
+}
 
 export default function CareLoopStaffPortal({ user, defaultRole }) {
   const effectiveRole = user?.role || user?.account_role || defaultRole || 'Doctor';
@@ -82,6 +126,9 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
     items: [],
     quiet_patients: { count: 0, patients: [], message: '' },
   });
+
+  // Nurse Call List State (Phase 4)
+  const [nurseCallCount, setNurseCallCount] = useState(3);
 
   // D-21 Command Palette & Shortcuts State
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -256,6 +303,9 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
       if (isDoctor) {
         const dd = await getDoctorDecisions().catch(() => null);
         if (dd) setDoctorDecisions(dd);
+      } else if (isNurse) {
+        const ncl = await getNurseCallList().catch(() => null);
+        if (ncl) setNurseCallCount(ncl.cards?.calls_to_make || 0);
       }
       // Auto expand first patient if none expanded
       if (wl?.patients?.length > 0 && expandedPatientIds.size === 0) {
@@ -422,10 +472,8 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                     { id: 'fhir', label: 'Export FHIR bundle', Icon: IconExternalLink },
                   ]
                 : [
-                    { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: worklistData.patients?.length || 0 },
+                    { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
-                    { id: 'timeline', label: 'Patient timeline', Icon: IconActivity },
-                    { id: 'tasks', label: 'Follow-up tasks', Icon: IconCheck, badge: followUps.length },
                     { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
                   ]
               ).map((item) => {
@@ -771,76 +819,74 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             </div>
           )}
 
-          {/* TAB 1: GROUPED CLINICIAN WORKLIST (D-02, D-03, D-04) */}
+          {/* TAB 1: CLINICIAN DESK (DOCTOR DECISIONS / NURSE CALL LIST) */}
           {activeNav === 'triage' && (
-            <>
-              {/* Title */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  marginBottom: '26px',
-                }}
-              >
-                <div>
-                  <div
+            isDoctor ? (
+              <>
+                {/* Title */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    marginBottom: '26px',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        color: roleAccent,
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      <IconShieldCheck width={14} height={14} />
+                      <span>DOCTOR DESK</span>
+                    </div>
+                    <h1
+                      style={{
+                        fontSize: '26px',
+                        fontWeight: 800,
+                        color: 'var(--text-primary, #0f172a)',
+                        letterSpacing: '-0.025em',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      Needs my decision
+                    </h1>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
+                      High-priority clinical items awaiting physician review, sign-off, or protocol decisions.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleExportCSV}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      color: roleAccent,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    <IconShieldCheck width={14} height={14} />
-                    <span>{isDoctor ? 'DOCTOR DESK' : 'NURSE DESK'}</span>
-                  </div>
-                  <h1
-                    style={{
-                      fontSize: '26px',
-                      fontWeight: 800,
+                      gap: '8px',
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-strong, #cbd5e1)',
+                      background: 'var(--bg-surface, #ffffff)',
                       color: 'var(--text-primary, #0f172a)',
-                      letterSpacing: '-0.025em',
-                      marginBottom: '4px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
                     }}
                   >
-                    {isDoctor ? 'Needs my decision' : 'My call list'}
-                  </h1>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-                    {isDoctor
-                      ? 'High-priority clinical items awaiting physician review, sign-off, or protocol decisions.'
-                      : 'Every flag shows why it was raised. Open flags are listed by severity.'}
-                  </p>
+                    <span>Export flags (CSV)</span>
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleExportCSV}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 14px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-strong, #cbd5e1)',
-                    background: 'var(--bg-surface, #ffffff)',
-                    color: 'var(--text-primary, #0f172a)',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <span>Export flags (CSV)</span>
-                </button>
-              </div>
-
-              {isDoctor ? (
-                /* DOCTOR DECISION DESK (Phase 3 Task 1) */
+                {/* DOCTOR DECISION DESK (Phase 3 Task 1) */}
                 <div>
                   {/* 4 Decision Cards */}
                   <div
@@ -1202,812 +1248,15 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                     </span>
                   </div>
                 </div>
-              ) : (
-                /* NURSE WORKLIST / CALL LIST */
-                <div>
-                  {/* 4 KPI Summary Cards */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(4, 1fr)',
-                      gap: '18px',
-                      marginBottom: '24px',
-                    }}
-                  >
-                {/* Card 1: Cohort Patients with Flags */}
-                <div
-                  style={{
-                    background: 'var(--bg-surface, #ffffff)',
-                    border: '1px solid var(--border-subtle, #e2e8f0)',
-                    borderRadius: '12px',
-                    padding: '20px 22px',
-                    position: 'relative',
-                    boxShadow: 'var(--shadow-card)',
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '18px',
-                      right: '18px',
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '10px',
-                      background: '#eff6ff',
-                      border: '1px solid #bfdbfe',
-                      color: '#1d4ed8',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <IconAlertTriangle width={18} height={18} />
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
-                    Patients needing attention
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 800,
-                      color: 'var(--text-primary, #0f172a)',
-                      margin: '6px 0 2px',
-                    }}
-                  >
-                    {worklistData.summary?.total_patients ?? 0}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
-                    {worklistData.summary?.total_open_flags ?? 0} open flags across cohort
-                  </div>
-                </div>
-
-                {/* Card 2: Immediate Review Target */}
-                <div
-                  style={{
-                    background: 'var(--bg-surface, #ffffff)',
-                    border: '1px solid var(--border-subtle, #e2e8f0)',
-                    borderRadius: '12px',
-                    padding: '20px 22px',
-                    position: 'relative',
-                    boxShadow: 'var(--shadow-card)',
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '18px',
-                      right: '18px',
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '10px',
-                      background: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      color: '#dc2626',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <IconActivity width={18} height={18} />
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
-                    Immediate review
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 800,
-                      color: (worklistData.summary?.immediate_count || 0) > 0 ? '#dc2626' : 'var(--text-primary, #0f172a)',
-                      margin: '6px 0 2px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                    }}
-                  >
-                    {worklistData.summary?.immediate_count ?? 0}
-                    {(worklistData.summary?.immediate_count || 0) > 0 && (
-                      <span
-                        style={{
-                          width: '10px',
-                          height: '10px',
-                          borderRadius: '50%',
-                          background: '#ef4444',
-                          display: 'inline-block',
-                          boxShadow: '0 0 0 4px rgba(239, 68, 68, 0.2)',
-                        }}
-                      />
-                    )}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
-                    Target: under 15 minutes
-                  </div>
-                </div>
-
-                {/* Card 3: Urgent Review Target */}
-                <div
-                  style={{
-                    background: 'var(--bg-surface, #ffffff)',
-                    border: '1px solid var(--border-subtle, #e2e8f0)',
-                    borderRadius: '12px',
-                    padding: '20px 22px',
-                    position: 'relative',
-                    boxShadow: 'var(--shadow-card)',
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '18px',
-                      right: '18px',
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '10px',
-                      background: '#fffbeb',
-                      border: '1px solid #fde68a',
-                      color: '#b45309',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <IconClock width={18} height={18} />
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
-                    Urgent review
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 800,
-                      color: 'var(--text-primary, #0f172a)',
-                      margin: '6px 0 2px',
-                    }}
-                  >
-                    {worklistData.summary?.urgent_count ?? 0}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
-                    Target: under 2 hours
-                  </div>
-                </div>
-
-                {/* Card 4: Overdue SLAs */}
-                <div
-                  style={{
-                    background: 'var(--bg-surface, #ffffff)',
-                    border: '1px solid var(--border-subtle, #e2e8f0)',
-                    borderRadius: '12px',
-                    padding: '20px 22px',
-                    position: 'relative',
-                    boxShadow: 'var(--shadow-card)',
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '18px',
-                      right: '18px',
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '10px',
-                      background: (worklistData.summary?.overdue_count || 0) > 0 ? '#fef2f2' : '#f0fdf4',
-                      border: `1px solid ${(worklistData.summary?.overdue_count || 0) > 0 ? '#fecaca' : '#bbf7d0'}`,
-                      color: (worklistData.summary?.overdue_count || 0) > 0 ? '#dc2626' : '#15803d',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <IconShieldCheck width={18} height={18} />
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
-                    Overdue targets
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 800,
-                      color: (worklistData.summary?.overdue_count || 0) > 0 ? '#dc2626' : 'var(--text-primary, #0f172a)',
-                      margin: '6px 0 2px',
-                    }}
-                  >
-                    {worklistData.summary?.overdue_count ?? 0}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
-                    {worklistData.summary?.not_yet_seen_count ?? 0} flags not yet seen
-                  </div>
-                </div>
-              </div>
-
-              {/* Worklist Container */}
-              <div
-                style={{
-                  background: 'var(--bg-surface, #ffffff)',
-                  border: '1px solid var(--border-subtle, #e2e8f0)',
-                  borderRadius: '12px',
-                  padding: '22px 24px',
-                  boxShadow: 'var(--shadow-card)',
-                  marginBottom: '24px',
+              </>
+            ) : (
+              <NurseCallListView
+                onSelectPatient={(pid) => {
+                  setSelectedPatientId(pid);
+                  setActiveNav('patient_chart');
                 }}
-              >
-                {/* Toolbar: Search & Multi-Filters */}
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '16px',
-                    marginBottom: '20px',
-                    paddingBottom: '16px',
-                    borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
-                  }}
-                >
-                  {/* Top Row: Search & Scope Filter */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-                    {/* Search Input (Ctrl+K) */}
-                    <div style={{ position: 'relative', flex: '1', minWidth: '280px', maxWidth: '440px' }}>
-                      <input
-                        ref={searchInputRef}
-                        type="text"
-                        placeholder="Search patient, code (CL-00001), condition, or reason... (Ctrl+K)"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '9px 14px 9px 36px',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border-subtle, #cbd5e1)',
-                          background: 'var(--bg-base, #f8fafc)',
-                          fontSize: '13px',
-                          color: 'var(--text-primary, #0f172a)',
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                      <div style={{ position: 'absolute', left: '12px', top: '10px', color: '#94a3b8' }}>
-                        <IconSearch width={16} height={16} />
-                      </div>
-                      {searchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setSearchQuery('')}
-                          style={{
-                            position: 'absolute',
-                            right: '10px',
-                            top: '8px',
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#94a3b8',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                          }}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Scope Filter Chips */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
-                        Scope:
-                      </span>
-                      {[
-                        { key: 'mine', label: 'Mine' },
-                        { key: 'all', label: 'All Patients' },
-                      ].map(({ key, label }) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setScopeFilter(key)}
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-subtle, #e2e8f0)',
-                            background: scopeFilter === key ? roleAccent : 'var(--bg-base, #f8fafc)',
-                            color: scopeFilter === key ? '#ffffff' : 'var(--text-secondary, #475569)',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Bottom Row: Status & Severity Filters */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-                    {/* Status Filter */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
-                        Status:
-                      </span>
-                      {[
-                        { key: 'all', label: 'All Flags' },
-                        { key: 'open', label: 'Not yet seen (Open)' },
-                        { key: 'seen', label: 'Seen (Acknowledged)' },
-                      ].map(({ key, label }) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setStatusFilter(key)}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-subtle, #e2e8f0)',
-                            background: statusFilter === key ? '#0f172a' : 'var(--bg-base, #f8fafc)',
-                            color: statusFilter === key ? '#ffffff' : 'var(--text-secondary, #475569)',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Severity Filter */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
-                        Severity Tier:
-                      </span>
-                      {[
-                        { key: 'all', label: 'All Tiers' },
-                        { key: 'immediate', label: 'Immediate (<15m)' },
-                        { key: 'urgent', label: 'Urgent (<2h)' },
-                        { key: 'review_soon', label: 'Review soon' },
-                        { key: 'routine', label: 'Routine' },
-                      ].map(({ key, label }) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setSeverityFilter(key)}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-subtle, #e2e8f0)',
-                            background: severityFilter === key ? '#0f172a' : 'var(--bg-base, #f8fafc)',
-                            color: severityFilter === key ? '#ffffff' : 'var(--text-secondary, #475569)',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Worklist Patient Cards List */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {worklistData.patients.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '48px 24px',
-                        textAlign: 'center',
-                        color: 'var(--text-muted, #94a3b8)',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <div>No patient flags match the selected filters.</div>
-                      {(scopeFilter !== 'all' || statusFilter !== 'all' || severityFilter !== 'all' || searchQuery) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setScopeFilter('all');
-                            setStatusFilter('all');
-                            setSeverityFilter('all');
-                            setSearchQuery('');
-                          }}
-                          style={{
-                            marginTop: '12px',
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            background: '#ffffff',
-                            color: '#0f172a',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Reset Filters
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    worklistData.patients.map((patient, pIdx) => {
-                      const isExpanded = expandedPatientIds.has(patient.patient_id);
-                      const isImmediate = patient.tier === 'Immediate';
-                      const isUrgent = patient.tier === 'Urgent';
-                      const isHighlighted = activeNav === 'triage' && highlightedRowIndex === pIdx;
-
-                      return (
-                        <div
-                          key={patient.patient_id}
-                          style={{
-                            borderRadius: '10px',
-                            border: isHighlighted
-                              ? '2px solid #0284c7'
-                              : `1px solid ${isImmediate ? '#fca5a5' : isUrgent ? '#fde68a' : 'var(--border-subtle, #e2e8f0)'}`,
-                            background: 'var(--bg-surface, #ffffff)',
-                            overflow: 'visible',
-                            transition: 'all 0.15s ease',
-                            boxShadow: isHighlighted ? '0 0 0 3px rgba(2, 132, 199, 0.15)' : isExpanded ? '0 4px 12px rgba(0,0,0,0.04)' : 'none',
-                          }}
-                        >
-                          {/* Collapsed Patient Header Row */}
-                          <div
-                            onClick={() => togglePatientExpand(patient.patient_id)}
-                            style={{
-                              padding: '16px 20px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              cursor: 'pointer',
-                              background: isImmediate ? 'rgba(254, 242, 242, 0.4)' : 'transparent',
-                              gap: '16px',
-                              flexWrap: 'wrap',
-                            }}
-                          >
-                            {/* Left: Chevron, Attention Score, PatientIdentity */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: '320px' }}>
-                              {/* Chevron */}
-                              <span
-                                style={{
-                                  fontSize: '12px',
-                                  color: '#94a3b8',
-                                  transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                  transition: 'transform 0.15s ease',
-                                  userSelect: 'none',
-                                }}
-                              >
-                                ▶
-                              </span>
-
-                              {/* Explainable Attention Score Pill with hover breakdown */}
-                              <div
-                                style={{ position: 'relative' }}
-                                onMouseEnter={() => setHoveredScorePid(patient.patient_id)}
-                                onMouseLeave={() => setHoveredScorePid(null)}
-                              >
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    minWidth: '40px',
-                                    padding: '4px 6px',
-                                    borderRadius: '8px',
-                                    background: isImmediate ? '#fee2e2' : isUrgent ? '#fef3c7' : '#f1f5f9',
-                                    color: isImmediate ? '#991b1b' : isUrgent ? '#92400e' : '#334155',
-                                    fontWeight: 800,
-                                    fontSize: '13px',
-                                    fontFamily: "'JetBrains Mono', monospace",
-                                    border: `1px solid ${isImmediate ? '#fecaca' : isUrgent ? '#fde68a' : '#e2e8f0'}`,
-                                  }}
-                                  title="Clinical Attention Score (Click/hover for breakdown)"
-                                >
-                                  {patient.attention_score}
-                                  <span style={{ fontSize: '9px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                                    SCORE
-                                  </span>
-                                </span>
-
-                                {/* Attention Factors Tooltip */}
-                                {hoveredScorePid === patient.patient_id && (
-                                  <div
-                                    style={{
-                                      position: 'absolute',
-                                      top: '100%',
-                                      left: '0',
-                                      marginTop: '8px',
-                                      width: '260px',
-                                      padding: '12px 14px',
-                                      borderRadius: '8px',
-                                      background: '#0f172a',
-                                      color: '#ffffff',
-                                      fontSize: '12px',
-                                      zIndex: 100,
-                                      boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
-                                      lineHeight: '1.4',
-                                      pointerEvents: 'none',
-                                    }}
-                                  >
-                                    <div style={{ fontWeight: 700, marginBottom: '6px', borderBottom: '1px solid #334155', paddingBottom: '4px' }}>
-                                      Attention Score: {patient.attention_score}/100
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                      {patient.attention_factors?.map((f, i) => (
-                                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
-                                          <span>{f.label}</span>
-                                          <span style={{ fontWeight: 700, color: '#38bdf8' }}>+{f.points}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                    <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '6px', fontStyle: 'italic' }}>
-                                      Weights are configurable and capped to prevent saturation.
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* PatientIdentity upholding 2-identifier clinical safety */}
-                              <PatientIdentity patient={patient} size="md" showCondition={true} />
-                            </div>
-
-                            {/* Middle: SLA Tier Chip & Overdue badge */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <span
-                                style={{
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  padding: '4px 10px',
-                                  borderRadius: '6px',
-                                  background: isImmediate ? '#fef2f2' : isUrgent ? '#fffbeb' : '#eff6ff',
-                                  color: isImmediate ? '#dc2626' : isUrgent ? '#b45309' : '#1d4ed8',
-                                  border: `1px solid ${isImmediate ? '#fecaca' : isUrgent ? '#fde68a' : '#bfdbfe'}`,
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '6px',
-                                }}
-                              >
-                                {isImmediate && (
-                                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#dc2626' }} />
-                                )}
-                                {patient.tier} (Target: {patient.sla_target})
-                              </span>
-
-                              {patient.is_overdue && (
-                                <span
-                                  style={{
-                                    fontSize: '11px',
-                                    fontWeight: 700,
-                                    padding: '4px 8px',
-                                    borderRadius: '6px',
-                                    background: '#fef2f2',
-                                    color: '#b91c1c',
-                                    border: '1px solid #fca5a5',
-                                  }}
-                                >
-                                  ⚠️ {patient.overdue_display || 'Overdue SLA'}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Right: Flag Counts & Timestamps */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                              <div style={{ textAlign: 'right', fontSize: '12px' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
-                                  {patient.open_flag_count} open flags · {patient.distinct_reasons} distinct reasons
-                                </div>
-                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                                  {patient.not_yet_seen > 0 && (
-                                    <span style={{ color: '#dc2626', fontWeight: 700, marginRight: '6px' }}>
-                                      {patient.not_yet_seen} not seen ·
-                                    </span>
-                                  )}
-                                  First: {patient.first_flag_at ? new Date(patient.first_flag_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'} · Latest: {patient.latest_flag_at ? new Date(patient.latest_flag_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  togglePatientExpand(patient.patient_id);
-                                }}
-                                style={{
-                                  padding: '6px 14px',
-                                  borderRadius: '6px',
-                                  border: '1px solid var(--border-subtle, #cbd5e1)',
-                                  background: 'var(--bg-base, #f8fafc)',
-                                  color: 'var(--text-primary, #0f172a)',
-                                  fontSize: '12px',
-                                  fontWeight: 600,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {isExpanded ? 'Collapse' : `View Flags (${patient.open_flag_count})`}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedPatientId(patient.patient_id);
-                                  setActiveNav('patient_chart');
-                                }}
-                                style={{
-                                  padding: '6px 12px',
-                                  borderRadius: '6px',
-                                  border: 'none',
-                                  background: '#0b1528',
-                                  color: '#ffffff',
-                                  fontSize: '12px',
-                                  fontWeight: 600,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                Open Chart →
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Expanded Nested Flags Table */}
-                          {isExpanded && (
-                            <div
-                              style={{
-                                borderTop: '1px solid var(--border-subtle, #e2e8f0)',
-                                background: 'var(--bg-base, #f8fafc)',
-                                padding: '16px 20px',
-                              }}
-                            >
-                              <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '10px' }}>
-                                Individual Flags for {patient.full_name} ({patient.patient_code})
-                              </div>
-
-                              <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-                                  <thead>
-                                    <tr style={{ borderBottom: '1px solid #cbd5e1', color: '#64748b' }}>
-                                      <th style={{ padding: '8px 10px', fontWeight: 700 }}>SEVERITY</th>
-                                      <th style={{ padding: '8px 10px', fontWeight: 700 }}>SOURCE</th>
-                                      <th style={{ padding: '8px 10px', fontWeight: 700 }}>REASON</th>
-                                      <th style={{ padding: '8px 10px', fontWeight: 700 }}>FLAGGED AT</th>
-                                      <th style={{ padding: '8px 10px', fontWeight: 700 }}>STATUS</th>
-                                      <th style={{ padding: '8px 10px', fontWeight: 700, textAlign: 'right' }}>ACTIONS</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {patient.flags.map((flag) => {
-                                      const isFlagOpen = flag.status === 'Open';
-                                      const isFlagAck = flag.status === 'Acknowledged';
-
-                                      return (
-                                        <tr
-                                          key={flag.flag_id}
-                                          style={{
-                                            borderBottom: '1px solid #e2e8f0',
-                                            background: '#ffffff',
-                                            transition: 'background 0.15s ease',
-                                          }}
-                                          onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
-                                          onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
-                                        >
-                                          {/* Severity */}
-                                          <td style={{ padding: '10px' }}>
-                                            {flag.severity === 'Urgent_Review' ? (
-                                              <span className="status-pill status-pill-red">Urgent</span>
-                                            ) : flag.severity === 'Review_Soon' ? (
-                                              <span className="status-pill status-pill-amber">Review Soon</span>
-                                            ) : (
-                                              <span className="status-pill status-pill-blue">Routine</span>
-                                            )}
-                                          </td>
-
-                                          {/* Source */}
-                                          <td style={{ padding: '10px', color: '#475569', fontWeight: 600 }}>
-                                            {flag.source_type}
-                                          </td>
-
-                                          {/* Reason (with deduplicated count if repeated D-04) */}
-                                          <td style={{ padding: '10px', color: '#0f172a', maxWidth: '380px' }}>
-                                            <div style={{ fontWeight: 600 }}>
-                                              {flag.reason}
-                                              {flag.occurrence_count > 1 && (
-                                                <span
-                                                  style={{
-                                                    marginLeft: '6px',
-                                                    padding: '1px 6px',
-                                                    borderRadius: '4px',
-                                                    background: '#fee2e2',
-                                                    color: '#b91c1c',
-                                                    fontWeight: 700,
-                                                    fontSize: '11px',
-                                                  }}
-                                                >
-                                                  ×{flag.occurrence_count} reports
-                                                </span>
-                                              )}
-                                            </div>
-                                            {flag.occurrence_count > 1 && (
-                                              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
-                                                First: {new Date(flag.first_created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · Last: {new Date(flag.last_created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                              </div>
-                                            )}
-                                          </td>
-
-                                          {/* Flagged At */}
-                                          <td style={{ padding: '10px', color: '#64748b', fontFamily: "'JetBrains Mono', monospace" }}>
-                                            {new Date(flag.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-                                              {flag.hours_open}h open
-                                            </div>
-                                          </td>
-
-                                          {/* Status */}
-                                          <td style={{ padding: '10px' }}>
-                                            <span
-                                              style={{
-                                                fontSize: '11px',
-                                                fontWeight: 700,
-                                                padding: '2px 8px',
-                                                borderRadius: '4px',
-                                                background: isFlagOpen ? '#fef2f2' : isFlagAck ? '#f0fdf4' : '#f1f5f9',
-                                                color: isFlagOpen ? '#dc2626' : isFlagAck ? '#16a34a' : '#64748b',
-                                              }}
-                                            >
-                                              {flag.status}
-                                            </span>
-                                            {flag.acknowledged_by_name && (
-                                              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                                                by {flag.acknowledged_by_name}
-                                              </div>
-                                            )}
-                                          </td>
-
-                                          {/* Actions */}
-                                          <td style={{ padding: '10px', textAlign: 'right' }}>
-                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                              {isFlagOpen && (
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => handleQuickAcknowledge(flag.flag_id, e)}
-                                                  style={{
-                                                    padding: '5px 12px',
-                                                    borderRadius: '6px',
-                                                    border: 'none',
-                                                    background: '#0f172a',
-                                                    color: '#ffffff',
-                                                    fontSize: '11px',
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer',
-                                                  }}
-                                                >
-                                                  Acknowledge
-                                                </button>
-                                              )}
-
-                                              <button
-                                                type="button"
-                                                onClick={() => handleOpenFlagDrawer(flag.flag_id)}
-                                                style={{
-                                                  padding: '5px 10px',
-                                                  borderRadius: '6px',
-                                                  border: '1px solid #cbd5e1',
-                                                  background: isFlagAck ? '#f0fdf4' : '#ffffff',
-                                                  color: isFlagAck ? '#166534' : '#0f172a',
-                                                  fontSize: '11px',
-                                                  fontWeight: 600,
-                                                  cursor: 'pointer',
-                                                }}
-                                              >
-                                                {isFlagAck ? 'Resolve Flag...' : 'Detail Drawer'}
-                                              </button>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-            )}
-            </>
+              />
+            )
           )}
 
           {/* TAB: PATIENT DIRECTORY (Phase 2, D-05) */}
@@ -2095,15 +1344,19 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             />
           )}
 
-          {/* TAB 4: SUMMARIES (Feature D-08) */}
+          {/* TAB 4: SUMMARIES & APPROVALS (DOCTOR ONLY) */}
           {activeNav === 'summaries' && (
-            <ClinicalSummaries
-              user={user}
-              onSelectPatient={(pid) => {
-                setSelectedPatientId(pid);
-                setActiveNav('patient_chart');
-              }}
-            />
+            isDoctor ? (
+              <ClinicalSummaries
+                user={user}
+                onSelectPatient={(pid) => {
+                  setSelectedPatientId(pid);
+                  setActiveNav('patient_chart');
+                }}
+              />
+            ) : (
+              <RestrictedNurseView pageName="Approvals & Summaries" />
+            )
           )}
 
           {/* TAB 5: SHIFT HANDOFF (Feature D-09) */}
@@ -2119,22 +1372,22 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
 
           {/* TAB 6: OPERATIONAL INSIGHTS (Feature D-14) */}
           {activeNav === 'insights' && (
-            <OperationalInsights />
+            isDoctor ? <OperationalInsights /> : <RestrictedNurseView pageName="Operational Insights" />
           )}
 
           {/* TAB 7: AUDIT LOG VIEWER (Feature D-17) */}
           {activeNav === 'audit' && (
-            <AuditLogViewer />
+            isDoctor ? <AuditLogViewer /> : <RestrictedNurseView pageName="Audit Log Viewer" />
           )}
 
           {/* TAB 8: PATIENT APPROVED LIMITS (Phase 3 Task 4) */}
           {activeNav === 'limits' && (
-            <DoctorLimitsView user={user} />
+            isDoctor ? <DoctorLimitsView user={user} /> : <RestrictedNurseView pageName="Patient Limits Management" />
           )}
 
           {/* TAB 9: FHIR R4 EXPORT (Phase 3 Task 6) */}
           {activeNav === 'fhir' && (
-            <DoctorFhirExportView user={user} />
+            isDoctor ? <DoctorFhirExportView user={user} /> : <RestrictedNurseView pageName="FHIR R4 Bundle Export" />
           )}
         </main>
       </div>

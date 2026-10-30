@@ -183,7 +183,7 @@ export default function ShiftHandoff({ user = {}, onSelectPatient }) {
         </div>
       </div>
 
-      {/* Patient Handoff Cards List */}
+      {/* Patient Handoff Cards List (Simplified 5-line cards per Phase 4 Task 5) */}
       {loading ? (
         <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
           Loading shift handoff report...
@@ -193,187 +193,133 @@ export default function ShiftHandoff({ user = {}, onSelectPatient }) {
           No active patients in this handoff view.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {patients.map((p) => {
             const isEditingContingency = editingPid === p.patient_id;
+            const openFlags = p.situation_awareness?.open_flags || [];
+            const openTasks = p.action_list || [];
+            const openItemsText = openFlags.length > 0 || openTasks.length > 0
+              ? `${openFlags.length} open flag${openFlags.length === 1 ? '' : 's'}${openFlags.length > 0 ? ` (${openFlags[0].reason})` : ''} · ${openTasks.length} pending task${openTasks.length === 1 ? '' : 's'}`
+              : 'No open flags or pending tasks · Telemetry on track';
+
             return (
               <div
                 key={p.patient_id}
                 style={{
                   background: 'var(--bg-surface, #ffffff)',
                   border: '1px solid var(--border-subtle, #e2e8f0)',
-                  borderRadius: '12px',
-                  padding: '20px',
+                  borderLeft: `4px solid ${
+                    p.illness_tier === 'Immediate'
+                      ? '#ef4444'
+                      : p.illness_tier === 'Urgent'
+                      ? '#f59e0b'
+                      : p.illness_tier === 'Review soon'
+                      ? '#0284c7'
+                      : '#10b981'
+                  }`,
+                  borderRadius: '10px',
+                  padding: '16px 20px',
                   boxShadow: 'var(--shadow-card)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '14px',
+                  gap: '8px',
                 }}
               >
-                {/* Section I: Identity & Illness Severity Tier */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle, #e2e8f0)', paddingBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {/* Line 1: Identity & Attention Tier */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <PatientIdentity
                       patientCode={p.patient_code}
                       fullName={p.full_name}
                       ageYears={p.age_years}
                       onClick={() => onSelectPatient && onSelectPatient(p.patient_id)}
                     />
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>
-                      Attending: <strong>{p.attending_doctor}</strong> · Discharged {p.patient_summary.discharge_date}
-                    </div>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary, #64748b)' }}>
+                      Attending: <strong>{p.attending_doctor}</strong>
+                    </span>
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>
-                        I — ILLNESS ATTENTION TIER
-                      </div>
-                      <span
-                        className={`status-pill ${
-                          p.illness_tier === 'Immediate'
-                            ? 'status-pill-red'
-                            : p.illness_tier === 'Urgent'
-                            ? 'status-pill-red'
-                            : p.illness_tier === 'Review soon'
-                            ? 'status-pill-amber'
-                            : 'status-pill-green'
-                        }`}
-                        style={{ fontSize: '12px', padding: '3px 10px', marginTop: '2px', display: 'inline-block' }}
-                      >
-                        {p.illness_tier}
-                      </span>
-                    </div>
-
-                    {/* Synthesis: Receiver Tick */}
-                    <button
-                      type="button"
-                      onClick={() => handleReceive(p.patient_id)}
-                      disabled={p.is_received}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
                       style={{
-                        padding: '6px 14px',
-                        borderRadius: '8px',
-                        border: p.is_received ? '1px solid #a7f3d0' : '1px solid #0284c7',
-                        background: p.is_received ? '#ecfdf5' : '#0284c7',
-                        color: p.is_received ? '#059669' : '#ffffff',
-                        fontSize: '12px',
+                        fontSize: '11px',
                         fontWeight: 700,
-                        cursor: p.is_received ? 'default' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
+                        padding: '3px 10px',
+                        borderRadius: '12px',
+                        background:
+                          p.illness_tier === 'Immediate'
+                            ? '#fee2e2'
+                            : p.illness_tier === 'Urgent'
+                            ? '#fef3c7'
+                            : p.illness_tier === 'Review soon'
+                            ? '#e0f2fe'
+                            : '#ecfdf5',
+                        color:
+                          p.illness_tier === 'Immediate'
+                            ? '#dc2626'
+                            : p.illness_tier === 'Urgent'
+                            ? '#b45309'
+                            : p.illness_tier === 'Review soon'
+                            ? '#0369a1'
+                            : '#059669',
                       }}
                     >
-                      {p.is_received ? `✓ Received at ${p.received_at}` : 'Mark Received'}
-                    </button>
+                      {p.illness_tier}
+                    </span>
                   </div>
                 </div>
 
-                {/* Section P & A: Patient Summary and Action List */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  {/* P — Patient Summary */}
-                  <div style={{ background: 'var(--bg-base, #f8fafc)', padding: '14px 16px', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#0284c7', textTransform: 'uppercase', marginBottom: '6px' }}>
-                      P — PATIENT SUMMARY
-                    </div>
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
-                      Post-Discharge Day {p.patient_summary.day_number}: {p.patient_summary.condition}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                      Care plan active. Standard telemetry monitoring in progress.
-                    </div>
-                  </div>
-
-                  {/* A — Action List */}
-                  <div style={{ background: 'var(--bg-base, #f8fafc)', padding: '14px 16px', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#059669', textTransform: 'uppercase', marginBottom: '6px' }}>
-                      A — ACTION LIST ({p.action_list.length} Open Tasks)
-                    </div>
-                    {p.action_list.length === 0 ? (
-                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>No pending action tasks.</div>
-                    ) : (
-                      <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', lineHeight: '1.5' }}>
-                        {p.action_list.map((task) => (
-                          <li key={task.task_id} style={{ marginBottom: '4px' }}>
-                            <strong>{task.reason}</strong>{' '}
-                            <span style={{ color: '#64748b' }}>(Owner: {task.owner} · Due: {task.due_at ? task.due_at.slice(0, 16) : 'Today'})</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                {/* Line 2: One-line Clinical Summary */}
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
+                  <span style={{ color: 'var(--text-muted, #64748b)', fontWeight: 500 }}>Summary: </span>
+                  Post-Discharge Day {p.patient_summary.day_number} · {p.patient_summary.condition}
                 </div>
 
-                {/* Section S: Situation Awareness & Contingency Planning */}
-                <div style={{ background: 'var(--bg-base, #f8fafc)', padding: '14px 16px', borderRadius: '8px', borderLeft: '4px solid #f59e0b' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase' }}>
-                      S — SITUATION AWARENESS & CONTINGENCY PLANNING
-                    </div>
-                    {!isEditingContingency && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingPid(p.patient_id);
-                          setContingencyDraft(p.contingency_note);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#0284c7',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ✎ Edit Contingency
-                      </button>
-                    )}
-                  </div>
+                {/* Line 3: Open Items */}
+                <div style={{ fontSize: '12px', color: openFlags.length > 0 ? '#b45309' : 'var(--text-secondary, #64748b)' }}>
+                  <span style={{ color: 'var(--text-muted, #64748b)', fontWeight: 500 }}>Open items: </span>
+                  <strong>{openItemsText}</strong>
+                </div>
 
-                  {/* Open flags chips */}
-                  {p.situation_awareness.open_flags?.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-                      {p.situation_awareness.open_flags.map((fl) => (
-                        <span
-                          key={fl.flag_id}
+                {/* Line 4: Nurse-Typed Contingency (If X happens, call Y) */}
+                <div style={{ fontSize: '12px', color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ color: 'var(--text-muted, #64748b)', fontWeight: 500 }}>Contingency: </span>
+                    {isEditingContingency ? (
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                        <input
+                          type="text"
+                          value={contingencyDraft}
+                          onChange={(e) => setContingencyDraft(e.target.value)}
+                          placeholder="If X occurs, call Y..."
                           style={{
-                            padding: '3px 8px',
+                            flex: 1,
+                            padding: '6px 10px',
                             borderRadius: '6px',
-                            background: '#fee2e2',
-                            color: '#dc2626',
+                            border: '1px solid var(--border-strong, #cbd5e1)',
+                            fontSize: '12px',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveContingency(p.patient_id)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: '#0284c7',
+                            color: '#ffffff',
                             fontSize: '11px',
                             fontWeight: 700,
+                            cursor: 'pointer',
                           }}
                         >
-                          Alert: {fl.reason}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Contingency note text or edit form */}
-                  {isEditingContingency ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-                      <textarea
-                        rows={2}
-                        value={contingencyDraft}
-                        onChange={(e) => setContingencyDraft(e.target.value)}
-                        placeholder="If X occurs, call Y and execute plan Z..."
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--border-strong, #cbd5e1)',
-                          fontSize: '12px',
-                        }}
-                      />
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          Save
+                        </button>
                         <button
                           type="button"
                           onClick={() => setEditingPid(null)}
                           style={{
-                            padding: '4px 10px',
+                            padding: '6px 10px',
                             borderRadius: '6px',
                             border: '1px solid var(--border-strong, #cbd5e1)',
                             background: 'transparent',
@@ -383,29 +329,55 @@ export default function ShiftHandoff({ user = {}, onSelectPatient }) {
                         >
                           Cancel
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveContingency(p.patient_id)}
-                          style={{
-                            padding: '4px 12px',
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: '#0f172a',
-                            color: '#ffffff',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Save Contingency
-                        </button>
                       </div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: '12px', color: 'var(--text-primary, #0f172a)', fontStyle: 'italic' }}>
-                      "{p.contingency_note}"
-                    </div>
+                    ) : (
+                      <span style={{ fontStyle: 'italic' }}>"{p.contingency_note}"</span>
+                    )}
+                  </div>
+                  {!isEditingContingency && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPid(p.patient_id);
+                        setContingencyDraft(p.contingency_note);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#0284c7',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        padding: '0 4px',
+                      }}
+                    >
+                      ✎ Edit
+                    </button>
                   )}
+                </div>
+
+                {/* Line 5: Synthesis & Action (Mark Received by Doctor) */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid var(--border-subtle, #f1f5f9)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)' }}>
+                    Shift Synthesis: Duty handoff recorded in audit log.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReceive(p.patient_id)}
+                    disabled={p.is_received}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '6px',
+                      border: p.is_received ? '1px solid #a7f3d0' : '1px solid #0284c7',
+                      background: p.is_received ? '#ecfdf5' : '#0284c7',
+                      color: p.is_received ? '#059669' : '#ffffff',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: p.is_received ? 'default' : 'pointer',
+                    }}
+                  >
+                    {p.is_received ? `✓ Received by Dr. Sharma at ${p.received_at}` : 'Mark received by doctor'}
+                  </button>
                 </div>
               </div>
             );

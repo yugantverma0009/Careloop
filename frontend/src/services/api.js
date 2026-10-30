@@ -465,3 +465,15 @@ export const rejectRuleProposal = (historyId, reason) =>
 
 export const getAllApprovedRules = (patientId = null) =>
   get(`/staff/rules/all${patientId ? `?patient_id=${patientId}` : ''}`);
+
+export const getNurseCallList = () =>
+  get('/staff/nurse/call-list');
+
+export const logContactCall = (data) =>
+  post('/staff/contacts/log', data);
+
+export const completeCareTask = (taskId, outcomeCode, outcomeNotes = '') =>
+  post(`/staff/tasks/${taskId}/complete`, { outcome_code: outcomeCode, outcome_notes: outcomeNotes });
+
+export const resolveRoutineFlag = (flagId, resolutionCode = 'Phone_Resolved', resolutionNote = 'Resolved via nurse telephone protocol') =>
+  post(`/staff/flags/${flagId}/resolve`, { resolution_code: resolutionCode, resolution_note: resolutionNote });

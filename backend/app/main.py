@@ -4026,7 +4026,7 @@ def get_shift_handoff(
 
             # Open flags
             cur.execute(
-                """SELECT flag_id, severity, reason, status, created_at
+                """SELECT flag_id, severity, source_type, reason, status, created_at
                    FROM flags
                    WHERE patient_id = %s AND status IN ('Open', 'Acknowledged')
                    ORDER BY FIELD(severity, 'Immediate', 'Urgent', 'Review_Soon', 'Routine'), created_at DESC""",
@@ -4035,11 +4035,11 @@ def get_shift_handoff(
             flags = cur.fetchall() or []
 
             # Illness tier from flags only: Immediate > Urgent > Review soon > Routine
-            if any(f["severity"] == "Immediate" for f in flags):
+            if any(f.get("source_type") == "Emergency" or f.get("severity") == "Immediate" for f in flags):
                 illness_tier = "Immediate"
-            elif any(f["severity"] == "Urgent" for f in flags):
+            elif any(f.get("severity") in ("Urgent", "Urgent_Review") for f in flags):
                 illness_tier = "Urgent"
-            elif any(f["severity"] == "Review_Soon" for f in flags):
+            elif any(f.get("severity") == "Review_Soon" for f in flags):
                 illness_tier = "Review soon"
             else:
                 illness_tier = "Routine"
@@ -4428,6 +4428,8 @@ class LogContactIn(BaseModel):
     channel: str  # 'Phone', 'SMS', 'In_Person', 'Video'
     outcome: str  # 'Reached', 'No_Answer', 'Left_Message', 'Wrong_Number', 'Declined'
     summary: Optional[str] = ""
+    complete_task: Optional[bool] = False
+    outcome_code: Optional[str] = None
 
 
 VALID_CHANNELS = {"Phone", "SMS", "In_Person", "Video"}
@@ -4463,6 +4465,12 @@ def log_contact(
                        JSON_OBJECT('patient_id', %s, 'channel', %s, 'outcome', %s, 'summary', %s))""",
             (str(staff_id), contact_id, body.patient_id, body.channel, body.outcome, body.summary or ""),
         )
+
+        if body.complete_task and body.task_id:
+            task_code = body.outcome_code or "Reached_And_Advised"
+            if task_code in VALID_OUTCOME_CODES:
+                cur.callproc("sp_complete_task", (body.task_id, staff_id, task_code, body.summary or "Call completed"))
+
         conn.commit()
 
     return {
@@ -5561,7 +5569,13 @@ def get_doctor_decisions(
                       (SELECT cs.full_name FROM flag_events fe 
                        JOIN care_staff cs ON fe.staff_id = cs.staff_id 
                        WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
-                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalated_by
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalated_by,
+                      (SELECT fe.created_at FROM flag_events fe 
+                       WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalated_at,
+                      (SELECT fe.note FROM flag_events fe 
+                       WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalation_note
                FROM flags f
                JOIN patients p ON f.patient_id = p.patient_id
                LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
@@ -5641,7 +5655,12 @@ def get_doctor_decisions(
         for fl in flag_rows:
             waited = f"{fl['waited_mins']}m" if fl['waited_mins'] < 60 else f"{fl['waited_mins'] // 60}h {fl['waited_mins'] % 60}m"
             tier_label = "Immediate" if fl['tier'] == 'Immediate' else "Urgent Review"
-            escalated_kicker = f"Escalated by Nurse {fl['escalated_by']}" if fl.get('escalated_by') else None
+            if fl.get('escalated_by'):
+                esc_time = fl['escalated_at'].strftime("%H:%M") if fl.get('escalated_at') else ""
+                esc_note = f' · "{fl["escalation_note"]}"' if fl.get("escalation_note") else ""
+                escalated_kicker = f"Escalated by Nurse {fl['escalated_by']} at {esc_time}{esc_note}".strip()
+            else:
+                escalated_kicker = None
             decision_items.append({
                 "type": "flag",
                 "id": fl["flag_id"],
@@ -5657,6 +5676,9 @@ def get_doctor_decisions(
                 "severity": fl["severity"],
                 "waited_text": f"Waited {waited}",
                 "escalated_kicker": escalated_kicker,
+                "escalated_by": fl.get("escalated_by"),
+                "escalated_at": fl["escalated_at"].strftime("%Y-%m-%d %H:%M") if fl.get("escalated_at") else None,
+                "escalation_note": fl.get("escalation_note"),
                 "priority_weight": 100 if fl["tier"] == "Immediate" else 80,
             })
 
@@ -5719,6 +5741,202 @@ def get_doctor_decisions(
                 "patients": quiet_rows,
                 "message": f"Quiet patients: {len(quiet_rows)}. Nothing open.",
             },
+        }
+
+
+# ─── Nurse Call List Endpoints (Phase 4) ──────────────────────────────────────
+
+@app.get("/staff/nurse/call-list")
+def get_nurse_call_list(
+    user: Dict[str, Any] = Depends(require_staff),
+):
+    """
+    Nurse Desk: My call list (Phase 4 Task 1)
+    Ordered by tier (Immediate > Urgent > Review Soon > Routine) then age.
+    Aggregates:
+    1. 4 KPI cards: calls_to_make, visits_today, pending_limit_requests, active_patients
+    2. Open flag items requiring nurse contact:
+       - Patient identity (name, age, patient_code, phone)
+       - Real clinical why
+       - Tier chip with target timer (e.g. Immediate: 15m, Review soon: 2h)
+       - Overdue / target countdown display
+       - 'Needs doctor to resolve' indicator for Immediate / Urgent
+       - Escalation status ('Escalated to Dr. Sharma' with nurse name and timestamp if escalated)
+       - Action buttons capability
+    3. Calls due today strip (tasks due today)
+    4. Patients on track (reassurance list)
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Total cohort count
+        cur.execute("SELECT COUNT(*) AS total FROM patients")
+        total_patients = cur.fetchone()["total"]
+
+        # 2. Call items: Open flags
+        cur.execute(
+            """SELECT f.flag_id, f.patient_id, p.full_name, p.patient_code, p.phone,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary, f.reason, f.severity, f.source_type, f.status,
+                      CASE 
+                        WHEN f.source_type = 'Emergency' THEN 'Immediate'
+                        WHEN f.severity = 'Urgent_Review' THEN 'Urgent'
+                        WHEN f.severity = 'Review_Soon' THEN 'Review soon'
+                        ELSE 'Routine'
+                      END AS tier,
+                      f.created_at,
+                      ROUND(TIMESTAMPDIFF(MINUTE, f.created_at, NOW())) AS waited_mins,
+                      (SELECT cs.full_name FROM flag_events fe 
+                       JOIN care_staff cs ON fe.staff_id = cs.staff_id 
+                       WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalated_by,
+                      (SELECT fe.created_at FROM flag_events fe 
+                       WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalated_at,
+                      (SELECT fe.note FROM flag_events fe 
+                       WHERE fe.flag_id = f.flag_id AND fe.event_type = 'Escalated' 
+                       ORDER BY fe.flag_event_id DESC LIMIT 1) AS escalation_note
+               FROM flags f
+               JOIN patients p ON f.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE f.status IN ('Open', 'Acknowledged')
+               ORDER BY FIELD(tier, 'Immediate', 'Urgent', 'Review soon', 'Routine'),
+                        f.created_at ASC"""
+        )
+        flag_rows = cur.fetchall() or []
+
+        formatted_flags = []
+        for fl in flag_rows:
+            tier = fl["tier"]
+            waited = fl["waited_mins"] or 0
+            if tier == "Immediate":
+                target_mins = 15
+                target_label = "15 min"
+            elif tier == "Urgent":
+                target_mins = 60
+                target_label = "1 h"
+            elif tier == "Review soon":
+                target_mins = 120
+                target_label = "2 h"
+            else:
+                target_mins = 240
+                target_label = "4 h"
+
+            is_overdue = waited > target_mins
+            if is_overdue:
+                overdue_mins = waited - target_mins
+                if overdue_mins >= 60:
+                    hrs = overdue_mins // 60
+                    mins = overdue_mins % 60
+                    target_display = f"Target: seen within {target_label} · Overdue {hrs}h {mins}m" if mins else f"Target: seen within {target_label} · Overdue {hrs}h"
+                else:
+                    target_display = f"Target: seen within {target_label} · Overdue {overdue_mins}m"
+            else:
+                rem = target_mins - waited
+                target_display = f"Target: seen within {target_label} · {rem}m remaining"
+
+            needs_doctor = tier in ("Immediate", "Urgent")
+            is_escalated = fl["escalated_by"] is not None
+
+            formatted_flags.append({
+                "flag_id": fl["flag_id"],
+                "patient_id": fl["patient_id"],
+                "patient_name": fl["full_name"],
+                "patient_code": fl["patient_code"],
+                "age": fl["age"],
+                "phone": fl["phone"] or "+91-98765-43210",
+                "condition": fl["condition_summary"] or "Post-discharge recovery",
+                "reason": fl["reason"],
+                "tier": tier,
+                "severity": fl["severity"],
+                "status": fl["status"],
+                "created_at": fl["created_at"].strftime("%Y-%m-%d %H:%M") if fl["created_at"] else None,
+                "waited_mins": waited,
+                "target_mins": target_mins,
+                "is_overdue": is_overdue,
+                "target_display": target_display,
+                "needs_doctor_to_resolve": needs_doctor,
+                "can_nurse_resolve": not needs_doctor,
+                "is_escalated": is_escalated,
+                "escalated_by": fl["escalated_by"],
+                "escalated_at": fl["escalated_at"].strftime("%Y-%m-%d %H:%M") if fl["escalated_at"] else None,
+                "escalation_note": fl["escalation_note"],
+            })
+
+        # 3. Tasks due today
+        cur.execute(
+            """SELECT ft.followup_id, ft.patient_id, p.full_name, p.patient_code, p.phone,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary, ft.reason, ft.priority, ft.status, ft.due_at,
+                      ft.created_at
+               FROM follow_up_tasks ft
+               JOIN patients p ON ft.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE ft.status != 'Resolved'
+               ORDER BY ft.due_at ASC"""
+        )
+        task_rows = cur.fetchall() or []
+        formatted_tasks = []
+        for t in task_rows:
+            formatted_tasks.append({
+                "task_id": t["followup_id"],
+                "patient_id": t["patient_id"],
+                "patient_name": t["full_name"],
+                "patient_code": t["patient_code"],
+                "age": t["age"],
+                "phone": t["phone"] or "+91-98765-43210",
+                "condition": t["condition_summary"] or "Post-discharge recovery",
+                "reason": t["reason"],
+                "priority": t["priority"],
+                "status": t["status"],
+                "due_at": t["due_at"].strftime("%Y-%m-%d %H:%M") if t["due_at"] else "Today",
+            })
+
+        # 4. Pending Limit Proposals submitted by nurse
+        cur.execute(
+            """SELECT COUNT(*) AS total
+               FROM alert_rules_history h
+               WHERE JSON_EXTRACT(h.new_values, '$.proposed_only') = true
+                 AND (JSON_EXTRACT(h.new_values, '$.status') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(h.new_values, '$.status')) = 'Pending')"""
+        )
+        pending_proposals_count = cur.fetchone()["total"]
+
+        # 5. On-track Quiet Patients (Zero open flags)
+        cur.execute(
+            """SELECT p.patient_id, p.patient_code, p.full_name, dr.condition_summary,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      DATEDIFF(CURDATE(), dr.discharge_date) + 1 AS relative_day
+               FROM patients p
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE p.patient_id NOT IN (
+                   SELECT DISTINCT patient_id FROM flags WHERE status IN ('Open', 'Acknowledged')
+               )
+               ORDER BY p.patient_id ASC"""
+        )
+        on_track_patients = cur.fetchall() or []
+
+        # KPI counts
+        calls_to_make = len(formatted_flags) + len(formatted_tasks)
+        visits_today = len(formatted_tasks)
+
+        return {
+            "cards": {
+                "calls_to_make": calls_to_make,
+                "visits_today": visits_today,
+                "pending_limit_requests": pending_proposals_count,
+                "active_patients": total_patients,
+            },
+            "call_items": formatted_flags,
+            "tasks_due_today": formatted_tasks,
+            "on_track_patients": [
+                {
+                    "patient_id": pt["patient_id"],
+                    "patient_code": pt["patient_code"],
+                    "full_name": pt["full_name"],
+                    "age": pt["age"],
+                    "condition": pt["condition_summary"] or "Post-discharge recovery",
+                    "relative_day": pt["relative_day"] or 1,
+                }
+                for pt in on_track_patients
+            ],
         }
 
 
