@@ -15,7 +15,7 @@ import requests
 def main():
     parser = argparse.ArgumentParser(description="CareLoop IoT Sensor Simulator")
     parser.add_argument("--api", default="http://localhost:8000", help="CareLoop API base URL")
-    parser.add_argument("--device", default="ESP32-DEMO-02", help="Registered device ID (default: ESP32-DEMO-02)")
+    parser.add_argument("--device", default="DEV-ESP32-001", help="Registered device ID (default: DEV-ESP32-001)")
     parser.add_argument("--key", default="demo-device-key-change-me", help="Device API authentication key")
     parser.add_argument("--interval", type=int, default=10, help="Seconds between reading cycles")
     parser.add_argument("--low-spo2", action="store_true", help="Simulate SpO2 below clinician-approved limit (e.g. 89-91%)")
