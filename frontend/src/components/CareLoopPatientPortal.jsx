@@ -90,6 +90,22 @@ const CHAT_STARTER_CHIPS = [
   { id: 'course_end', en: 'Until when do I take my medicines?', hi: 'मुझे कब तक दवाइयाँ लेनी हैं?' },
 ];
 
+const EMERGENCY_KEYWORDS = [
+  'chest pain',
+  'short of breath',
+  'shortness of breath',
+  'breathless',
+  'severe bleeding',
+  'collapse',
+  'fainted',
+  'unconscious',
+  'सीने में दर्द',
+  'सांस फूलना',
+  'साँस लेने में तकलीफ़',
+  'बेहोश',
+  'अत्यधिक रक्तस्राव',
+];
+
 export default function CareLoopPatientPortal({ user }) {
   const [lang, setLang] = useState('en');
   const [, setLoading] = useState(true);
@@ -106,8 +122,9 @@ export default function CareLoopPatientPortal({ user }) {
   const [activeFeedbackPromptId, setActiveFeedbackPromptId] = useState(null);
   const [careTeamContactState, setCareTeamContactState] = useState({});
 
-  // Active navigation sidebar tab: 'recovery', 'prescriptions', 'calendar', 'checkin', 'chat'
+  // Active navigation sidebar tab: 'recovery', 'prescriptions', 'checkin', 'chat'
   const [activeNav, setActiveNav] = useState('recovery');
+  const [medicinesSubTab, setMedicinesSubTab] = useState('doses'); // 'doses' or 'calendar'
 
   // Skip Modal State
   const [skipModalDose, setSkipModalDose] = useState(null);
@@ -138,6 +155,14 @@ export default function CareLoopPatientPortal({ user }) {
   const [inputMethod, setInputMethod] = useState('Text');
   const [isListening, setIsListening] = useState(false);
   const [checkinSubmitting, setCheckinSubmitting] = useState(false);
+
+  // Plain-code real-time emergency detection (chips or text in English & Hindi)
+  const hasEmergencyTrigger =
+    selectedChips.some((id) => {
+      const chip = CHECKIN_SYMPTOM_CHIPS.find((c) => c.id === id);
+      return chip && chip.emergency;
+    }) ||
+    EMERGENCY_KEYWORDS.some((kw) => (symptomText || '').toLowerCase().includes(kw));
 
   // Family Sharing Consent State (Section 2.4 & Phase 2)
   const [familySharingEnabled, setFamilySharingEnabled] = useState(true);
@@ -266,16 +291,16 @@ export default function CareLoopPatientPortal({ user }) {
   };
 
   useEffect(() => {
-    if (activeNav === 'calendar') {
+    if (activeNav === 'calendar' || (activeNav === 'prescriptions' && medicinesSubTab === 'calendar')) {
       loadCalendarData(calendarMonth);
     }
-  }, [activeNav, calendarMonth]);
+  }, [activeNav, medicinesSubTab, calendarMonth]);
 
   useEffect(() => {
-    if (activeNav === 'calendar' && selectedCalendarDate) {
+    if ((activeNav === 'calendar' || (activeNav === 'prescriptions' && medicinesSubTab === 'calendar')) && selectedCalendarDate) {
       loadDayDetailData(selectedCalendarDate);
     }
-  }, [activeNav, selectedCalendarDate]);
+  }, [activeNav, medicinesSubTab, selectedCalendarDate]);
 
   const handlePrevMonth = () => {
     const [yStr, mStr] = calendarMonth.split('-');
@@ -957,14 +982,13 @@ export default function CareLoopPatientPortal({ user }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '22px' }}>
               {[
-                { id: 'recovery', label: lang === 'hi' ? 'अवलोकन' : 'Overview', Icon: IconActivity },
+                { id: 'recovery', label: lang === 'hi' ? 'होम' : 'Home', Icon: IconActivity },
                 {
                   id: 'prescriptions',
                   label: lang === 'hi' ? 'दवाइयाँ' : 'Medicines',
                   Icon: IconPill,
                   badge: remainingDosesCount > 0 ? remainingDosesCount : undefined, // hidden at 0 (Brief Sec 6.1)
                 },
-                { id: 'calendar', label: lang === 'hi' ? 'मेरा कैलेंडर' : 'My calendar', Icon: IconCalendar },
                 { id: 'checkin', label: lang === 'hi' ? 'दैनिक चेक-इन' : 'Daily check-in', Icon: IconShieldCheck },
               ].map((item) => {
                 const isActive = activeNav === item.id;
@@ -1032,7 +1056,7 @@ export default function CareLoopPatientPortal({ user }) {
               {[
                 {
                   id: 'chat',
-                  label: lang === 'hi' ? 'डिस्चार्ज पेपर्स से पूछें' : 'Ask my discharge papers',
+                  label: lang === 'hi' ? 'मेरे कागज़ात से पूछें' : 'Ask my papers',
                   Icon: IconSparkles,
                 },
               ].map((item) => {
@@ -1432,10 +1456,13 @@ export default function CareLoopPatientPortal({ user }) {
               >
                 <IconShieldCheck width={14} height={14} />
                 <span>
-                  {lang === 'hi' ? 'रिकवरी अवलोकन' : 'RECOVERY OVERVIEW'} ·{' '}
+                  {activeNav === 'recovery' && (lang === 'hi' ? 'मेरी रिकवरी' : 'MY RECOVERY')}
+                  {activeNav === 'prescriptions' && (lang === 'hi' ? 'दवाइयाँ और शेड्यूल' : 'MY MEDICINES')}
+                  {activeNav === 'checkin' && (lang === 'hi' ? 'दैनिक चेक-इन' : 'MY CHECK-IN')}
+                  {activeNav === 'chat' && (lang === 'hi' ? 'मेरे कागज़ात' : 'MY PAPERS')} ·{' '}
                   {lang === 'hi'
-                    ? `डिस्चार्ज के बाद दिन ${todayData?.day_after_discharge || 1}`
-                    : `Day ${todayData?.day_after_discharge || 1} after discharge`}
+                    ? `डिस्चार्ज के बाद दिन ${todayData?.day_after_discharge || 3}`
+                    : `Day ${todayData?.day_after_discharge || 3} after discharge`}
                 </span>
               </div>
               <h1
@@ -1447,7 +1474,10 @@ export default function CareLoopPatientPortal({ user }) {
                   marginBottom: '4px',
                 }}
               >
-                {lang === 'hi' ? `नमस्ते ${todayData?.name || 'आरव'}` : `Hi ${todayData?.name || 'Aarav'}`}
+                {activeNav === 'recovery' && (lang === 'hi' ? `नमस्ते ${todayData?.name || 'आरव'}` : `Hi ${todayData?.name || 'Aarav'}`)}
+                {activeNav === 'prescriptions' && (lang === 'hi' ? 'दवाइयाँ और कैलेंडर' : 'Medicines & Calendar')}
+                {activeNav === 'checkin' && (lang === 'hi' ? 'दैनिक स्वास्थ्य चेक-इन' : 'Daily health check-in')}
+                {activeNav === 'chat' && (lang === 'hi' ? 'डिस्चार्ज रिकवरी सहायक' : 'Ask my papers')}
               </h1>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
                 {todayData?.formatted_date || 'Thursday, 29 October 2026'} ·{' '}
@@ -1631,8 +1661,8 @@ export default function CareLoopPatientPortal({ user }) {
             </div>
           )}
 
-          {/* ─── 6. TAB: RECOVERY OVERVIEW OR MEDICINES ─── */}
-          {(activeNav === 'recovery' || activeNav === 'prescriptions') && (
+          {/* ─── 6. TAB: RECOVERY HOME ─── */}
+          {activeNav === 'recovery' && (
             <>
               {/* Family Sharing Consent Card / Switch (Section 2.4 & Phase 2) */}
               <div
@@ -1809,6 +1839,27 @@ export default function CareLoopPatientPortal({ user }) {
                       </button>
                     </div>
                   )}
+
+                  <div style={{ marginTop: '14px', borderTop: '1px solid var(--border-subtle, #e2e8f0)', paddingTop: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveNav('prescriptions'); setMedicinesSubTab('doses'); }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--accent-teal, #0d9488)',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <span>{lang === 'hi' ? 'दवाइयों का पूरा शेड्यूल और कैलेंडर देखें →' : 'View all scheduled medicines & calendar →'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Right Card: Today Summary with Dot Indicators (No Percentage - Brief Sec 6.1) */}
@@ -2139,210 +2190,6 @@ export default function CareLoopPatientPortal({ user }) {
                   <span>{todayData.data_check_note}</span>
                 </div>
               )}
-
-              {/* ─── 7. GROUPED MEDICINES TABLE (Morning / Afternoon / Evening / Night) (Brief Sec 6.2) ─── */}
-              <div
-                style={{
-                  background: 'var(--bg-surface, #ffffff)',
-                  border: '1px solid var(--border-subtle, #e2e8f0)',
-                  borderRadius: '12px',
-                  padding: '22px 24px',
-                  boxShadow: 'var(--shadow-card)',
-                  marginBottom: '24px',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '18px',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                      {lang === 'hi' ? "आज की दवाइयाँ" : "Today's medicines"}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
-                      {lang === 'hi'
-                        ? 'प्रत्येक खुराक को ले ली या छोड़ें के रूप में चिह्नित करें।'
-                        : 'Mark each dose Taken or Skip. Your care team can see your updates.'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Render Group Helper */}
-                {[
-                  { title: lang === 'hi' ? 'सुबह (Morning - 12:00 से पहले)' : 'Morning (before 12:00 PM)', list: morningDoses },
-                  { title: lang === 'hi' ? 'दोपहर (Afternoon - 12:00 से 4:59 PM)' : 'Afternoon (12:00 PM - 4:59 PM)', list: afternoonDoses },
-                  { title: lang === 'hi' ? 'शाम (Evening - 5:00 से 8:59 PM)' : 'Evening (5:00 PM - 8:59 PM)', list: eveningDoses },
-                  { title: lang === 'hi' ? 'रात (Night - 9:00 PM onwards)' : 'Night (9:00 PM onwards)', list: nightDoses },
-                ]
-                  .filter((grp) => grp.list.length > 0)
-                  .map((grp, grpIdx) => (
-                    <div key={grpIdx} style={{ marginBottom: '24px' }}>
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          color: 'var(--accent-teal, #0d9488)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                          padding: '6px 0',
-                          borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
-                          marginBottom: '8px',
-                        }}
-                      >
-                        {grp.title}
-                      </div>
-
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
-                              <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
-                                {lang === 'hi' ? 'दवा' : 'MEDICINE'}
-                              </th>
-                              <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
-                                {lang === 'hi' ? 'समय' : 'SCHEDULED'}
-                              </th>
-                              <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
-                                {lang === 'hi' ? 'निर्देश' : 'INSTRUCTIONS'}
-                              </th>
-                              <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
-                                {lang === 'hi' ? 'स्थिति' : 'STATUS'}
-                              </th>
-                              <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', textAlign: 'right' }}>
-                                {lang === 'hi' ? 'कार्रवाई' : 'ACTION'}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {grp.list.map((d) => {
-                              const isTaken = d.status === 'Taken' || d.status === 'Taken_Confirmed';
-                              const isSkipped = d.status === 'Skipped';
-                              const isUpcoming = d.relative === 'upcoming';
-
-                              return (
-                                <tr
-                                  key={d.id}
-                                  style={{
-                                    borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
-                                    opacity: isTaken ? 0.65 : 1,
-                                    textDecoration: isTaken ? 'line-through' : 'none',
-                                    transition: 'background 0.15s ease',
-                                  }}
-                                >
-                                  <td style={{ padding: '12px', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
-                                    {d.medicine}
-                                  </td>
-                                  <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted, #64748b)', fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)" }}>
-                                    {d.scheduled_time}
-                                  </td>
-                                  <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                                    {d.dose_instructions}
-                                  </td>
-                                  <td style={{ padding: '12px' }}>
-                                    <span className={`status-pill status-pill-${d.pill_color}`}>
-                                      {d.pill_label}
-                                    </span>
-                                  </td>
-                                  <td style={{ padding: '12px', textAlign: 'right', textDecoration: 'none' }}>
-                                    {isTaken ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUndoDose(d.id)}
-                                        style={{
-                                          padding: '5px 12px',
-                                          borderRadius: '6px',
-                                          border: '1px solid var(--border-strong, #cbd5e1)',
-                                          background: 'transparent',
-                                          color: 'var(--text-secondary, #475569)',
-                                          fontSize: '11px',
-                                          fontWeight: 600,
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        {lang === 'hi' ? 'वापस करें' : 'Undo'}
-                                      </button>
-                                    ) : isSkipped ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTakeDose(d)}
-                                        style={{
-                                          padding: '5px 12px',
-                                          borderRadius: '6px',
-                                          border: '1px solid var(--border-strong, #cbd5e1)',
-                                          background: 'transparent',
-                                          color: 'var(--text-primary, #0f172a)',
-                                          fontSize: '11px',
-                                          fontWeight: 600,
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        {lang === 'hi' ? 'मैंने ले ली' : 'I took it'}
-                                      </button>
-                                    ) : isUpcoming ? (
-                                      <span
-                                        title={lang === 'hi' ? 'आप इसे 1 घंटे पहले ले सकते हैं' : 'You can mark this 1 hour before'}
-                                        style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', fontWeight: 500 }}
-                                      >
-                                        {lang === 'hi' ? 'आने वाली' : 'Upcoming'}
-                                      </span>
-                                    ) : (
-                                      <div style={{ display: 'inline-flex', gap: '6px', justifyContent: 'flex-end' }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleTakeDose(d)}
-                                          disabled={actionLoading}
-                                          style={{
-                                            padding: '6px 14px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            background: 'var(--navy-deep, #0b1528)',
-                                            color: '#ffffff',
-                                            fontSize: '11px',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                          }}
-                                        >
-                                          {lang === 'hi' ? 'ले ली' : 'Taken'}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenSkipModal(d)}
-                                          disabled={actionLoading}
-                                          style={{
-                                            padding: '6px 10px',
-                                            borderRadius: '6px',
-                                            border: '1px solid var(--border-strong, #cbd5e1)',
-                                            background: 'transparent',
-                                            color: 'var(--text-secondary, #475569)',
-                                            fontSize: '11px',
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                          }}
-                                        >
-                                          {lang === 'hi' ? 'छोड़ें' : 'Skip'}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-
-                {todayData?.all_doses?.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted, #94a3b8)', fontSize: '13px' }}>
-                    {lang === 'hi' ? 'आज कोई दवा निर्धारित नहीं है।' : 'No medicines planned for today.'}
-                  </div>
-                )}
-              </div>
 
               {/* ─── RECOVERY PLAN CHECKLIST (Brief Sec 6.6) ─── */}
               <div
@@ -2717,9 +2564,287 @@ export default function CareLoopPatientPortal({ user }) {
             </>
           )}
 
-          {/* ─── TAB: MY CALENDAR (Brief Sec 6.3 & 8.3) ─── */}
-          {activeNav === 'calendar' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* ─── 7. TAB: MEDICINES (GROUPED DOSES & CALENDAR) ─── */}
+          {(activeNav === 'prescriptions' || activeNav === 'calendar') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Sub-Tabs: Today's doses vs Calendar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '12px 18px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveNav('prescriptions'); setMedicinesSubTab('doses'); }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: (medicinesSubTab === 'doses' && activeNav !== 'calendar') ? '1px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #e2e8f0)',
+                      background: (medicinesSubTab === 'doses' && activeNav !== 'calendar') ? 'rgba(13, 148, 136, 0.12)' : 'var(--bg-surface, #ffffff)',
+                      color: (medicinesSubTab === 'doses' && activeNav !== 'calendar') ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                      fontWeight: (medicinesSubTab === 'doses' && activeNav !== 'calendar') ? 700 : 500,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <IconPill width={16} height={16} />
+                    <span>{lang === 'hi' ? "आज की दवाइयाँ" : "Today's doses"}</span>
+                    {remainingDosesCount > 0 && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          background: 'var(--accent-teal, #0d9488)',
+                          color: '#ffffff',
+                        }}
+                      >
+                        {remainingDosesCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setActiveNav('prescriptions'); setMedicinesSubTab('calendar'); }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: (medicinesSubTab === 'calendar' || activeNav === 'calendar') ? '1px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #e2e8f0)',
+                      background: (medicinesSubTab === 'calendar' || activeNav === 'calendar') ? 'rgba(13, 148, 136, 0.12)' : 'var(--bg-surface, #ffffff)',
+                      color: (medicinesSubTab === 'calendar' || activeNav === 'calendar') ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                      fontWeight: (medicinesSubTab === 'calendar' || activeNav === 'calendar') ? 700 : 500,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <IconCalendar width={16} height={16} />
+                    <span>{lang === 'hi' ? 'कैलेंडर और अपॉइंटमेंट्स' : 'Calendar & Appointments'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {(medicinesSubTab === 'doses' && activeNav !== 'calendar') ? (
+                /* Grouped Medicines Table */
+                <div
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '22px 24px',
+                    boxShadow: 'var(--shadow-card)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '18px',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                        {lang === 'hi' ? "आज की दवाइयाँ" : "Today's medicines"}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
+                        {lang === 'hi'
+                          ? 'प्रत्येक खुराक को ले ली या छोड़ें के रूप में चिह्नित करें।'
+                          : 'Mark each dose Taken or Skip. Your care team can see your updates.'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Render Group Helper */}
+                  {[
+                    { title: lang === 'hi' ? 'सुबह (Morning - 12:00 से पहले)' : 'Morning (before 12:00 PM)', list: morningDoses },
+                    { title: lang === 'hi' ? 'दोपहर (Afternoon - 12:00 से 4:59 PM)' : 'Afternoon (12:00 PM - 4:59 PM)', list: afternoonDoses },
+                    { title: lang === 'hi' ? 'शाम (Evening - 5:00 से 8:59 PM)' : 'Evening (5:00 PM - 8:59 PM)', list: eveningDoses },
+                    { title: lang === 'hi' ? 'रात (Night - 9:00 PM onwards)' : 'Night (9:00 PM onwards)', list: nightDoses },
+                  ]
+                    .filter((grp) => grp.list.length > 0)
+                    .map((grp, grpIdx) => (
+                      <div key={grpIdx} style={{ marginBottom: '24px' }}>
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: 'var(--accent-teal, #0d9488)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            padding: '6px 0',
+                            borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                            marginBottom: '8px',
+                          }}
+                        >
+                          {grp.title}
+                        </div>
+
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
+                                  {lang === 'hi' ? 'दवा' : 'MEDICINE'}
+                                </th>
+                                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
+                                  {lang === 'hi' ? 'समय' : 'SCHEDULED'}
+                                </th>
+                                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
+                                  {lang === 'hi' ? 'निर्देश' : 'INSTRUCTIONS'}
+                                </th>
+                                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase' }}>
+                                  {lang === 'hi' ? 'स्थिति' : 'STATUS'}
+                                </th>
+                                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', textAlign: 'right' }}>
+                                  {lang === 'hi' ? 'कार्रवाई' : 'ACTION'}
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {grp.list.map((d) => {
+                                const isTaken = d.status === 'Taken' || d.status === 'Taken_Confirmed';
+                                const isSkipped = d.status === 'Skipped';
+                                const isUpcoming = d.relative === 'upcoming';
+
+                                return (
+                                  <tr
+                                    key={d.id}
+                                    style={{
+                                      borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                                      opacity: isTaken ? 0.65 : 1,
+                                      textDecoration: isTaken ? 'line-through' : 'none',
+                                      transition: 'background 0.15s ease',
+                                    }}
+                                  >
+                                    <td style={{ padding: '12px', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                                      {d.medicine}
+                                    </td>
+                                    <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted, #64748b)', fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)" }}>
+                                      {d.scheduled_time}
+                                    </td>
+                                    <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                                      {d.dose_instructions}
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                      <span className={`status-pill status-pill-${d.pill_color}`}>
+                                        {d.pill_label}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'right', textDecoration: 'none' }}>
+                                      {isTaken ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUndoDose(d.id)}
+                                          style={{
+                                            padding: '5px 12px',
+                                            borderRadius: '6px',
+                                            border: '1px solid var(--border-strong, #cbd5e1)',
+                                            background: 'transparent',
+                                            color: 'var(--text-secondary, #475569)',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          {lang === 'hi' ? 'वापस करें' : 'Undo'}
+                                        </button>
+                                      ) : isSkipped ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleTakeDose(d)}
+                                          style={{
+                                            padding: '5px 12px',
+                                            borderRadius: '6px',
+                                            border: '1px solid var(--border-strong, #cbd5e1)',
+                                            background: 'transparent',
+                                            color: 'var(--text-primary, #0f172a)',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          {lang === 'hi' ? 'मैंने ले ली' : 'I took it'}
+                                        </button>
+                                      ) : isUpcoming ? (
+                                        <span
+                                          title={lang === 'hi' ? 'आप इसे 1 घंटे पहले ले सकते हैं' : 'You can mark this 1 hour before'}
+                                          style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', fontWeight: 500 }}
+                                        >
+                                          {lang === 'hi' ? 'आने वाली' : 'Upcoming'}
+                                        </span>
+                                      ) : (
+                                        <div style={{ display: 'inline-flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTakeDose(d)}
+                                            disabled={actionLoading}
+                                            style={{
+                                              padding: '6px 14px',
+                                              borderRadius: '6px',
+                                              border: 'none',
+                                              background: 'var(--navy-deep, #0b1528)',
+                                              color: '#ffffff',
+                                              fontSize: '11px',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            {lang === 'hi' ? 'ले ली' : 'Taken'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenSkipModal(d)}
+                                            disabled={actionLoading}
+                                            style={{
+                                              padding: '6px 10px',
+                                              borderRadius: '6px',
+                                              border: '1px solid var(--border-strong, #cbd5e1)',
+                                              background: 'transparent',
+                                              color: 'var(--text-secondary, #475569)',
+                                              fontSize: '11px',
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            {lang === 'hi' ? 'छोड़ें' : 'Skip'}
+                                          </button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+
+                  {todayData?.all_doses?.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted, #94a3b8)', fontSize: '13px' }}>
+                      {lang === 'hi' ? 'आज कोई दवा निर्धारित नहीं है।' : 'No medicines planned for today.'}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* ─── CALENDAR (Month Grid & Day Detail) ─── */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               {/* Header and Month Controls */}
               <div
                 style={{
@@ -3410,6 +3535,8 @@ export default function CareLoopPatientPortal({ user }) {
               </div>
             </div>
           )}
+        </div>
+      )}
 
           {/* ─── 9. TAB: CHECK-IN (Phase 3 Upgrade: Brief Sec 6.4 & 8.4) ─── */}
           {activeNav === 'checkin' && (
@@ -3634,6 +3761,48 @@ export default function CareLoopPatientPortal({ user }) {
                 ) : (
                   /* ACTIVE CHECK-IN FORM */
                   <form onSubmit={handleCheckinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '22px', marginTop: '18px' }}>
+                    {/* Emergency Notice when emergency chip or keywords triggered */}
+                    {hasEmergencyTrigger && (
+                      <div
+                        style={{
+                          background: 'var(--alert-red-soft, #fef2f2)',
+                          border: '2px solid var(--alert-red, #dc2626)',
+                          borderRadius: '10px',
+                          padding: '16px',
+                          color: 'var(--alert-red-text, #991b1b)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <IconAlertTriangle width={20} height={20} style={{ color: 'var(--alert-red, #dc2626)' }} />
+                          <strong style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            {lang === 'hi' ? 'आपातकालीन चेतावनी - तत्काल सहायता' : 'Emergency Notice - Call 112 Immediately'}
+                          </strong>
+                        </div>
+                        <p style={{ fontSize: '13px', margin: '0 0 10px 0', lineHeight: 1.5, fontWeight: 600 }}>
+                          {lang === 'hi'
+                            ? 'यदि आपको सीने में दर्द, सांस लेने में अत्यधिक तकलीफ या अचानक कमजोरी महसूस हो, तो तुरंत 112 पर कॉल करें। ऐप के जवाब की प्रतीक्षा न करें।'
+                            : 'If you have chest pain, shortness of breath, or sudden weakness, call 112 immediately. Do not wait for an app response.'}
+                        </p>
+                        <a
+                          href="tel:112"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            background: 'var(--alert-red, #dc2626)',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            fontSize: '12px',
+                            textDecoration: 'none',
+                          }}
+                        >
+                          📞 {lang === 'hi' ? '112 पर कॉल करें' : 'Call 112 Now'}
+                        </a>
+                      </div>
+                    )}
+
                     {/* 1. Pain Scale (0 to 10) */}
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -4022,7 +4191,7 @@ export default function CareLoopPatientPortal({ user }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <IconClock width={18} height={18} style={{ color: 'var(--accent-teal, #0d9488)' }} />
                     <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
-                      {lang === 'hi' ? 'पिछले 14 दिनों का चेक-इन इतिहास' : 'Past 14 days check-in history'}
+                      {lang === 'hi' ? 'हालिया 7 दिनों का चेक-इन इतिहास' : 'Recent 7 days check-in history'}
                     </h3>
                   </div>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>

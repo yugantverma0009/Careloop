@@ -25,6 +25,7 @@ import {
 } from './Icons';
 
 export default function FamilyPortal({ user }) {
+  const [lang, setLang] = useState('en'); // 'en' or 'hi'
   const [activeTab, setActiveTab] = useState('today'); // 'today', 'calendar', 'contacts'
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -43,7 +44,7 @@ export default function FamilyPortal({ user }) {
       setTodayData(data);
       setSharingBlocked(false);
     } catch (err) {
-      if (err.message && err.message.toLowerCase().includes('sharing turned off')) {
+      if (err.message && (err.message.toLowerCase().includes('sharing turned off') || err.message.toLowerCase().includes('has turned sharing off') || err.message.toLowerCase().includes('403'))) {
         setSharingBlocked(true);
       } else {
         setErrorMsg(err.message || 'Unable to load family recovery overview.');
@@ -171,7 +172,7 @@ export default function FamilyPortal({ user }) {
             }}
           >
             <IconHeartPulse size={18} />
-            <span>Today</span>
+            <span>{lang === 'hi' ? 'आज' : 'Today'}</span>
           </button>
 
           <button
@@ -194,7 +195,7 @@ export default function FamilyPortal({ user }) {
             }}
           >
             <IconCalendar size={18} />
-            <span>Calendar</span>
+            <span>{lang === 'hi' ? 'कैलेंडर' : 'Calendar'}</span>
           </button>
 
           <button
@@ -217,7 +218,7 @@ export default function FamilyPortal({ user }) {
             }}
           >
             <IconPhone size={18} />
-            <span>Contacts</span>
+            <span>{lang === 'hi' ? 'संपर्क' : 'Contacts'}</span>
           </button>
         </div>
 
@@ -227,11 +228,13 @@ export default function FamilyPortal({ user }) {
             {caregiver.name}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Supporting Aarav Patel ({caregiver.relationship})
+            {lang === 'hi'
+              ? `आरव पटेल की सहायता (${caregiver.relationship === 'Spouse' ? 'पत्नी' : caregiver.relationship})`
+              : `Supporting Aarav Patel (${caregiver.relationship})`}
           </div>
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--role-family-text)', fontWeight: 600 }}>
             <IconShieldCheck size={12} />
-            <span>Consent Active</span>
+            <span>{lang === 'hi' ? 'सहमति सक्रिय' : 'Consent Active'}</span>
           </div>
         </div>
       </aside>
@@ -267,10 +270,12 @@ export default function FamilyPortal({ user }) {
                 borderRadius: 6,
               }}
             >
-              FAMILY VIEW
+              {lang === 'hi' ? 'पारिवारिक दृष्टिकोण' : 'FAMILY VIEW'}
             </span>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Aarav's Recovery (Day {patient.day_number})
+              {lang === 'hi'
+                ? `आरव की रिकवरी (दिन ${patient.day_number})`
+                : `Aarav's Recovery (Day ${patient.day_number})`}
             </span>
           </div>
 
@@ -291,7 +296,49 @@ export default function FamilyPortal({ user }) {
                 fontWeight: 700,
               }}
             >
-              <span>Family helper</span>
+              <span>{lang === 'hi' ? 'पारिवारिक सहायक' : 'Family helper'}</span>
+            </div>
+
+            {/* Language Toggle */}
+            <div
+              style={{
+                display: 'inline-flex',
+                borderRadius: '6px',
+                overflow: 'hidden',
+                border: '1px solid var(--border-subtle)',
+                backgroundColor: 'var(--bg-surface)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setLang('en')}
+                style={{
+                  padding: '4px 10px',
+                  border: 'none',
+                  background: lang === 'en' ? 'var(--role-family)' : 'transparent',
+                  color: lang === 'en' ? '#ffffff' : 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLang('hi')}
+                style={{
+                  padding: '4px 10px',
+                  border: 'none',
+                  background: lang === 'hi' ? 'var(--role-family)' : 'transparent',
+                  color: lang === 'hi' ? '#ffffff' : 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                HI
+              </button>
             </div>
 
             <SwitchDemoWorkspace currentUser={user} />
@@ -299,7 +346,7 @@ export default function FamilyPortal({ user }) {
 
             <button
               onClick={logout}
-              title="Sign out"
+              title={lang === 'hi' ? 'साइन आउट' : 'Sign out'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -315,7 +362,7 @@ export default function FamilyPortal({ user }) {
               }}
             >
               <IconLogOut size={14} />
-              <span>Sign out</span>
+              <span>{lang === 'hi' ? 'साइन आउट' : 'Sign out'}</span>
             </button>
           </div>
         </header>
@@ -372,11 +419,12 @@ export default function FamilyPortal({ user }) {
                 <IconAlertTriangle size={28} />
               </div>
               <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>
-                Sharing is turned off
+                {lang === 'hi' ? 'आरव ने शेयरिंग बंद कर दी है' : 'Aarav has turned sharing off'}
               </h2>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
-                Aarav Patel has turned family sharing off. You do not currently have access to his recovery updates.
-                Sharing controls belong solely to the patient and update in real time.
+                {lang === 'hi'
+                  ? 'आरव पटेल ने पारिवारिक साझाकरण बंद कर दिया है। आपके पास उनकी रिकवरी स्थिति देखने की अनुमति नहीं है। साझाकरण नियंत्रण पूरी तरह से रोगी के पास है और वास्तविक समय में अपडेट होता है।'
+                  : 'Aarav Patel has turned family sharing off. You do not currently have access to his recovery updates. Sharing controls belong solely to the patient and update in real time.'}
               </p>
               <button
                 onClick={fetchTodayData}
@@ -395,7 +443,7 @@ export default function FamilyPortal({ user }) {
                 }}
               >
                 <IconRefresh size={14} />
-                <span>Check for access</span>
+                <span>{lang === 'hi' ? 'पहुंच की जांच करें' : 'Check for access'}</span>
               </button>
             </div>
           ) : loading && !todayData ? (
@@ -480,10 +528,14 @@ export default function FamilyPortal({ user }) {
                   }}
                 >
                   <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4, color: 'var(--text-primary)' }}>
-                    What you may need to do
+                    {lang === 'hi' ? 'पारिवारिक सलाह' : 'What you may need to do'}
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                    {todayData.what_you_may_need_to_do.text}
+                    {lang === 'hi'
+                      ? todayData.what_you_may_need_to_do.severity === 'urgent'
+                        ? 'केयर टीम आरव से संपर्क कर रही है। कृपया उनसे बात करें।'
+                        : 'फिलहाल किसी कार्रवाई की आवश्यकता नहीं है।'
+                      : todayData.what_you_may_need_to_do.text}
                   </div>
                 </div>
               )}
@@ -504,11 +556,13 @@ export default function FamilyPortal({ user }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <IconPill size={18} color="var(--role-family)" />
                       <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Today's Medicines
+                        {lang === 'hi' ? 'आज की दवाएं' : "Today's Medicines"}
                       </h3>
                     </div>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      {todayData?.today_doses?.taken || 0} of {todayData?.today_doses?.total || 0} taken
+                      {lang === 'hi'
+                        ? `${todayData?.today_doses?.taken || 0} में से ${todayData?.today_doses?.total || 0} ली गई`
+                        : `${todayData?.today_doses?.taken || 0} of ${todayData?.today_doses?.total || 0} taken`}
                     </span>
                   </div>
 
@@ -552,7 +606,7 @@ export default function FamilyPortal({ user }) {
                               }}
                             >
                               <IconCheck size={12} />
-                              <span>Taken</span>
+                              <span>{lang === 'hi' ? 'ली गई' : 'Taken'}</span>
                             </span>
                           ) : (
                             <button
@@ -570,7 +624,7 @@ export default function FamilyPortal({ user }) {
                                 transition: 'opacity 0.15s ease',
                               }}
                             >
-                              I helped Aarav take it
+                              {lang === 'hi' ? 'मैंने आरव को दवा लेने में मदद की' : 'I helped Aarav take it'}
                             </button>
                           )}
                         </div>
@@ -593,7 +647,7 @@ export default function FamilyPortal({ user }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <IconActivity size={18} color="var(--role-family)" />
                       <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Latest Valid Readings
+                        {lang === 'hi' ? 'नवीनतम मान्य रीडिंग' : 'Latest Valid Readings'}
                       </h3>
                     </div>
                   </div>
@@ -611,7 +665,7 @@ export default function FamilyPortal({ user }) {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Pulse Rate</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{lang === 'hi' ? 'हृदय गति (पल्स)' : 'Pulse Rate'}</div>
                         <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>
                           {todayData?.latest_vitals?.Heart_Rate
                             ? `${todayData.latest_vitals.Heart_Rate.value} ${todayData.latest_vitals.Heart_Rate.unit}`
@@ -619,7 +673,7 @@ export default function FamilyPortal({ user }) {
                         </div>
                       </div>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--success-green-text)', backgroundColor: 'var(--success-green-soft)', padding: '3px 8px', borderRadius: 4 }}>
-                        Valid reading
+                        {lang === 'hi' ? 'मान्य रीडिंग' : 'Valid reading'}
                       </span>
                     </div>
 
@@ -635,7 +689,7 @@ export default function FamilyPortal({ user }) {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Oxygen Level (SpO₂)</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{lang === 'hi' ? 'ऑक्सीजन स्तर (SpO₂)' : 'Oxygen Level (SpO₂)'}</div>
                         <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>
                           {todayData?.latest_vitals?.SpO2
                             ? `${todayData.latest_vitals.SpO2.value} ${todayData.latest_vitals.SpO2.unit}`
@@ -643,7 +697,7 @@ export default function FamilyPortal({ user }) {
                         </div>
                       </div>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--success-green-text)', backgroundColor: 'var(--success-green-soft)', padding: '3px 8px', borderRadius: 4 }}>
-                        Valid reading
+                        {lang === 'hi' ? 'मान्य रीडिंग' : 'Valid reading'}
                       </span>
                     </div>
 
@@ -659,13 +713,15 @@ export default function FamilyPortal({ user }) {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Check-in Log</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{lang === 'hi' ? 'दैनिक चेक-इन' : 'Daily check-in'}</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                          {todayData?.checkin_status?.message || 'Check-in recorded today'}
+                          {lang === 'hi'
+                            ? `आज चेक-इन भेजा गया: ${todayData?.checkin_status?.completed_today ? 'हाँ' : 'नहीं'}`
+                            : `Check-in sent today: ${todayData?.checkin_status?.completed_today ? 'Yes' : 'No'}`}
                         </div>
                       </div>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Status only
+                        {lang === 'hi' ? 'केवल स्थिति' : 'Status only'}
                       </span>
                     </div>
                   </div>
@@ -722,11 +778,13 @@ export default function FamilyPortal({ user }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--alert-red-text)' }}>
                     <IconAlertTriangle size={18} />
                     <h3 style={{ fontSize: 16, fontWeight: 800 }}>
-                      Emergency Assistance
+                      {lang === 'hi' ? 'आपातकालीन सहायता' : 'Emergency Assistance'}
                     </h3>
                   </div>
                   <p style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.5, marginBottom: 12 }}>
-                    If Aarav experiences severe chest pain, shortness of breath, or sudden weakness, call 112 immediately.
+                    {lang === 'hi'
+                      ? 'यदि आरव को सीने में तेज दर्द, सांस लेने में तकलीफ, भ्रम (confusion), या अचानक कमजोरी महसूस हो, तो तुरंत 112 पर कॉल करें।'
+                      : 'If Aarav experiences severe chest pain, shortness of breath, confusion, or sudden weakness, call 112 immediately.'}
                   </p>
                   <div style={{ display: 'flex', gap: 10 }}>
                     <a
@@ -745,7 +803,7 @@ export default function FamilyPortal({ user }) {
                       }}
                     >
                       <IconPhone size={14} />
-                      <span>Call 112</span>
+                      <span>{lang === 'hi' ? '112 पर कॉल करें' : 'Call 112'}</span>
                     </a>
                     <a
                       href="tel:+911126598800"
@@ -763,7 +821,7 @@ export default function FamilyPortal({ user }) {
                         textDecoration: 'none',
                       }}
                     >
-                      <span>Hospital Desk</span>
+                      <span>{lang === 'hi' ? 'अस्पताल हेल्पडेस्क' : 'Hospital Desk'}</span>
                     </a>
                   </div>
                 </div>
@@ -771,68 +829,153 @@ export default function FamilyPortal({ user }) {
             </div>
           ) : activeTab === 'calendar' ? (
             /* ── TAB 2: CALENDAR ── */
-            <div
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 12,
-                padding: '24px',
-                boxShadow: 'var(--shadow-card)',
-              }}
-            >
-              <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 16 }}>
-                Scheduled Appointments & Follow-ups
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {calendarData?.appointments?.length ? (
-                  calendarData.appointments.map((a) => (
-                    <div
-                      key={a.appointment_id}
-                      style={{
-                        padding: '16px',
-                        borderRadius: 8,
-                        backgroundColor: 'var(--bg-card-hover)',
-                        border: '1px solid var(--border-subtle)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {a.date} at {a.time}
-                        </div>
-                        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
-                          {a.doctor_name} · {a.department}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                          Type: {a.type}
-                        </div>
-                      </div>
-                      <a
-                        href={`http://127.0.0.1:8000${a.ics_url}`}
-                        target="_blank"
-                        rel="noreferrer"
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {/* 7-Day Dose History Strip (Simplified Status Only - No clinical details) */}
+              <div
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 12,
+                  padding: '24px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div>
+                    <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
+                      {lang === 'hi' ? '7-दिवसीय दवा इतिहास' : '7-Day Dose History'}
+                    </h2>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {lang === 'hi'
+                        ? 'दवाओं की पुष्टि स्थिति (कोई क्लिनिकल विवरण साझा नहीं किया गया)'
+                        : 'Confirmation status only — no clinical details shared'}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: 'var(--role-family-text)',
+                      backgroundColor: 'var(--role-family-soft)',
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                    }}
+                  >
+                    {lang === 'hi' ? 'केवल पारिवारिक दृश्य' : 'Family Summary'}
+                  </span>
+                </div>
+
+                {calendarData?.dose_history?.length ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+                    {calendarData.dose_history.map((day, idx) => (
+                      <div
+                        key={idx}
                         style={{
-                          padding: '6px 12px',
-                          borderRadius: 6,
-                          border: '1px solid var(--border-subtle)',
-                          backgroundColor: 'var(--bg-surface)',
-                          color: 'var(--text-primary)',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          textDecoration: 'none',
+                          padding: '12px 10px',
+                          borderRadius: 8,
+                          backgroundColor: 'var(--bg-card-hover)',
+                          border: `1px solid ${day.all_taken ? 'var(--success-green)' : 'var(--border-subtle)'}`,
+                          textAlign: 'center',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4,
                         }}
                       >
-                        Download .ics
-                      </a>
-                    </div>
-                  ))
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                          {day.day_name}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
+                          {day.date.split(' ')[0]} {day.date.split(' ')[1]}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: 4,
+                            padding: '3px 6px',
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            backgroundColor: day.all_taken ? 'var(--success-green-soft)' : 'var(--role-family-soft)',
+                            color: day.all_taken ? 'var(--success-green-text)' : 'var(--role-family-text)',
+                          }}
+                        >
+                          {day.all_taken
+                            ? (lang === 'hi' ? 'सभी ली गई' : 'All taken')
+                            : (lang === 'hi' ? `${day.taken}/${day.total} ली गई` : `${day.taken}/${day.total} taken`)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
-                  <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-                    No appointments on file.
+                  <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '12px 0' }}>
+                    {lang === 'hi' ? 'कोई हालिया दवा रिकॉर्ड उपलब्ध नहीं है।' : 'No recent dose records available.'}
                   </div>
                 )}
+              </div>
+
+              {/* Scheduled Appointments & Follow-ups */}
+              <div
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 12,
+                  padding: '24px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 16 }}>
+                  {lang === 'hi' ? 'आगामी अपॉइंटमेंट्स और फॉलो-अप' : 'Scheduled Appointments & Follow-ups'}
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {calendarData?.appointments?.length ? (
+                    calendarData.appointments.map((a) => (
+                      <div
+                        key={a.appointment_id}
+                        style={{
+                          padding: '16px',
+                          borderRadius: 8,
+                          backgroundColor: 'var(--bg-card-hover)',
+                          border: '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {a.date} at {a.time}
+                          </div>
+                          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            {a.doctor_name} · {a.department}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {lang === 'hi' ? 'प्रकार:' : 'Type:'} {a.type}
+                          </div>
+                        </div>
+                        <a
+                          href={`http://127.0.0.1:8000${a.ics_url}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 6,
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-primary)',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          {lang === 'hi' ? '.ics डाउनलोड' : 'Download .ics'}
+                        </a>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
+                      {lang === 'hi' ? 'कोई आगामी अपॉइंटमेंट निर्धारित नहीं है।' : 'No appointments on file.'}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -847,59 +990,82 @@ export default function FamilyPortal({ user }) {
               }}
             >
               <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 20 }}>
-                Care Team & Emergency Contacts
+                {lang === 'hi' ? 'केयर टीम और आपातकालीन संपर्क' : 'Care Team & Emergency Contacts'}
               </h2>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 {/* Attending Doctor */}
                 <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-card-hover)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--role-doctor)', textTransform: 'uppercase' }}>
-                    Attending Physician
+                    {lang === 'hi' ? 'उपचार चिकित्सक' : 'Attending Physician'}
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
                     {contactsData?.attending_doctor?.name || 'Dr. Ananya Sharma'}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    Phone: {contactsData?.attending_doctor?.phone || '+91-98765-01001'}
+                    {lang === 'hi' ? 'फ़ोन:' : 'Phone:'}{' '}
+                    <a
+                      href={`tel:${contactsData?.attending_doctor?.phone || '+919876501001'}`}
+                      style={{ color: 'var(--role-doctor)', fontWeight: 700, textDecoration: 'none' }}
+                    >
+                      {contactsData?.attending_doctor?.phone || '+91-98765-01001'}
+                    </a>
                   </div>
                 </div>
 
                 {/* Assigned Nurse */}
                 <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-card-hover)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--role-nurse)', textTransform: 'uppercase' }}>
-                    Assigned Care Nurse
+                    {lang === 'hi' ? 'सौंपी गई केयर नर्स' : 'Assigned Care Nurse'}
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
                     {contactsData?.assigned_nurse?.name || 'Priya Nair'}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    Phone: {contactsData?.assigned_nurse?.phone || '+91-98765-01002'}
+                    {lang === 'hi' ? 'फ़ोन:' : 'Phone:'}{' '}
+                    <a
+                      href={`tel:${contactsData?.assigned_nurse?.phone || '+919876501002'}`}
+                      style={{ color: 'var(--role-nurse)', fontWeight: 700, textDecoration: 'none' }}
+                    >
+                      {contactsData?.assigned_nurse?.phone || '+91-98765-01002'}
+                    </a>
                   </div>
                 </div>
 
                 {/* Hospital Desk */}
                 <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-card-hover)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    CareLoop Hospital 24/7 Desk
+                    {lang === 'hi' ? 'केयरलूप अस्पताल 24/7 डेस्क' : 'CareLoop Hospital 24/7 Desk'}
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
-                    General Follow-Up Desk
+                    {lang === 'hi' ? 'सामान्य फॉलो-अप हेल्पडेस्क' : 'General Follow-Up Desk'}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    Phone: +91-11-2659-8800 (Mon-Sun 24/7)
+                    {lang === 'hi' ? 'फ़ोन:' : 'Phone:'}{' '}
+                    <a
+                      href="tel:+911126598800"
+                      style={{ color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'none' }}
+                    >
+                      +91-11-2659-8800
+                    </a>{' '}
+                    (24/7)
                   </div>
                 </div>
 
                 {/* National Emergency */}
                 <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--alert-red)', backgroundColor: 'var(--alert-red-soft)' }}>
                   <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--alert-red-text)', textTransform: 'uppercase' }}>
-                    National Emergency Services
+                    {lang === 'hi' ? 'राष्ट्रीय आपातकालीन सेवा' : 'National Emergency Services'}
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--alert-red-text)', marginTop: 4 }}>
-                    Dial 112
+                    <a href="tel:112" style={{ color: 'inherit', textDecoration: 'none' }}>
+                      {lang === 'hi' ? 'डायल करें 112' : 'Dial 112'}
+                    </a>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-primary)', marginTop: 4 }}>
-                    For immediate medical emergency, chest pain, or collapse.
+                    {lang === 'hi'
+                      ? 'गंभीर सीने में दर्द, सांस फूलने, भ्रम, या बेहोशी की स्थिति में तुरंत कॉल करें।'
+                      : 'For immediate medical emergency, chest pain, confusion, or collapse.'}
                   </div>
                 </div>
               </div>

@@ -106,7 +106,7 @@ def require_family(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, An
     if not row.get("consent_granted"):
         raise HTTPException(
             status_code=403,
-            detail="Sharing turned off by patient. Family access is disabled until patient grants consent.",
+            detail="Aarav has turned sharing off. Sharing turned off by patient. Family access is disabled until patient grants consent.",
         )
 
     # Attach verified patient_id to the user context

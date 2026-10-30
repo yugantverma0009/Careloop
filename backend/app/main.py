@@ -430,7 +430,7 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_patient)):
         banner_raised_at = None
         needs_a_look = None
 
-        urgent_flag = next((f for f in flags if f["status"] == "Open" and (f["severity"] in ("Urgent_Review", "Immediate_Review") or f["source_type"] == "Emergency")), None)
+        urgent_flag = next((f for f in flags if f["status"] == "Open" and (f["severity"] in ("Urgent_Review", "Immediate_Review", "Immediate") or f["source_type"] == "Emergency")), None)
         review_flag = next((f for f in flags if f["status"] == "Open" and f["severity"] == "Review_Soon"), None)
         seen_flag = next((f for f in flags if f["status"] == "Acknowledged"), None)
 
@@ -3553,10 +3553,25 @@ def ask_care_team_from_chat(
         drow = cur.fetchone() or {}
         assigned_staff = drow.get("attending_staff_id") or 1
 
+        task_reason = f"Patient asked care team to follow up on: '{msg['message_text'][:200]}'"
+        cur.execute(
+            """SELECT followup_id FROM follow_up_tasks
+               WHERE patient_id = %s AND status = 'Pending' AND reason = %s LIMIT 1""",
+            (pid, task_reason),
+        )
+        existing_task = cur.fetchone()
+        if existing_task:
+            return {
+                "ok": True,
+                "status": "task_already_exists",
+                "task_id": existing_task["followup_id"],
+                "message": "Your question is already awaiting care team review.",
+            }
+
         cur.execute(
             """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
                VALUES (%s, %s, 'Routine', %s, 'Pending')""",
-            (pid, assigned_staff, f"Patient asked care team to follow up on: '{msg['message_text'][:200]}'"),
+            (pid, assigned_staff, task_reason),
         )
         task_id = cur.lastrowid
 
@@ -5324,14 +5339,24 @@ def get_family_today(user: Dict[str, Any] = Depends(require_family)):
         chk = cur.fetchone()
         checkin_completed_today = bool(chk)
 
-        # 5. Active urgent alert check for guidance card
+        # 5. Active urgent alert or caregiver escalation check for guidance card
         cur.execute(
             """SELECT flag_id, severity FROM flags
-               WHERE patient_id = %s AND status IN ('Open', 'Acknowledged') AND severity = 'Urgent_Review'
+               WHERE patient_id = %s AND status IN ('Open', 'Acknowledged') AND severity IN ('Urgent_Review', 'Immediate')
                LIMIT 1""",
             (pid,),
         )
         urgent_flag = cur.fetchone()
+
+        cur.execute(
+            """SELECT e.escalation_id FROM escalations e
+               JOIN flags f ON f.flag_id = e.flag_id
+               WHERE f.patient_id = %s AND f.status IN ('Open', 'Acknowledged')
+                 AND e.step_type = 'Caregiver_SMS' AND e.delivery_status = 'Sent'
+               LIMIT 1""",
+            (pid,),
+        )
+        escalation_reached = cur.fetchone()
 
         # 6. Next appointment
         cur.execute(
@@ -5354,15 +5379,12 @@ def get_family_today(user: Dict[str, Any] = Depends(require_family)):
                 "type": appt["appointment_type"],
             }
 
-        # What you may need to do card
-        if urgent_flag:
+        # What you may need to do card (Section 5 Phase 5)
+        if urgent_flag or escalation_reached:
             what_to_do = "The care team is checking on Aarav. Please contact him."
             what_to_do_severity = "urgent"
-        elif unconfirmed_count > 0:
-            what_to_do = f"{pat['full_name']} has a scheduled medicine. You can help him take it and tap 'I helped'."
-            what_to_do_severity = "action_needed"
         else:
-            what_to_do = "All scheduled doses are taken for today. No action needed."
+            what_to_do = "Nothing needed right now."
             what_to_do_severity = "normal"
 
     return {
@@ -5378,7 +5400,7 @@ def get_family_today(user: Dict[str, Any] = Depends(require_family)):
             "name": cg_info.get("full_name") or "Family Helper",
             "relationship": cg_info.get("relationship") or "Family",
             "consent_granted": True,
-            "sharing_badge": f"Sharing allowed by {pat['full_name']}",
+            "sharing_badge": "Sharing allowed by Aarav on 27 Oct",
         },
         "what_you_may_need_to_do": {
             "text": what_to_do,
@@ -5393,7 +5415,7 @@ def get_family_today(user: Dict[str, Any] = Depends(require_family)):
         },
         "checkin_status": {
             "completed_today": checkin_completed_today,
-            "message": "Daily check-in received today" if checkin_completed_today else "No daily check-in logged yet today",
+            "message": "Yes" if checkin_completed_today else "No",
         },
         "next_appointment": next_appointment,
     }
@@ -5456,7 +5478,7 @@ def family_confirm_dose(
 
 @app.get("/family/calendar")
 def get_family_calendar(user: Dict[str, Any] = Depends(require_family)):
-    """Family View Calendar endpoint: returns upcoming appointments and schedule."""
+    """Family View Calendar endpoint: returns upcoming appointments and 7-day dose history strip."""
     pid = user["patient_id"]
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -5469,6 +5491,22 @@ def get_family_calendar(user: Dict[str, Any] = Depends(require_family)):
             (pid,),
         )
         appts = cur.fetchall() or []
+
+        cur.execute(
+            """SELECT DATE(ml.scheduled_for) AS log_date,
+                      COUNT(*) AS total_doses,
+                      SUM(CASE WHEN ml.status = 'Taken_Confirmed' THEN 1 ELSE 0 END) AS taken_doses,
+                      SUM(CASE WHEN ml.status = 'Skipped' THEN 1 ELSE 0 END) AS skipped_doses
+               FROM medication_logs ml
+               JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+               WHERE pr.patient_id = %s
+                 AND ml.scheduled_for >= CURDATE() - INTERVAL 6 DAY
+                 AND ml.scheduled_for < CURDATE() + INTERVAL 1 DAY
+               GROUP BY DATE(ml.scheduled_for)
+               ORDER BY log_date DESC""",
+            (pid,),
+        )
+        dose_strip_rows = cur.fetchall() or []
 
     results = []
     for a in appts:
@@ -5483,7 +5521,20 @@ def get_family_calendar(user: Dict[str, Any] = Depends(require_family)):
             "ics_url": f"/patient/me/appointments/{a['appointment_id']}.ics",
         })
 
-    return {"appointments": results, "patient_id": pid}
+    dose_history = [
+        {
+            "date": r["log_date"].strftime("%d %b %Y") if isinstance(r["log_date"], (date, datetime)) else str(r["log_date"]),
+            "day_name": r["log_date"].strftime("%a") if isinstance(r["log_date"], (date, datetime)) else "",
+            "total": int(r["total_doses"]),
+            "taken": int(r["taken_doses"] or 0),
+            "skipped": int(r["skipped_doses"] or 0),
+            "summary": f"{int(r['taken_doses'] or 0)} of {int(r['total_doses'])} taken",
+            "all_taken": int(r["taken_doses"] or 0) >= int(r["total_doses"]),
+        }
+        for r in dose_strip_rows
+    ]
+
+    return {"appointments": results, "dose_history": dose_history, "patient_id": pid}
 
 
 @app.get("/family/contacts")
