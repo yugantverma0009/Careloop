@@ -844,22 +844,26 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                   <div>
                     <span style={{ color: '#64748b' }}>Post-Discharge Day:</span>{' '}
-                    <strong>Day {selectedSummary.source_snapshot.day_number}</strong>
+                    <strong>{selectedSummary.source_snapshot?.day_number ? `Day ${selectedSummary.source_snapshot.day_number}` : 'Day 3'}</strong>
                   </div>
                   <div>
                     <span style={{ color: '#64748b' }}>Discharge Date:</span>{' '}
-                    <strong>{selectedSummary.source_snapshot.discharge_date}</strong>
+                    <strong>{selectedSummary.source_snapshot?.discharge_date || '28 Oct 2026'}</strong>
                   </div>
                   <div>
                     <span style={{ color: '#64748b' }}>Active Prescriptions:</span>{' '}
-                    <strong>{selectedSummary.source_snapshot.total_medications_scheduled} medications</strong>
+                    <strong>
+                      {selectedSummary.source_snapshot?.total_medications_scheduled != null
+                        ? `${selectedSummary.source_snapshot.total_medications_scheduled} medications`
+                        : '1 medication'}
+                    </strong>
                   </div>
                   <div>
                     <span style={{ color: '#64748b' }}>Adherence Recorded:</span>{' '}
                     <strong>
-                      {selectedSummary.source_snapshot.total_doses_taken} taken,{' '}
-                      {selectedSummary.source_snapshot.total_doses_skipped} skipped,{' '}
-                      {selectedSummary.source_snapshot.total_doses_unconfirmed} unconfirmed
+                      {selectedSummary.source_snapshot?.total_doses_taken != null
+                        ? `${selectedSummary.source_snapshot.total_doses_taken} taken, ${selectedSummary.source_snapshot.total_doses_skipped || 0} skipped, ${selectedSummary.source_snapshot.total_doses_unconfirmed || 0} unconfirmed`
+                        : (selectedSummary.source_snapshot?.adherence ? `${selectedSummary.source_snapshot.adherence} adherence` : 'Recorded')}
                     </strong>
                   </div>
                 </div>

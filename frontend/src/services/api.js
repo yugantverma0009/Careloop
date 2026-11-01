@@ -484,3 +484,30 @@ export const resetDemo = () =>
 export const simulateReading = (payload = {}) =>
   post('/demo/simulate-reading', payload);
 
+// ─── Feature F1: Rounds & Background Automation API ──────────────────────────
+
+export const getRounds = () =>
+  get('/staff/rounds');
+
+export const pauseRounds = (patientId, hours, reason) =>
+  post('/staff/rounds/pause', { patient_id: patientId, hours, reason });
+
+export const resumeRounds = (patientId) =>
+  post('/staff/rounds/resume', { patient_id: patientId });
+
+export const runRoundsNow = () =>
+  post('/staff/rounds/run-now', {});
+
+export const getAgentActivity = (patientId) =>
+  get(`/staff/patients/${patientId}/agent-activity`);
+
+export const getAgentProposals = (status = 'Pending') =>
+  get(`/staff/agent/proposals?status=${encodeURIComponent(status)}`);
+
+export const acceptProposal = (proposalId) =>
+  post(`/staff/agent/proposals/${proposalId}/accept`, {});
+
+export const dismissProposal = (proposalId, dismissReason) =>
+  post(`/staff/agent/proposals/${proposalId}/dismiss`, { dismiss_reason: dismissReason });
+
+

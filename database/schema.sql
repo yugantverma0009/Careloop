@@ -61,7 +61,7 @@ DROP TABLE IF EXISTS `alert_rules`;
 CREATE TABLE `alert_rules` (
   `rule_id` int NOT NULL AUTO_INCREMENT,
   `patient_id` int NOT NULL,
-  `rule_type` enum('Reading_Above','Reading_Below','Pain_At_Least','Missed_Doses','No_Data_Hours') NOT NULL,
+  `rule_type` enum('Reading_Above','Reading_Below','Pain_At_Least','Missed_Doses','No_Data_Hours','Possible_Fall','Missed_Checkins') NOT NULL,
   `measurement_type` enum('Heart_Rate','SpO2') DEFAULT NULL,
   `threshold_value` decimal(7,2) NOT NULL,
   `window_hours` smallint DEFAULT NULL,
@@ -469,7 +469,7 @@ CREATE TABLE `flags` (
   `flag_id` bigint NOT NULL AUTO_INCREMENT,
   `patient_id` int NOT NULL,
   `rule_id` int DEFAULT NULL,
-  `source_type` enum('Sensor','Symptom','Medication','Device','Emergency') NOT NULL,
+  `source_type` enum('Sensor','Symptom','Medication','Device','Emergency','Photo','Fall','Checkin','SOS') NOT NULL,
   `source_ref_id` bigint DEFAULT NULL,
   `reason` varchar(255) NOT NULL,
   `severity` enum('Info','Review_Soon','Urgent_Review') NOT NULL DEFAULT 'Review_Soon',
@@ -531,6 +531,63 @@ CREATE TABLE `follow_up_tasks` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `scheduled_actions`
+--
+
+DROP TABLE IF EXISTS `scheduled_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `scheduled_actions` (
+  `action_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `action_type` enum('Dose_Reminder','Checkin_Prompt','Photo_Request','Fall_Prompt','Plan_Prompt','Welcome_Call_Task','SOS_Repeat') NOT NULL,
+  `channel` enum('App','SMS','Voice','Task') NOT NULL DEFAULT 'App',
+  `run_at` datetime NOT NULL,
+  `status` enum('Scheduled','Done','Skipped','Cancelled','Failed') NOT NULL DEFAULT 'Scheduled',
+  `reason` varchar(255) NOT NULL,
+  `payload` json DEFAULT NULL,
+  `attempts` tinyint NOT NULL DEFAULT '0',
+  `done_at` datetime DEFAULT NULL,
+  `result` varchar(255) DEFAULT NULL,
+  `dedupe_key` varchar(120) NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`action_id`),
+  UNIQUE KEY `uq_sched_dedupe` (`dedupe_key`),
+  KEY `idx_sched_due` (`status`,`run_at`),
+  KEY `fk_sched_patient` (`patient_id`),
+  CONSTRAINT `fk_sched_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_proposals`
+--
+
+DROP TABLE IF EXISTS `agent_proposals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_proposals` (
+  `proposal_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `agent_name` varchar(40) NOT NULL DEFAULT 'Rounds',
+  `proposal_type` enum('Suggest_Call','Suggest_Photo','Suggest_Plan_Review') NOT NULL,
+  `reason` varchar(255) NOT NULL,
+  `evidence` json DEFAULT NULL,
+  `status` enum('Pending','Accepted','Dismissed') NOT NULL DEFAULT 'Pending',
+  `decided_by_staff_id` int DEFAULT NULL,
+  `decided_at` datetime DEFAULT NULL,
+  `dismiss_reason` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`proposal_id`),
+  KEY `idx_prop_status` (`status`,`created_at`),
+  KEY `fk_prop_patient` (`patient_id`),
+  KEY `fk_prop_staff` (`decided_by_staff_id`),
+  CONSTRAINT `fk_prop_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_prop_staff` FOREIGN KEY (`decided_by_staff_id`) REFERENCES `care_staff` (`staff_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `medication_logs`
 --
 
@@ -585,6 +642,9 @@ CREATE TABLE `patients` (
   `consent_status` enum('Granted','Pending','Withdrawn') NOT NULL DEFAULT 'Pending',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `patient_code` varchar(20) NOT NULL,
+  `rounds_paused_until` datetime DEFAULT NULL,
+  `rounds_pause_reason` varchar(120) DEFAULT NULL,
+  `sms_opt_out` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`patient_id`),
   UNIQUE KEY `uq_patient_code` (`patient_code`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -1737,7 +1797,7 @@ DELIMITER ;
 /*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
 /*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `v_medication_adherence` AS select `p`.`patient_id` AS `patient_id`,`p`.`full_name` AS `patient_name`,count(`ml`.`medication_log_id`) AS `scheduled_events`,coalesce(sum((`ml`.`status` = 'Taken_Confirmed')),0) AS `taken_confirmed`,coalesce(sum((`ml`.`status` = 'Skipped')),0) AS `marked_skipped`,coalesce(sum((`ml`.`status` = 'Missed')),0) AS `no_confirmation_missed`,coalesce(sum((`ml`.`status` = 'Unconfirmed')),0) AS `still_pending`,round(((100 * sum((`ml`.`status` = 'Taken_Confirmed'))) / nullif(sum((`ml`.`status` <> 'Unconfirmed')),0)),1) AS `self_reported_taken_pct` from ((`patients` `p` join `prescriptions` `pr` on((`pr`.`patient_id` = `p`.`patient_id`))) left join `medication_logs` `ml` on((`ml`.`prescription_id` = `pr`.`prescription_id`))) group by `p`.`patient_id`,`p`.`full_name` */;
+/*!50001 VIEW `v_medication_adherence` AS select `p`.`patient_id` AS `patient_id`,`p`.`full_name` AS `patient_name`,count(`ml`.`medication_log_id`) AS `scheduled_events`,coalesce(sum((`ml`.`status` = 'Taken_Confirmed')),0) AS `taken_confirmed`,coalesce(sum((`ml`.`status` = 'Skipped')),0) AS `marked_skipped`,coalesce(sum((`ml`.`status` = 'Missed')),0) AS `no_confirmation_missed`,coalesce(sum((`ml`.`status` = 'Unconfirmed')),0) AS `still_pending`,round(((100 * sum((`ml`.`status` = 'Taken_Confirmed'))) / nullif(count(`ml`.`medication_log_id`),0)),1) AS `self_reported_taken_pct` from ((`patients` `p` join `prescriptions` `pr` on((`pr`.`patient_id` = `p`.`patient_id`))) left join `medication_logs` `ml` on((`ml`.`prescription_id` = `pr`.`prescription_id`))) group by `p`.`patient_id`,`p`.`full_name` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;

@@ -29,7 +29,7 @@ function getClinicalRationale(rule, reason, sourceType) {
     return 'Plain-code safety gate: Immediate escalation for acute coronary or respiratory symptoms without waiting for LLM processing.';
   }
   if (mt.includes('spo2') || rt.includes('spo2') || rText.includes('spo2') || rText.includes('oxygen')) {
-    return 'Post-CABG/Surgical baseline: Systemic oxygenation threshold set to detect early pulmonary atelectasis or hypoxemia before patient decompensates.';
+    return 'Set by Dr. Sharma for post-CABG follow-up.';
   }
   if (mt.includes('heart') || rt.includes('heart') || rText.includes('heart rate') || rText.includes('bpm')) {
     return 'Resting heart rate boundary: Set by physician to monitor for post-operative atrial fibrillation, circulatory volume overload, or chronotropic insufficiency.';

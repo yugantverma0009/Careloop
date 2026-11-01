@@ -4,6 +4,9 @@ import {
   acknowledgeFlag,
   escalateFlagToDoctor,
   resolveRoutineFlag,
+  getAgentProposals,
+  acceptProposal,
+  dismissProposal,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import NurseCallModal from './NurseCallModal';
@@ -13,6 +16,9 @@ import {
   IconCheck,
   IconPhone,
   IconShieldCheck,
+  IconClock,
+  IconAlertTriangle,
+  IconX,
 } from './Icons';
 
 export default function NurseCallListView({ onSelectPatient }) {
@@ -32,6 +38,20 @@ export default function NurseCallListView({ onSelectPatient }) {
   const [resolvePromptFlag, setResolvePromptFlag] = useState(null);
   const [resolveNote, setResolveNote] = useState('');
 
+  // Suggested by Rounds proposals state
+  const [proposals, setProposals] = useState([]);
+  const [dismissTargetId, setDismissTargetId] = useState(null);
+  const [dismissReasonInput, setDismissReasonInput] = useState('');
+
+  const loadProposals = async () => {
+    try {
+      const res = await getAgentProposals('Pending');
+      if (res) setProposals(res);
+    } catch (err) {
+      console.error('Failed to load proposals', err);
+    }
+  };
+
   const loadCallList = async () => {
     try {
       const res = await getNurseCallList();
@@ -45,9 +65,42 @@ export default function NurseCallListView({ onSelectPatient }) {
 
   useEffect(() => {
     loadCallList();
-    const interval = setInterval(loadCallList, 15000);
+    loadProposals();
+    const interval = setInterval(() => {
+      loadCallList();
+      loadProposals();
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleAcceptProposal = async (proposalId) => {
+    try {
+      await acceptProposal(proposalId);
+      setActionMsg('Proposal accepted: clinical task added to worklist.');
+      await loadProposals();
+      await loadCallList();
+      setTimeout(() => setActionMsg(''), 4000);
+    } catch (err) {
+      alert(`Failed to accept proposal: ${err.message}`);
+    }
+  };
+
+  const handleDismissProposal = async (proposalId) => {
+    if (!dismissReasonInput.trim()) {
+      alert('A dismissal reason is required.');
+      return;
+    }
+    try {
+      await dismissProposal(proposalId, dismissReasonInput);
+      setActionMsg('Proposal dismissed with recorded clinical reason.');
+      setDismissTargetId(null);
+      setDismissReasonInput('');
+      await loadProposals();
+      setTimeout(() => setActionMsg(''), 4000);
+    } catch (err) {
+      alert(`Failed to dismiss proposal: ${err.message}`);
+    }
+  };
 
   const handleAcknowledge = async (flagId) => {
     try {
@@ -265,6 +318,174 @@ export default function NurseCallListView({ onSelectPatient }) {
           </div>
         </div>
       </div>
+
+      {/* Suggested by Rounds Strip (Feature F1) */}
+      {proposals && proposals.length > 0 && (
+        <div
+          style={{
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid rgba(2, 132, 199, 0.25)',
+            borderLeft: '4px solid var(--accent-blue, #0284c7)',
+            borderRadius: '12px',
+            padding: '18px 20px',
+            boxShadow: 'var(--shadow-card)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <IconClock width={16} height={16} color="var(--accent-blue, #0284c7)" />
+              <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--accent-blue-text, #1d4ed8)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Suggested by Rounds ({proposals.length})
+              </span>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+              Proposals drafted by background automation · Accept creates a task · Dismiss requires a reason
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {proposals.map((prop) => (
+              <div
+                key={prop.proposal_id}
+                style={{
+                  background: 'var(--bg-card-hover, #f8fafc)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '8px',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                      {prop.patient_name} ({prop.patient_code})
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '10px',
+                        background: 'var(--accent-blue-soft, #eff6ff)',
+                        color: 'var(--accent-blue, #0284c7)',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {prop.proposal_type.replace('Suggest_', 'Suggest ')}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)' }}>
+                      {prop.created_at}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)' }}>
+                    <strong>Why:</strong> {prop.reason}
+                  </div>
+                </div>
+
+                {dismissTargetId === prop.proposal_id ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="text"
+                      placeholder="Reason for dismissal (required)"
+                      value={dismissReasonInput}
+                      onChange={(e) => setDismissReasonInput(e.target.value)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        fontSize: '12px',
+                        background: 'var(--bg-surface, #ffffff)',
+                        width: '220px',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDismissProposal(prop.proposal_id)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#dc2626',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDismissTargetId(null);
+                        setDismissReasonInput('');
+                      }}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        background: 'var(--bg-surface, #ffffff)',
+                        color: 'var(--text-secondary, #475569)',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleAcceptProposal(prop.proposal_id)}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: 'var(--success-green, #059669)',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <IconCheck width={13} height={13} />
+                      <span>Accept</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDismissTargetId(prop.proposal_id);
+                        setDismissReasonInput('');
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        background: 'var(--bg-surface, #ffffff)',
+                        color: 'var(--text-secondary, #475569)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main Call List Queue */}
       <div

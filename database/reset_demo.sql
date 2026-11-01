@@ -8,6 +8,8 @@ USE careloop;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. Truncate all transactional tables
+TRUNCATE TABLE agent_proposals;
+TRUNCATE TABLE scheduled_actions;
 TRUNCATE TABLE audit_log;
 TRUNCATE TABLE risk_snapshots;
 TRUNCATE TABLE risk_context;
@@ -95,9 +97,9 @@ INSERT INTO discharge_records (discharge_id, patient_id, attending_staff_id, dis
 INSERT INTO devices (device_id, patient_id, device_type, registered_at, last_seen_at, expected_interval_minutes) VALUES
 ('DEV-ESP32-001', 1, 'ESP32_Watch', NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 15 MINUTE, 60),
 ('DEV-ESP32-002', 2, 'ESP32_Watch', NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 8 HOUR,   60),
-('DEV-ESP32-003', 3, 'Simulator',   NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 20 MINUTE, 60),
-('DEV-ESP32-004', 4, 'Simulator',   NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 30 MINUTE, 60),
-('DEV-ESP32-005', 5, 'Simulator',   NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 45 MINUTE, 60);
+('DEV-ESP32-003', 3, 'ESP32_Watch', NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 20 MINUTE, 60),
+('DEV-ESP32-004', 4, 'ESP32_Watch', NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 30 MINUTE, 60),
+('DEV-ESP32-005', 5, 'ESP32_Watch', NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 45 MINUTE, 60);
 
 -- 9. Medicines (Synthetic Non-Brand Names)
 INSERT INTO medicines (medicine_id, medicine_name, general_notes) VALUES

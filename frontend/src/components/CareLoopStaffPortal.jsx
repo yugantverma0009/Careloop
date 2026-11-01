@@ -27,6 +27,7 @@ import OperationalInsights from './OperationalInsights';
 import DoctorLimitsView from './DoctorLimitsView';
 import DoctorFhirExportView from './DoctorFhirExportView';
 import NurseCallListView from './NurseCallListView';
+import RoundsView from './RoundsView';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -465,6 +466,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 ? [
                     { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
+                    { id: 'rounds', label: 'Rounds', Icon: IconClock },
                     { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: (doctorDecisions.cards?.summaries_to_approve || 0) + (doctorDecisions.cards?.limit_change_requests || 0) },
                     { id: 'limits', label: 'Patient limits', Icon: IconShieldCheck },
                     { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
@@ -474,6 +476,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
+                    { id: 'rounds', label: 'Rounds', Icon: IconClock },
                     { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
                   ]
               ).map((item) => {
@@ -1147,11 +1150,11 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                                     padding: '2px 8px',
                                     borderRadius: '12px',
                                     textTransform: 'uppercase',
-                                    background: item.tier === 'Immediate' ? '#fef2f2' : item.type === 'summary' ? '#eff6ff' : '#fffbeb',
-                                    color: item.tier === 'Immediate' ? '#dc2626' : item.type === 'summary' ? '#0284c7' : '#d97706',
+                                    background: item.tier === 'Immediate' ? '#fef2f2' : item.type === 'flag' ? '#fef3c7' : item.type === 'summary' ? '#eff6ff' : '#fffbeb',
+                                    color: item.tier === 'Immediate' ? '#dc2626' : item.type === 'flag' ? '#b45309' : item.type === 'summary' ? '#0284c7' : '#d97706',
                                   }}
                                 >
-                                  {item.tier === 'Immediate' ? 'Immediate Flag' : item.type === 'summary' ? 'AI Summary Draft' : 'Limit Proposal'}
+                                  {item.tier === 'Immediate' ? 'Immediate Flag' : item.type === 'flag' ? 'Urgent Flag' : item.type === 'summary' ? 'AI Summary Draft' : 'Limit Proposal'}
                                 </span>
                                 <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600, marginLeft: 'auto' }}>
                                   {item.waited_text}
@@ -1236,10 +1239,12 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       </div>
                       <div>
                         <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                          {doctorDecisions.quiet_patients?.message || 'Quiet patients: 2. Nothing open.'}
+                          {doctorDecisions.quiet_patients?.message || 'Quiet patients: 1. Nothing open.'}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
-                          Aarav Patel (CL-00001 · Day 3 Post-CABG) · Kabir Mehta (CL-00004 · Day 9 Appendectomy Convalescence)
+                          {doctorDecisions.quiet_patients?.patients && doctorDecisions.quiet_patients.patients.length > 0
+                            ? doctorDecisions.quiet_patients.patients.map(p => `${p.full_name} (${p.patient_code} · ${p.condition_summary || 'Recovery'})`).join(' · ')
+                            : 'All active patients currently have open reviews or tasks.'}
                         </div>
                       </div>
                     </div>
@@ -1268,6 +1273,11 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
               }}
               currentStaffId={user?.staff_id}
             />
+          )}
+
+          {/* TAB: ROUNDS (Feature F1: Scheduled Automation) */}
+          {activeNav === 'rounds' && (
+            <RoundsView currentUser={user} />
           )}
 
           {/* TAB: PATIENT CLINICAL CHART (Phase 2, D-05, D-06, D-12, D-18) */}

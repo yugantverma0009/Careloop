@@ -806,7 +806,7 @@ export default function FamilyPortal({ user }) {
                       <span>{lang === 'hi' ? '112 पर कॉल करें' : 'Call 112'}</span>
                     </a>
                     <a
-                      href="tel:+911126598800"
+                      href="tel:+915550190000"
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1035,7 +1035,7 @@ export default function FamilyPortal({ user }) {
                 {/* Hospital Desk */}
                 <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-card-hover)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    {lang === 'hi' ? 'केयरलूप अस्पताल 24/7 डेस्क' : 'CareLoop Hospital 24/7 Desk'}
+                    {lang === 'hi' ? 'केयरलूप अस्पताल हेल्पडेस्क' : 'CareLoop Hospital Desk'}
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
                     {lang === 'hi' ? 'सामान्य फॉलो-अप हेल्पडेस्क' : 'General Follow-Up Desk'}
@@ -1043,12 +1043,11 @@ export default function FamilyPortal({ user }) {
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
                     {lang === 'hi' ? 'फ़ोन:' : 'Phone:'}{' '}
                     <a
-                      href="tel:+911126598800"
+                      href="tel:+915550190000"
                       style={{ color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'none' }}
                     >
-                      +91-11-2659-8800
-                    </a>{' '}
-                    (24/7)
+                      +91-555-019-0000
+                    </a>
                   </div>
                 </div>
 

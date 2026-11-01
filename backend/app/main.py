@@ -2440,6 +2440,15 @@ def escalate_flag_now(
         if not fl:
             raise HTTPException(status_code=404, detail="Flag not found")
 
+        # Idempotent escalation check (Defect 5): do not insert duplicate escalation or audit row
+        cur.execute(
+            """SELECT escalation_id FROM escalations
+               WHERE flag_id = %s AND step_type = 'Doctor_Alert' AND delivery_status = 'Sent' LIMIT 1""",
+            (flag_id,),
+        )
+        if cur.fetchone():
+            return {"status": "already_escalated", "flag_id": flag_id}
+
         cur.execute(
             """INSERT INTO escalations (flag_id, step_no, step_type, channel, delivery_status, notes)
                VALUES (%s, 4, 'Doctor_Alert', 'Dashboard', 'Sent', %s)""",
@@ -2772,7 +2781,7 @@ def get_patient_directory(
                LEFT JOIN care_staff doc ON doc.staff_id = d.attending_staff_id
                LEFT JOIN care_assignments ca_n ON ca_n.patient_id = p.patient_id AND ca_n.assignment_role = 'Nurse'
                LEFT JOIN care_staff nurse ON nurse.staff_id = ca_n.staff_id
-               LEFT JOIN v_device_status dev ON dev.patient_id = p.patient_id AND dev.device_type = 'ESP32_Watch'
+               LEFT JOIN v_device_status dev ON dev.patient_id = p.patient_id
                LEFT JOIN v_medication_adherence adh ON adh.patient_id = p.patient_id
                ORDER BY p.patient_id ASC""",
             (staff_id,),
@@ -4109,8 +4118,22 @@ def get_shift_handoff(
                     (pid,)
                 )
                 spo2_rule = cur.fetchone()
-                spo2_thresh = int(spo2_rule["threshold_value"]) if spo2_rule else 94
-                contingency_note = f"Approved contingency: If SpO2 falls below approved limit of {spo2_thresh}% or acute symptoms develop, notify attending physician."
+                if spo2_rule:
+                    spo2_thresh = int(spo2_rule["threshold_value"])
+                    contingency_note = f"Approved contingency: If SpO2 falls below approved limit of {spo2_thresh}% or acute symptoms develop, notify attending physician."
+                else:
+                    cur.execute(
+                        """SELECT rule_type, measurement_type, threshold_value FROM alert_rules
+                           WHERE patient_id = %s AND is_active = 1 LIMIT 1""",
+                        (pid,)
+                    )
+                    other_rule = cur.fetchone()
+                    if other_rule:
+                        m_type = other_rule.get("measurement_type") or other_rule.get("rule_type")
+                        th_val = other_rule.get("threshold_value")
+                        contingency_note = f"Approved contingency: If {m_type} breaches approved limit of {th_val} or acute symptoms develop, notify attending physician."
+                    else:
+                        contingency_note = "Approved contingency: If acute symptoms develop or clinical status changes, notify attending physician."
 
             # Synthesis: check if received in last 12 hours
             cur.execute(
@@ -5065,13 +5088,21 @@ def get_patient_fhir_bundle(
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
+        # Deduplicate FHIR_EXPORT audit logging (throttle repeated GET fetches within 60s)
         cur.execute(
-            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-               VALUES ('Staff', %s, 'FHIR_EXPORT', 'patient', %s,
-                       JSON_OBJECT('entries_count', %s, 'exported_at', NOW()))""",
-            (str(user["staff_id"]), pid, bundle.get("total", 0)),
+            """SELECT log_id FROM audit_log
+               WHERE entity_type = 'patient' AND entity_id = %s AND action = 'FHIR_EXPORT'
+                 AND created_at >= NOW() - INTERVAL 60 SECOND LIMIT 1""",
+            (pid,),
         )
-        conn.commit()
+        if not cur.fetchone():
+            cur.execute(
+                """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                   VALUES ('Staff', %s, 'FHIR_EXPORT', 'patient', %s,
+                           JSON_OBJECT('entries_count', %s, 'exported_at', NOW()))""",
+                (str(user["staff_id"]), pid, bundle.get("total", 0)),
+            )
+            conn.commit()
 
     return bundle
 
@@ -6291,5 +6322,116 @@ def post_demo_simulate_reading(body: Optional[SimulateReadingIn] = None):
         "value": payload.value,
         "message": f"Simulated {payload.measurement_type} reading ({payload.value}{payload.unit}) ingested. Flag #{flag_id} raised and escalation ladder triggered.",
     }
+
+
+# ─── Feature F1: Rounds & Background Automation Endpoints ─────────────────────
+
+class PauseRoundsIn(BaseModel):
+    patient_id: int
+    hours: int = 4
+    reason: str
+
+class ResumeRoundsIn(BaseModel):
+    patient_id: int
+
+class DismissProposalIn(BaseModel):
+    dismiss_reason: str
+
+
+@app.get("/staff/rounds")
+def get_rounds_dashboard(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Rounds dashboard (Feature F1):
+    Next 24h lookahead, 24h history, active escalation timers, and summary counters.
+    """
+    from .rounds import get_rounds_overview
+    return get_rounds_overview()
+
+
+@app.post("/staff/rounds/pause")
+def pause_rounds_endpoint(
+    body: PauseRoundsIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Pause rounds for a patient with an explicit reason and end time."""
+    from .rounds import pause_patient_rounds
+    staff_id = user["staff_id"]
+    staff_role = user.get("role", "Nurse")
+    return pause_patient_rounds(body.patient_id, staff_id, staff_role, body.hours, body.reason)
+
+
+@app.post("/staff/rounds/resume")
+def resume_rounds_endpoint(
+    body: ResumeRoundsIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Resume rounds for a patient immediately."""
+    from .rounds import resume_patient_rounds
+    staff_id = user["staff_id"]
+    staff_role = user.get("role", "Nurse")
+    return resume_patient_rounds(body.patient_id, staff_id, staff_role)
+
+
+@app.post("/staff/rounds/run-now")
+def run_rounds_now(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Run due scheduled actions immediately (for demo and testing)."""
+    from .rounds import tick_rounds
+    result = tick_rounds(datetime.now())
+    return {"status": "success", "result": result}
+
+
+@app.get("/staff/patients/{patient_id}/agent-activity")
+def get_agent_activity_endpoint(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Returns agent activity feed for patient chart."""
+    from .rounds import get_patient_agent_activity
+    return get_patient_agent_activity(patient_id)
+
+
+@app.get("/staff/agent/proposals")
+def get_proposals_endpoint(
+    status: str = Query("Pending"),
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Returns proposals suggested by Rounds."""
+    from .rounds import get_agent_proposals
+    return get_agent_proposals(status)
+
+
+@app.post("/staff/agent/proposals/{proposal_id}/accept")
+def accept_proposal_endpoint(
+    proposal_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Accepts a proposal suggested by Rounds, creating a clinical task."""
+    from .rounds import accept_proposal
+    staff_id = user["staff_id"]
+    staff_role = user.get("role", "Nurse")
+    try:
+        return accept_proposal(proposal_id, staff_id, staff_role)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/staff/agent/proposals/{proposal_id}/dismiss")
+def dismiss_proposal_endpoint(
+    proposal_id: int,
+    body: DismissProposalIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Dismisses a proposal suggested by Rounds with a required clinical reason."""
+    from .rounds import dismiss_proposal
+    staff_id = user["staff_id"]
+    staff_role = user.get("role", "Nurse")
+    try:
+        return dismiss_proposal(proposal_id, staff_id, staff_role, body.dismiss_reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 

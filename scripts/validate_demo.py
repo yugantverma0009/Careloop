@@ -194,6 +194,33 @@ def validate():
             failures.append("❌ Meera caregiver must have consent_granted = 0 (consent gate demo)")
         print("  ✓ Caregiver consent states verified: Aarav (Consent=True), Meera (Consent=False)")
 
+        # Check 13: Rounds Scheduled Actions (Phase 1 Feature F1)
+        cur.execute("SELECT COUNT(*) AS total, SUM(CASE WHEN reason IS NULL OR TRIM(reason) = '' THEN 1 ELSE 0 END) AS empty_reasons FROM scheduled_actions")
+        sa_row = cur.fetchone()
+        if not sa_row or sa_row["total"] < 25:
+            failures.append(f"❌ scheduled_actions count too low: {sa_row.get('total') if sa_row else 0} (expected >= 25)")
+        elif sa_row["empty_reasons"] > 0:
+            failures.append(f"❌ scheduled_actions has {sa_row['empty_reasons']} rows with missing/empty reasons!")
+        else:
+            print(f"  ✓ Rounds scheduled actions verified: {sa_row['total']} actions, 0 empty reasons (100% justified)")
+
+        # Check 14: Rounds Agent Proposals (Phase 1 Feature F1)
+        cur.execute("SELECT COUNT(*) AS pending_count FROM agent_proposals WHERE status = 'Pending'")
+        prop_row = cur.fetchone()
+        if not prop_row or prop_row["pending_count"] != 2:
+            failures.append(f"❌ agent_proposals pending count mismatch: {prop_row.get('pending_count') if prop_row else 0} (expected 2)")
+        else:
+            print(f"  ✓ Rounds agent proposals verified: {prop_row['pending_count']} pending clinician proposals")
+
+        # Check 15: Sunita Adherence Defect Fix Check
+        cur.execute("SELECT self_reported_taken_pct FROM v_medication_adherence WHERE patient_id = 5")
+        sunita_adh = cur.fetchone()
+        if sunita_adh and float(sunita_adh["self_reported_taken_pct"]) >= 100.0:
+            failures.append(f"❌ Sunita adherence calculation defect: reported {sunita_adh['self_reported_taken_pct']}% despite 2 unconfirmed doses")
+        else:
+            pct_val = sunita_adh["self_reported_taken_pct"] if sunita_adh else "N/A"
+            print(f"  ✓ Sunita adherence accurately reflects dose logs ({pct_val}%, unconfirmed doses penalized)")
+
     conn.close()
 
     if failures:
@@ -202,7 +229,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 12 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 15 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 

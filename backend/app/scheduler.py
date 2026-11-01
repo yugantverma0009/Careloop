@@ -15,6 +15,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .db import get_conn
 
 from .escalation import run_escalations
+from .rounds import tick_rounds, generate_routine_scheduled_actions
 
 scheduler: BackgroundScheduler = None
 
@@ -80,6 +81,8 @@ def rule_cycle():
         cur.callproc("sp_evaluate_no_data_rules", (now,))
         # 5. Compute explainable risk priority score snapshots for consented patients
         cur.callproc("sp_compute_all_risk_snapshots", (now,))
+    # 6. Populate Rounds scheduled actions for today
+    generate_routine_scheduled_actions(now.date())
 
 
 def start():
@@ -89,10 +92,10 @@ def start():
         return
     scheduler = BackgroundScheduler()
     scheduler.add_job(rule_cycle, "interval", minutes=5, id="careloop_rule_cycle", replace_existing=True)
-    scheduler.add_job(send_due_reminders, "interval", minutes=1, id="careloop_reminders", replace_existing=True)
+    scheduler.add_job(tick_rounds, "interval", seconds=30, id="careloop_rounds_tick", replace_existing=True)
     scheduler.add_job(run_escalations, "interval", minutes=1, id="careloop_escalations", replace_existing=True)
     scheduler.start()
-    print("[Scheduler] ✅ CareLoop BackgroundScheduler active (rule_cycle=5m, reminders=1m, escalations=1m)")
+    print("[Scheduler] ✅ CareLoop BackgroundScheduler active (rule_cycle=5m, rounds_tick=30s, escalations=1m)")
 
 
 def shutdown():

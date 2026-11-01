@@ -107,10 +107,44 @@ def main():
                  datetime.combine(today, datetime.min.time()) + timedelta(hours=8))
             )
 
-            # Set Sunita's 2 missed doses in last 48 hours for rule evaluation
+            # Set Meera's past doses as Taken_Confirmed
+            cur.execute(
+                """UPDATE medication_logs ml
+                   JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+                   SET ml.status = 'Taken_Confirmed', ml.recorded_at = ml.scheduled_for + INTERVAL 10 MINUTE, ml.recorded_by = 'Patient'
+                   WHERE pr.patient_id = 2 AND ml.scheduled_for < %s""",
+                (now,)
+            )
+
+            # Set Rajesh's past doses as Taken_Confirmed
+            cur.execute(
+                """UPDATE medication_logs ml
+                   JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+                   SET ml.status = 'Taken_Confirmed', ml.recorded_at = ml.scheduled_for + INTERVAL 8 MINUTE, ml.recorded_by = 'Patient'
+                   WHERE pr.patient_id = 3 AND ml.scheduled_for < %s""",
+                (now,)
+            )
+
+            # Set Kabir's past doses as Taken_Confirmed (100% adherence)
+            cur.execute(
+                """UPDATE medication_logs ml
+                   JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+                   SET ml.status = 'Taken_Confirmed', ml.recorded_at = ml.scheduled_for + INTERVAL 5 MINUTE, ml.recorded_by = 'Patient'
+                   WHERE pr.patient_id = 4 AND ml.scheduled_for < %s""",
+                (now,)
+            )
+
+            # Set Sunita's past confirmed doses, leaving exactly 2 missed doses in last 48 hours for rule evaluation
+            cur.execute(
+                """UPDATE medication_logs ml
+                   JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
+                   SET ml.status = 'Taken_Confirmed', ml.recorded_at = ml.scheduled_for + INTERVAL 15 MINUTE, ml.recorded_by = 'Patient'
+                   WHERE pr.patient_id = 5 AND ml.scheduled_for < %s""",
+                (now,)
+            )
             cur.execute(
                 """UPDATE medication_logs
-                   SET status = 'Missed'
+                   SET status = 'Missed', recorded_at = NULL, recorded_by = NULL
                    WHERE prescription_id = (SELECT prescription_id FROM prescriptions WHERE patient_id = 5 LIMIT 1)
                      AND scheduled_for < %s
                    ORDER BY scheduled_for DESC LIMIT 2""",
@@ -271,7 +305,7 @@ def main():
                    VALUES (2, NOW() - INTERVAL 5 DAY, NOW(),
                            'Post-discharge Days 1 to 5 summary for Meera Sharma. Patient recovering from total knee arthroplasty. Prescribed JointEase-XR 1 tablet morning. Wearable device silent for 8 hours exceeding 6-hour approved threshold. Caregiver consent not granted. Follow-up clinic appointment scheduled in 7 days.',
                            'gemini-1.5-flash', 'Draft',
-                           JSON_OBJECT('adherence', '80%', 'vitals_count', 18, 'open_flags', 1, 'silent_hours', 8))"""
+                           JSON_OBJECT('day_number', 6, 'discharge_date', DATE_FORMAT(CURDATE() - INTERVAL 5 DAY, '%d %b %Y'), 'total_medications_scheduled', 1, 'total_doses_taken', 4, 'total_doses_skipped', 0, 'total_doses_unconfirmed', 1, 'adherence', '80%', 'vitals_count', 18, 'open_flags', 1, 'silent_hours', 8))"""
             )
             # Draft 2: Rajesh Verma
             cur.execute(
@@ -279,7 +313,7 @@ def main():
                    VALUES (3, NOW() - INTERVAL 4 DAY, NOW(),
                            'Post-discharge Days 1 to 4 summary for Rajesh Verma. Patient recovering from community pneumonia. Prescribed BronchoClear-10 twice daily. Patient submitted Hindi check-in matching emergency keyword for acute chest pain (pain score 8/10). Immediate clinical review pending with attending physician.',
                            'gemini-1.5-flash', 'Draft',
-                           JSON_OBJECT('adherence', '90%', 'vitals_count', 24, 'emergency_hits', 1, 'open_flags', 1))"""
+                           JSON_OBJECT('day_number', 5, 'discharge_date', DATE_FORMAT(CURDATE() - INTERVAL 4 DAY, '%d %b %Y'), 'total_medications_scheduled', 1, 'total_doses_taken', 6, 'total_doses_skipped', 1, 'total_doses_unconfirmed', 1, 'adherence', '75%', 'vitals_count', 24, 'emergency_hits', 1, 'open_flags', 1))"""
             )
             # Approved 1: Kabir Mehta
             cur.execute(
@@ -288,7 +322,7 @@ def main():
                            'Post-discharge Days 1 to 7 recovery note. Patient recovering from uncomplicated appendectomy. Adherence to GastroShield-D confirmed. Incision pain resolved. Wearable telemetry within limits.',
                            'gemini-1.5-flash', 'Approved', 1, NOW() - INTERVAL 1 DAY,
                            'Post-discharge Days 1 to 7 recovery note for Kabir Mehta. Patient recovering from uncomplicated appendectomy. Adherence to GastroShield-D confirmed at 95%. Incision pain resolved. Wearable telemetry within limits. Approved for standard recovery progression.',
-                           JSON_OBJECT('adherence', '95%', 'vitals_count', 42, 'open_flags', 0))"""
+                           JSON_OBJECT('day_number', 8, 'discharge_date', DATE_FORMAT(CURDATE() - INTERVAL 8 DAY, '%d %b %Y'), 'total_medications_scheduled', 1, 'total_doses_taken', 7, 'total_doses_skipped', 0, 'total_doses_unconfirmed', 0, 'adherence', '100%', 'vitals_count', 42, 'open_flags', 0))"""
             )
 
             # Step 10: Aarav's Exact 6 Chat Messages
@@ -389,6 +423,89 @@ def main():
                     """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details, created_at)
                        VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                     (atype, aid, action, etype, eid, json.dumps(details), cat)
+                )
+
+            # Step 13: Seed Scheduled Actions for Feature F1 Rounds (~15 upcoming, ~20 history)
+            print("  13. Seeding Rounds scheduled actions...")
+            cur.execute("TRUNCATE TABLE scheduled_actions")
+            cur.execute("TRUNCATE TABLE agent_proposals")
+
+            # 15 Upcoming Scheduled Actions (next 24 hours)
+            upcoming_actions = [
+                # Aarav Patel (Patient 1)
+                (1, "Dose_Reminder", "SMS", now + timedelta(hours=1), "Scheduled", "Dose reminder: VasculoNorm-5 scheduled for 13:00", json.dumps({"medicine": "VasculoNorm-5", "log_id": 2}), f"seed_up_1_{now.strftime('%Y%m%d%H')}"),
+                (1, "Dose_Reminder", "SMS", now + timedelta(hours=1, minutes=30), "Scheduled", "Follow-up reminder: VasculoNorm-5 (if unconfirmed)", json.dumps({"medicine": "VasculoNorm-5", "log_id": 2}), f"seed_up_2_{now.strftime('%Y%m%d%H')}"),
+                (1, "Dose_Reminder", "SMS", now + timedelta(hours=7, minutes=50), "Scheduled", "Dose reminder: CardioPulse-XR scheduled for 20:00", json.dumps({"medicine": "CardioPulse-XR", "log_id": 3}), f"seed_up_3_{now.strftime('%Y%m%d%H')}"),
+                (1, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_4_{now.strftime('%Y%m%d%H')}"),
+                # Meera Sharma (Patient 2)
+                (2, "Dose_Reminder", "SMS", now + timedelta(hours=17, minutes=50), "Scheduled", "Dose reminder: JointEase-XR scheduled for 09:00", json.dumps({"medicine": "JointEase-XR"}), f"seed_up_5_{now.strftime('%Y%m%d%H')}"),
+                (2, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_6_{now.strftime('%Y%m%d%H')}"),
+                (2, "Photo_Request", "App", now + timedelta(hours=4), "Scheduled", "Wound site visual check-in: Day 5 post-arthroplasty", json.dumps({"plan_item_id": 12}), f"seed_up_7_{now.strftime('%Y%m%d%H')}"),
+                # Rajesh Verma (Patient 3)
+                (3, "Dose_Reminder", "SMS", now + timedelta(hours=7, minutes=50), "Scheduled", "Dose reminder: BronchoClear-10 scheduled for 20:00", json.dumps({"medicine": "BronchoClear-10"}), f"seed_up_8_{now.strftime('%Y%m%d%H')}"),
+                (3, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_9_{now.strftime('%Y%m%d%H')}"),
+                # Kabir Mehta (Patient 4)
+                (4, "Dose_Reminder", "SMS", now + timedelta(hours=17, minutes=50), "Scheduled", "Dose reminder: GastroShield-D scheduled for 08:00", json.dumps({"medicine": "GastroShield-D"}), f"seed_up_10_{now.strftime('%Y%m%d%H')}"),
+                (4, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_11_{now.strftime('%Y%m%d%H')}"),
+                # Sunita Rao (Patient 5)
+                (5, "Dose_Reminder", "SMS", now + timedelta(hours=7, minutes=50), "Scheduled", "Dose reminder: CardioPulse-XR scheduled for 20:00", json.dumps({"medicine": "CardioPulse-XR"}), f"seed_up_12_{now.strftime('%Y%m%d%H')}"),
+                (5, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_13_{now.strftime('%Y%m%d%H')}"),
+                (5, "Welcome_Call_Task", "Task", now + timedelta(hours=22), "Scheduled", "Welcome follow-up call with assigned nurse", json.dumps({"channel": "Phone"}), f"seed_up_14_{now.strftime('%Y%m%d%H')}"),
+                (1, "Plan_Prompt", "App", now + timedelta(hours=8), "Scheduled", "Evening hydration & light ambulation reminder", json.dumps({"plan_item_id": 4}), f"seed_up_15_{now.strftime('%Y%m%d%H')}"),
+            ]
+            for pid, atype, chan, rat, stat, reas, pay, dkey in upcoming_actions:
+                cur.execute(
+                    """INSERT INTO scheduled_actions (patient_id, action_type, channel, run_at, status, reason, payload, dedupe_key)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (pid, atype, chan, rat, stat, reas, pay, dkey)
+                )
+
+            # 20 History Actions (past 24 hours: Done / Skipped with explicit reasons)
+            history_actions = [
+                # Aarav (Patient 1)
+                (1, "Dose_Reminder", "SMS", now - timedelta(hours=4), now - timedelta(hours=4), "Done", "Dose reminder: CardioPulse-XR scheduled for 08:00", "Sent reminder", f"seed_hist_1_{now.strftime('%Y%m%d%H')}"),
+                (1, "Checkin_Prompt", "App", now - timedelta(hours=3), now - timedelta(hours=3), "Done", "Scheduled morning recovery check-in prompt", "Prompt dispatched", f"seed_hist_2_{now.strftime('%Y%m%d%H')}"),
+                (1, "Dose_Reminder", "SMS", now - timedelta(hours=14), now - timedelta(hours=14), "Done", "Dose reminder: CardioPulse-XR scheduled for 20:00", "Sent reminder", f"seed_hist_3_{now.strftime('%Y%m%d%H')}"),
+                (1, "Dose_Reminder", "SMS", now - timedelta(hours=21), now - timedelta(hours=21), "Done", "Dose reminder: VasculoNorm-5 scheduled for 13:00", "Sent reminder", f"seed_hist_4_{now.strftime('%Y%m%d%H')}"),
+                # Meera (Patient 2)
+                (2, "Dose_Reminder", "SMS", now - timedelta(hours=3), now - timedelta(hours=3), "Done", "Dose reminder: JointEase-XR scheduled for 09:00", "Sent reminder", f"seed_hist_5_{now.strftime('%Y%m%d%H')}"),
+                (2, "Checkin_Prompt", "App", now - timedelta(hours=3), now - timedelta(hours=3), "Skipped", "Scheduled daily check-in prompt", "Blocked: Caregiver sharing not granted", f"seed_hist_6_{now.strftime('%Y%m%d%H')}"),
+                (2, "Dose_Reminder", "SMS", now - timedelta(hours=27), now - timedelta(hours=27), "Done", "Dose reminder: JointEase-XR scheduled for 09:00", "Sent reminder", f"seed_hist_7_{now.strftime('%Y%m%d%H')}"),
+                # Rajesh (Patient 3)
+                (3, "Dose_Reminder", "SMS", now - timedelta(hours=4), now - timedelta(hours=4), "Done", "Dose reminder: BronchoClear-10 scheduled for 08:00", "Sent reminder", f"seed_hist_8_{now.strftime('%Y%m%d%H')}"),
+                (3, "Checkin_Prompt", "App", now - timedelta(hours=3), now - timedelta(hours=3), "Done", "Scheduled daily check-in prompt", "Prompt dispatched", f"seed_hist_9_{now.strftime('%Y%m%d%H')}"),
+                (3, "Dose_Reminder", "SMS", now - timedelta(hours=14), now - timedelta(hours=14), "Done", "Dose reminder: BronchoClear-10 scheduled for 20:00", "Sent reminder", f"seed_hist_10_{now.strftime('%Y%m%d%H')}"),
+                (3, "Plan_Prompt", "App", now - timedelta(hours=1), now - timedelta(hours=1), "Skipped", "Post-meal deep breathing exercise prompt", "Blocked: Patient has an active emergency flag; non-emergency automation is suppressed.", f"seed_hist_11_{now.strftime('%Y%m%d%H')}"),
+                # Kabir (Patient 4)
+                (4, "Dose_Reminder", "SMS", now - timedelta(hours=4), now - timedelta(hours=4), "Done", "Dose reminder: GastroShield-D scheduled for 08:00", "Sent reminder", f"seed_hist_12_{now.strftime('%Y%m%d%H')}"),
+                (4, "Checkin_Prompt", "App", now - timedelta(hours=3), now - timedelta(hours=3), "Done", "Scheduled daily check-in prompt", "Prompt dispatched", f"seed_hist_13_{now.strftime('%Y%m%d%H')}"),
+                (4, "Dose_Reminder", "SMS", now - timedelta(hours=28), now - timedelta(hours=28), "Done", "Dose reminder: GastroShield-D scheduled for 08:00", "Sent reminder", f"seed_hist_14_{now.strftime('%Y%m%d%H')}"),
+                # Sunita (Patient 5)
+                (5, "Dose_Reminder", "SMS", now - timedelta(hours=4), now - timedelta(hours=4), "Done", "Dose reminder: CardioPulse-XR scheduled for 08:00", "Sent reminder", f"seed_hist_15_{now.strftime('%Y%m%d%H')}"),
+                (5, "Dose_Reminder", "SMS", now - timedelta(hours=3, minutes=30), now - timedelta(hours=3, minutes=30), "Done", "Follow-up reminder: CardioPulse-XR (dose unconfirmed)", "Sent follow-up reminder", f"seed_hist_16_{now.strftime('%Y%m%d%H')}"),
+                (5, "Checkin_Prompt", "App", now - timedelta(hours=3), now - timedelta(hours=3), "Done", "Scheduled daily check-in prompt", "Prompt dispatched", f"seed_hist_17_{now.strftime('%Y%m%d%H')}"),
+                (5, "Dose_Reminder", "SMS", now - timedelta(hours=14), now - timedelta(hours=14), "Done", "Dose reminder: CardioPulse-XR scheduled for 20:00", "Sent reminder", f"seed_hist_18_{now.strftime('%Y%m%d%H')}"),
+                (5, "Dose_Reminder", "SMS", now - timedelta(hours=13, minutes=30), now - timedelta(hours=13, minutes=30), "Done", "Follow-up reminder: CardioPulse-XR (dose unconfirmed)", "Sent follow-up reminder", f"seed_hist_19_{now.strftime('%Y%m%d%H')}"),
+                (1, "Dose_Reminder", "SMS", now - timedelta(hours=7), now - timedelta(hours=7), "Skipped", "Scheduled 01:00 nighttime dose check", "Blocked by quiet hours policy (22:00 to 07:00). Scheduled for morning.", f"seed_hist_20_{now.strftime('%Y%m%d%H')}"),
+            ]
+            for pid, atype, chan, rat, dat, stat, reas, res, dkey in history_actions:
+                cur.execute(
+                    """INSERT INTO scheduled_actions (patient_id, action_type, channel, run_at, done_at, status, reason, result, dedupe_key)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (pid, atype, chan, rat, dat, stat, reas, res, dkey)
+                )
+
+            # Step 14: Seed Agent Proposals (2 pending proposals)
+            print("  14. Seeding Rounds agent proposals...")
+            proposals = [
+                (1, "Rounds", "Suggest_Call", "Call Aarav: 2 check-ins unanswered", json.dumps({"missed_checkins": 2, "last_completed": str(today - timedelta(days=1))})),
+                (2, "Rounds", "Suggest_Photo", "Ask for a photo today: Day 5 post-arthroplasty wound check due", json.dumps({"post_op_day": 5, "condition": "Total Knee Arthroplasty"})),
+            ]
+            for pid, aname, ptype, reas, evid in proposals:
+                cur.execute(
+                    """INSERT INTO agent_proposals (patient_id, agent_name, proposal_type, reason, evidence, status, created_at)
+                       VALUES (%s, %s, %s, %s, %s, 'Pending', %s)""",
+                    (pid, aname, ptype, reas, evid, now - timedelta(hours=1))
                 )
 
         conn.commit()
