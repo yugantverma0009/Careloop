@@ -40,6 +40,8 @@ import {
   IconClock,
   IconBell,
   IconMic,
+  IconVolume2,
+  IconSquare,
   IconThumbsUp,
   IconThumbsDown,
   IconX,
@@ -126,6 +128,22 @@ export default function CareLoopPatientPortal({ user }) {
   const [feedbackState, setFeedbackState] = useState({});
   const [activeFeedbackPromptId, setActiveFeedbackPromptId] = useState(null);
   const [careTeamContactState, setCareTeamContactState] = useState({});
+
+  // Voice & Speech Recognition State (Phase 3)
+  const [isChatListening, setIsChatListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [handsFree, setHandsFree] = useState(false);
+  const [voiceAutoplay, setVoiceAutoplay] = useState(() => {
+    try {
+      return localStorage.getItem('careloop_voice_autoplay') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+  const [showVoiceNotice, setShowVoiceNotice] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState(null);
+  const chatRecognitionRef = useRef(null);
+  const handsFreeTimeoutRef = useRef(null);
 
   // Active navigation sidebar tab: 'recovery', 'prescriptions', 'checkin', 'chat'
   const [activeNav, setActiveNav] = useState('recovery');
@@ -859,6 +877,9 @@ export default function CareLoopPatientPortal({ user }) {
           created_at: new Date().toISOString(),
         },
       ]);
+      if (voiceAutoplay && asstText) {
+        speakAnswer(asstText, lang, res.message_id || `asst-${Date.now()}`);
+      }
     } catch (err) {
       console.error('Chat error', err);
       setChatMessages((prev) => [
@@ -938,6 +959,178 @@ export default function CareLoopPatientPortal({ user }) {
     const newConv = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`;
     setConversationId(newConv);
     setChatMessages([]);
+  };
+
+  // ─── Phase 3 Voice Methods ───────────────────────────────────────────────
+
+  // Plain-code Emergency Keywords Check (Safety Rule 2)
+  const checkVoiceEmergency = (text) => {
+    if (!text) return false;
+    const t = text.toLowerCase();
+    const emergencyTerms = [
+      'chest pain', 'severe chest pain', 'cannot breathe', 'hard to breathe',
+      'trouble breathing', 'suffocating', 'unconscious', 'fainted', 'bleeding heavily',
+      'severe bleeding', 'seizure', 'heart attack',
+      'सीने में दर्द', 'सीने में बहुत तेज दर्द', 'सांस नहीं', 'सांस लेने में तकलीफ',
+      'सांस फूलना', 'बेहोश', 'चक्कर', 'असहनीय दर्द'
+    ];
+    return emergencyTerms.some((term) => t.includes(term));
+  };
+
+  const handleVoiceEmergencyTrigger = (transcriptText) => {
+    if (chatRecognitionRef.current) {
+      try { chatRecognitionRef.current.abort(); } catch (e) {}
+    }
+    setIsChatListening(false);
+    setInterimTranscript('');
+
+    const emergencyAnswer = lang === 'hi'
+      ? 'यह आपातकालीन स्थिति हो सकती है। अगर सीने में तेज़ दर्द हो या सांस लेने में परेशानी हो, तो तुरंत 112 पर कॉल करें। आपकी केयर टीम को सूचित कर दिया गया है।'
+      : 'This may be an emergency. If you have severe chest pain or trouble breathing, call 112 now. Your care team has been told.';
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `voice-usr-${Date.now()}`,
+        role: 'user',
+        sender: 'Patient',
+        message_text: transcriptText,
+        created_at: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
+      },
+      {
+        id: `voice-emg-${Date.now()}`,
+        role: 'assistant',
+        sender: 'AI_Assistant',
+        message_text: emergencyAnswer,
+        answer_type: 'emergency',
+        sources: [],
+        created_at: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
+      },
+    ]);
+  };
+
+  const startRecognition = () => {
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert(lang === 'hi' ? 'इस ब्राउज़र में वॉयस उपलब्ध नहीं है' : 'Voice is not available in this browser');
+      return;
+    }
+
+    try {
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = lang === 'hi' ? 'hi-IN' : 'en-IN';
+
+      rec.onresult = (event) => {
+        let finalTx = '';
+        let interimTx = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const trans = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTx += trans;
+          } else {
+            interimTx += trans;
+          }
+        }
+
+        const candidateText = (finalTx || interimTx).trim();
+        // Safety Rule 2: Emergency detection runs on interim and final before LLM
+        if (checkVoiceEmergency(candidateText)) {
+          handleVoiceEmergencyTrigger(candidateText);
+          return;
+        }
+
+        if (finalTx.trim()) {
+          setChatInput((prev) => (prev ? `${prev} ${finalTx.trim()}` : finalTx.trim()));
+          setInterimTranscript('');
+          if (handsFree) {
+            if (handsFreeTimeoutRef.current) clearTimeout(handsFreeTimeoutRef.current);
+            handsFreeTimeoutRef.current = setTimeout(() => {
+              handleSendMessage(null, finalTx.trim());
+            }, 1400);
+          }
+        } else {
+          setInterimTranscript(interimTx);
+        }
+      };
+
+      rec.onerror = (err) => {
+        console.warn('Speech recognition error:', err);
+        setIsChatListening(false);
+      };
+
+      rec.onend = () => {
+        setIsChatListening(false);
+      };
+
+      chatRecognitionRef.current = rec;
+      rec.start();
+      setIsChatListening(true);
+    } catch (e) {
+      console.error('Failed to start speech recognition:', e);
+      setIsChatListening(false);
+    }
+  };
+
+  const toggleListening = () => {
+    if (isChatListening) {
+      if (chatRecognitionRef.current) {
+        try { chatRecognitionRef.current.stop(); } catch (e) {}
+      }
+      setIsChatListening(false);
+      setInterimTranscript('');
+      return;
+    }
+
+    const SpeechRecognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SpeechRecognition) {
+      alert(lang === 'hi' ? 'इस ब्राउज़र में वॉयस उपलब्ध नहीं है' : 'Voice is not available in this browser');
+      return;
+    }
+
+    const seen = localStorage.getItem('careloop_voice_notice_seen');
+    if (seen !== 'true') {
+      setShowVoiceNotice(true);
+      return;
+    }
+
+    startRecognition();
+  };
+
+  const speakAnswer = (text, langCode, msgId) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      if (speakingMsgId === msgId) {
+        setSpeakingMsgId(null);
+        return;
+      }
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = langCode === 'hi' ? 'hi-IN' : 'en-IN';
+
+    utterance.onstart = () => {
+      setSpeakingMsgId(msgId);
+    };
+
+    utterance.onend = () => {
+      setSpeakingMsgId(null);
+      if (handsFree) {
+        setTimeout(() => {
+          startRecognition();
+        }, 800);
+      }
+    };
+
+    utterance.onerror = () => {
+      setSpeakingMsgId(null);
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
   // Derived telemetry metrics (filtered so invalid noise never becomes the headline)
@@ -4729,6 +4922,56 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Hands-free Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setHandsFree(!handsFree)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      borderRadius: '8px',
+                      border: handsFree ? '1px solid var(--accent-blue, #0284c7)' : '1px solid var(--border-subtle, #cbd5e1)',
+                      background: handsFree ? 'var(--accent-blue-soft, #eff6ff)' : 'transparent',
+                      color: handsFree ? 'var(--accent-blue, #0284c7)' : 'var(--text-secondary, #475569)',
+                      fontSize: '11px',
+                      fontWeight: handsFree ? 700 : 500,
+                      cursor: 'pointer',
+                    }}
+                    title={lang === 'hi' ? 'हैंड्स-फ्री मोड (ऑटो-सेंड और उत्तर सुनना)' : 'Hands-free mode (auto-send & listen)'}
+                  >
+                    <span>🎙️</span>
+                    <span>{lang === 'hi' ? 'हैंड्स-फ्री' : 'Hands-free'}</span>
+                  </button>
+
+                  {/* Read Aloud Autoplay Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !voiceAutoplay;
+                      setVoiceAutoplay(next);
+                      try { localStorage.setItem('careloop_voice_autoplay', String(next)); } catch(e){}
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      borderRadius: '8px',
+                      border: voiceAutoplay ? '1px solid var(--accent-blue, #0284c7)' : '1px solid var(--border-subtle, #cbd5e1)',
+                      background: voiceAutoplay ? 'var(--accent-blue-soft, #eff6ff)' : 'transparent',
+                      color: voiceAutoplay ? 'var(--accent-blue, #0284c7)' : 'var(--text-secondary, #475569)',
+                      fontSize: '11px',
+                      fontWeight: voiceAutoplay ? 700 : 500,
+                      cursor: 'pointer',
+                    }}
+                    title={lang === 'hi' ? 'उत्तर बोलकर सुनाएं' : 'Read answers aloud automatically'}
+                  >
+                    <IconVolume2 width={12} height={12} />
+                    <span>{lang === 'hi' ? 'बोलकर सुनाएं' : 'Read aloud'}</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleNewChat}
@@ -5152,6 +5395,29 @@ export default function CareLoopPatientPortal({ user }) {
                                 <IconThumbsDown width={13} height={13} />
                               </button>
 
+                              {/* Listen Button (Speech Synthesis) */}
+                              <button
+                                type="button"
+                                onClick={() => speakAnswer(msg.message_text, msg.language || lang, msgId)}
+                                style={{
+                                  background: speakingMsgId === msgId ? 'var(--accent-blue-soft, #eff6ff)' : 'none',
+                                  border: speakingMsgId === msgId ? '1px solid var(--accent-blue, #0284c7)' : 'none',
+                                  color: speakingMsgId === msgId ? 'var(--accent-blue, #0284c7)' : 'var(--text-muted, #94a3b8)',
+                                  padding: '2px 6px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  borderRadius: '4px',
+                                  fontWeight: 600,
+                                  fontSize: '11px',
+                                }}
+                                title={lang === 'hi' ? 'उत्तर सुनें' : 'Listen to this answer'}
+                              >
+                                <IconVolume2 width={13} height={13} />
+                                <span>{speakingMsgId === msgId ? (lang === 'hi' ? 'रोकें' : 'Stop') : (lang === 'hi' ? 'सुनें' : 'Listen')}</span>
+                              </button>
+
                               {feedback?.rating === 1 && (
                                 <span style={{ fontSize: '10px', color: 'var(--accent-teal, #0d9488)' }}>
                                   {lang === 'hi' ? 'धन्यवाद!' : 'Helpful'}
@@ -5241,6 +5507,56 @@ export default function CareLoopPatientPortal({ user }) {
                 <div ref={chatEndRef} />
               </div>
 
+              {/* Listening status / Interim heard preview (Review-before-send) */}
+              {(isChatListening || interimTranscript) && (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    marginBottom: '8px',
+                    borderRadius: '8px',
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: '#dc2626',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: '#ef4444',
+                    }}
+                  />
+                  <strong style={{ fontWeight: 600 }}>
+                    {lang === 'hi' ? 'सुना जा रहा है...' : 'Listening...'}
+                  </strong>
+                  {interimTranscript && (
+                    <span style={{ color: 'var(--text-secondary, #475569)', fontStyle: 'italic', marginLeft: '4px' }}>
+                      "{interimTranscript}"
+                    </span>
+                  )}
+                  {handsFree && (
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        fontSize: '10px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: 'var(--accent-teal, #0d9488)',
+                        color: '#ffffff',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {lang === 'hi' ? 'हैंड्स-फ्री सक्रिय' : 'Hands-free active'}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Chat Input Form */}
               <form
                 onSubmit={handleSendMessage}
@@ -5272,6 +5588,30 @@ export default function CareLoopPatientPortal({ user }) {
                     outline: 'none',
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  title={isChatListening ? (lang === 'hi' ? 'माइक बंद करें' : 'Stop listening') : (lang === 'hi' ? 'बोलकर पूछें' : 'Speak to assistant')}
+                  aria-label={isChatListening ? 'Stop listening' : 'Speak to assistant'}
+                  style={{
+                    padding: '0 14px',
+                    borderRadius: '8px',
+                    border: isChatListening ? '1px solid #ef4444' : '1px solid var(--border-strong, #cbd5e1)',
+                    background: isChatListening ? '#fee2e2' : 'var(--bg-surface-alt, #f8fafc)',
+                    color: isChatListening ? '#dc2626' : 'var(--text-secondary, #475569)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {isChatListening ? (
+                    <IconSquare width={14} height={14} />
+                  ) : (
+                    <IconMic width={16} height={16} />
+                  )}
+                </button>
                 <button
                   type="submit"
                   disabled={chatLoading || !chatInput.trim()}
@@ -5555,6 +5895,102 @@ export default function CareLoopPatientPortal({ user }) {
                 }}
               >
                 {lang === 'hi' ? 'बंद करें' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Voice Privacy Notice Modal */}
+      {showVoiceNotice && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 120,
+          }}
+          onClick={() => setShowVoiceNotice(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="voice-notice-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '20px 24px',
+              maxWidth: '440px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: 'rgba(13, 148, 136, 0.12)',
+                  color: 'var(--accent-teal, #0d9488)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <IconMic width={18} height={18} />
+              </div>
+              <h4 id="voice-notice-title" style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                {lang === 'hi' ? 'वॉयस गोपनीयता सूचना' : 'Voice Privacy Notice'}
+              </h4>
+            </div>
+            <p style={{ margin: '0 0 16px 0', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary, #475569)' }}>
+              {lang === 'hi'
+                ? 'वॉयस आपके ब्राउज़र की स्पीच सेवा का उपयोग करती है। CareLoop आपकी रिकॉर्डिंग नहीं रखता, केवल टेक्स्ट रखता है।'
+                : "Voice uses your browser's speech service. CareLoop does not keep your recording, only the text."}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowVoiceNotice(false)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-strong, #cbd5e1)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary, #475569)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {lang === 'hi' ? 'रद्द करें' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try { localStorage.setItem('careloop_voice_notice_seen', 'true'); } catch (e) {}
+                  setShowVoiceNotice(false);
+                  startRecognition();
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'var(--accent-teal, #0d9488)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {lang === 'hi' ? 'समझ गया' : 'Got it'}
               </button>
             </div>
           </div>
