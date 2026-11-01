@@ -7,7 +7,7 @@ import { IconActivity } from './Icons';
  * 
  * Provides operational transparency into triage SLA compliance,
  * false alarm rates, self-reported adherence, and device uptime.
- * Strictly avoids outcome claims (readmission rate, recovery rate).
+ * Strictly avoids unprovable outcome claims.
  */
 export default function OperationalInsights() {
   const [dateRange, setDateRange] = useState('30d'); // '7d', '30d', '90d'
@@ -357,7 +357,7 @@ export default function OperationalInsights() {
       {/* 5. Metrics Definitions Footnote */}
       <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)', borderRadius: '10px', padding: '16px 20px', fontSize: '11px', color: 'var(--text-muted, #64748b)', lineHeight: '1.6' }}>
         <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
-          Clinical Governance & Definition Lineage (D-14)
+          Clinical Definitions & Lineage
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '8px', marginBottom: '8px' }}>
           {Object.entries(defs).map(([k, desc]) => (
@@ -367,7 +367,7 @@ export default function OperationalInsights() {
           ))}
         </div>
         <div>
-          In strict adherence to D-14, all metrics reflect internal response workflows and hardware connectivity. No predictive recovery rates or external hospital benchmarks are calculated.
+          All metrics reflect internal response workflows and hardware connectivity. No outcome claims or external hospital benchmarks are calculated.
         </div>
       </div>
     </div>

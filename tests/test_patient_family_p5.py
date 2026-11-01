@@ -9,7 +9,7 @@ Verifies:
 4. Patient Chat ("Ask my papers"): Grounded answers with sources, refusal on dose inquiries,
    and deduplicated care-team follow-up task creation.
 5. Patient Calendar: .ics calendar file generation and download.
-6. Real-time Consent Gating: Toggling family consent off immediately blocks family access (403),
+6. Immediate Consent Gating: Toggling family consent off immediately blocks family access (403),
    toggling on immediately restores access.
 7. Family Today: Calm "What you may need to do" guidance, zero clinical symptom or pain score leakage,
    status-only dose cards, and "I helped Aarav take it" dose confirmation logged as Caregiver.
@@ -259,7 +259,7 @@ def test_patient_ics_download(patient_token):
     assert "END:VCALENDAR" in ics_text
 
 
-# ─── 6. Real-Time Family Consent Gating ──────────────────────────────────────
+# ─── 6. Immediate Family Consent Gating ──────────────────────────────────────
 
 def test_family_consent_toggle_immediate_cutoff(patient_token, family_token):
     """
@@ -397,7 +397,7 @@ def test_family_calendar_and_contacts(family_token):
     con_data = res_con.json()
     assert con_data["attending_doctor"]["name"] == "Dr. Ananya Sharma"
     assert con_data["assigned_nurse"]["name"] == "Priya Nair"
-    assert con_data["hospital_desk"]["phone"] == "+91-11-2659-8800"
+    assert con_data["hospital_desk"]["phone"] == "+91-98765-00000"
     assert con_data["emergency"]["number"] == "112"
 
 

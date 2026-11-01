@@ -1,7 +1,7 @@
 """
 backend/app/automation_policy.py — CareLoop Automation Policy & Safety Gate
 
-Governs what the background automation / Rounds may perform autonomously:
+Governs what the background automation / Rounds may perform automatically:
 - Rule: "Automate the routine. Propose the rest. Humans decide."
 - Quiet hours: 22:00 - 07:00 (only SOS, emergency escalations, and 'Are you OK?' fall prompts may bypass).
 - Dose reminder limits: At most 2 reminders per scheduled dose.

@@ -574,3 +574,4 @@ export default function PatientMyPlanView({ lang = 'en', onAskAssistant }) {
     </div>
   );
 }
+

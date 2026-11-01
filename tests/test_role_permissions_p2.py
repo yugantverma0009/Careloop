@@ -197,7 +197,7 @@ def test_patient_identity_isolation(tokens):
 
 def test_family_sharing_consent_toggle(tokens):
     """
-    Test real-time consent enforcement:
+    Test immediate consent enforcement:
     1. Neha accesses /family/today -> 200 OK
     2. Aarav turns sharing OFF -> POST /patient/me/sharing {"enabled": false}
     3. Neha immediately accesses /family/today -> 403 Forbidden ('Sharing turned off')

@@ -5,7 +5,7 @@ Responsibilities:
 1. Deterministic image quality verification (resolution, Laplacian sharpness variance, mean brightness).
 2. Privacy compliance: EXIF stripping, SHA-256 hashing, storage outside web root.
 3. Strict role-based access control (Caregivers forbidden 403, patients own-only, staff full access).
-4. Human-only clinical review (no automated medical diagnostic claims or AI infection detection).
+4. Human-only clinical review (no automated medical diagnostic claims).
 5. Audit logging for every upload, view, review, and retention purge.
 """
 

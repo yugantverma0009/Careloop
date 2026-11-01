@@ -233,7 +233,7 @@ def compute_lace_score(
     ed_visits_6m: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Computes published LACE readmission risk index (0 to 19).
+    Computes published LACE risk index (0 to 19).
     L = Length of stay (<1d: 0, 1d: 1, 2d: 2, 3d: 3, 4-6d: 4, 7-13d: 5, >=14d: 7)
     A = Acute admission (+3 if true, 0 if false)
     C = Charlson comorbidity index (0: 0, 1: 1, 2: 2, 3: 3, >=4: 5)

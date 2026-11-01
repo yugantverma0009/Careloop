@@ -212,7 +212,7 @@ export default function PatientOverviewTab({
       for (const rule of selectedPathway.rules || []) {
         const val = pathwayFormValues[rule.key];
         if (val === undefined || val === null || String(val).trim() === '') {
-          alert(`Please fill in the threshold value for "${rule.rule_type.replace(/_/g, ' ')}". Defaults are strictly blank per D-13.`);
+          alert(`Please fill in the threshold value for "${rule.rule_type.replace(/_/g, ' ')}". Defaults are strictly blank.`);
           setPathwaySubmitting(false);
           return;
         }
@@ -1116,7 +1116,7 @@ export default function PatientOverviewTab({
                 )}
               </div>
 
-              {/* Card 4: LACE Readmission Risk Context (D-20) */}
+              {/* Card 4: LACE Risk Context */}
               <div
                 style={{
                   background: 'var(--bg-surface, #ffffff)',
@@ -1129,7 +1129,7 @@ export default function PatientOverviewTab({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                      LACE Readmission Risk Context
+                      LACE Risk Context
                     </div>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
                       Clinician-entered &bull; Context only &bull; Non-automated
@@ -1209,7 +1209,7 @@ export default function PatientOverviewTab({
                   </div>
                 ) : (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', padding: '12px 0', textAlign: 'center' }}>
-                    No LACE index recorded yet. Click above to calculate post-discharge readmission risk context.
+                    No LACE index recorded yet. Click above to calculate post-discharge risk context.
                   </div>
                 )}
               </div>
@@ -1881,7 +1881,7 @@ export default function PatientOverviewTab({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
                 <div>
                   <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
-                    Clinician-Approved Trigger Rules & Pathway Overrides (D-05, D-13)
+                    Clinician-Approved Trigger Rules & Pathway Overrides
                   </h3>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
                     Threshold modifications write an append-only audit trail with mandatory clinical justification.
@@ -2358,7 +2358,7 @@ export default function PatientOverviewTab({
                     Clinical Documentation & Contact Log
                   </h3>
                   <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-                    Append-only clinician records (D-16) and multi-channel patient interaction audit trail (D-15).
+                    Append-only clinician records and multi-channel patient interaction audit trail.
                   </p>
                 </div>
 
@@ -3890,7 +3890,7 @@ export default function PatientOverviewTab({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                    Apply Pathway Trigger Template (D-13)
+                    Apply Pathway Trigger Template
                   </h3>
                   <button
                     type="button"
@@ -4083,7 +4083,7 @@ export default function PatientOverviewTab({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                    Rule Threshold Audit History (D-13)
+                    Rule Threshold Audit History
                   </h3>
                   <button
                     type="button"
@@ -4301,7 +4301,7 @@ export default function PatientOverviewTab({
             </div>
           )}
 
-          {/* Modal: Calculate LACE Readmission Risk Score (D-20) */}
+          {/* Modal: Calculate LACE Risk Score */}
           {laceModalOpen && (
             <div
               style={{
@@ -4330,7 +4330,7 @@ export default function PatientOverviewTab({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                    LACE Readmission Risk Index (D-20)
+                    LACE Risk Index
                   </h3>
                   <button
                     type="button"

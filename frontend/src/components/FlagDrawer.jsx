@@ -460,7 +460,7 @@ export default function FlagDrawer({
                     Clinical Rationale & Approved Limit
                   </div>
                   <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: 'var(--role-doctor, #7c3aed)', color: '#ffffff' }}>
-                    Physician Verified
+                    Approved by Dr. Sharma
                   </span>
                 </div>
                 <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '4px' }}>

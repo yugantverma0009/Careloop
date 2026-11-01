@@ -336,7 +336,7 @@ def ingest_reading(r: ReadingIn, x_device_key: str = Header(...)):
     Idempotent IoT reading ingestion endpoint.
     - Authenticates device via X-Device-Key header.
     - Converts UTC epoch seconds to Asia/Kolkata (IST).
-    - Prevents duplicates via UNIQUE (device_id, measurement_type, measured_at).
+    - Avoids duplicates via UNIQUE (device_id, measurement_type, measured_at).
     - Triggers in MySQL automatically evaluate approved alert_rules and update heartbeat.
     """
     configured_key = os.getenv("DEVICE_API_KEY", "demo-device-key-change-me")
@@ -5165,7 +5165,7 @@ def get_operational_insights(
 ):
     """
     D-14: Operational insights dashboard.
-    Returns metrics with transparent clinical definitions (NO outcome/readmission claims).
+    Returns metrics with transparent clinical definitions (NO unprovable outcome claims).
     """
     with get_conn() as conn:
         return compute_operational_insights(conn, date_range=date_range)
@@ -5708,9 +5708,9 @@ def get_family_contacts(user: Dict[str, Any] = Depends(require_family)):
             "phone": "+91-98765-01002",
         },
         "hospital_desk": {
-            "name": "CareLoop Hospital 24/7 Desk",
-            "phone": "+91-11-2659-8800",
-            "hours": "24/7 Mon-Sun",
+            "name": "CareLoop Clinic Support Desk",
+            "phone": "+91-98765-00000",
+            "hours": "08:00 - 20:00 Mon-Sat",
         },
         "emergency": {
             "number": "112",

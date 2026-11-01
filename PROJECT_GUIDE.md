@@ -1,73 +1,134 @@
 # CareLoop Technical & Clinical Architecture Guide
 
+> [!IMPORTANT]
+> **Synthetic-data prototype, not a medical device.**  
+> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring workflows. All patient records, clinical notes, telemetry readings, wound photos, and thresholds are synthetic test data. It is not approved for clinical diagnostic use, does not establish medical diagnoses, and never replaces professional clinical judgment.
+
+---
+
 ## Table of Contents
-1. [Overview and Goals](#1-overview-and-goals)
-2. [Architecture Diagram and Data Flow](#2-architecture-diagram-and-data-flow)
-3. [Technology Stack](#3-technology-stack)
-4. [Repository Folder Structure](#4-repository-folder-structure)
-5. [Frontend Workstations & Design Tokens](#5-frontend-workstations--design-tokens)
-6. [Backend Services, Endpoints & Escalation](#6-backend-services-endpoints--escalation)
+1. [Overview, Positioning & Scope Boundaries](#1-overview-positioning--scope-boundaries)
+2. [What CareLoop Adds: Comparison Table](#2-what-careloop-adds-comparison-table)
+3. [Architecture Diagram and End-to-End Data Flow](#3-architecture-diagram-and-end-to-end-data-flow)
+4. [Technology Stack](#4-technology-stack)
+5. [Repository Folder Structure](#5-repository-folder-structure)
+6. [Core Services & Capabilities](#6-core-services--capabilities)
+   - [6.1 Rounds & Automation Policy](#61-rounds--automation-policy)
+   - [6.2 Two-Way SMS & Guided Check-in](#62-two-way-sms--guided-check-in)
+   - [6.3 Wound Photo Quality Check & Review](#63-wound-photo-quality-check--review)
+   - [6.4 Recovery Plan Drafter & Admission](#64-recovery-plan-drafter--admission)
+   - [6.5 Watch Events & Possible Fall Service](#65-watch-events--possible-fall-service)
+   - [6.6 Grounded RAG Assistant & Safety Gates](#66-grounded-rag-assistant--safety-gates)
 7. [Database Schema, Views, Procedures & Triggers](#7-database-schema-views-procedures--triggers)
-8. [AI Pipeline & Clinical Safeguards](#8-ai-pipeline--clinical-safeguards)
-9. [Roles, Permissions & Escalation Chain](#9-roles-permissions--escalation-chain)
-10. [Safety Principles & Honesty Boundaries](#10-safety-principles--honesty-boundaries)
-11. [Synthetic Demo Cast & Walkthrough Script](#11-synthetic-demo-cast--walkthrough-script)
-12. [Device Telemetry, ESP32 Firmware & Simulator](#12-device-telemetry-esp32-firmware--simulator)
-13. [Testing Strategy & Kept Test Suites](#13-testing-strategy--kept-test-suites)
-14. [Troubleshooting & Verification](#14-troubleshooting--verification)
-15. [Limitations & Honest Future Scope](#15-limitations--honest-future-scope)
+8. [Roles, Permissions & Security Matrix](#8-roles-permissions--security-matrix)
+9. [Safety Principles & Honesty Boundaries](#9-safety-principles--honesty-boundaries)
+10. [Synthetic Demo Cohort & 8-Minute Demo Story](#10-synthetic-demo-cohort--8-minute-demo-story)
+11. [Hardware Specifications & IoT Simulator](#11-hardware-specifications--iot-simulator)
+12. [Testing Strategy & Test Suites (99 Tests)](#12-testing-strategy--test-suites-99-tests)
+13. [Troubleshooting & Verification](#13-troubleshooting--verification)
 
 ---
 
-## 1. Overview and Goals
+## 1. Overview, Positioning & Scope Boundaries
 
-CareLoop is an engineering demonstration platform designed to support post-discharge recovery through remote telemetry, deterministic safety rules, and grounded assistant responses. The primary governing philosophy across all subsystems is:
+CareLoop is a post-discharge patient triage and wearable telemetry system designed to prevent the days after hospital discharge from going quiet.
 
-> **"The LLM talks. Rules decide. Humans act."**
+### Governing Philosophies
+> **"The LLM talks. Rules decide. Humans act."**  
+> **"Automate the routine. Propose the rest. Humans decide."**
 
-* **The LLM is text-only:** Generates draft summaries and answers patient questions strictly from discharge records. It never creates, alters, or resolves clinical flags, limits, or prescriptions.
-* **Deterministic Rules Decide:** Clinical alerts, risk categorizations, and emergency detections are code-driven and rule-based. Emergency phrases (in English or Hindi) immediately trigger 112 guidance without invoking the LLM.
-* **Humans Act:** Only qualified human clinicians review summaries, approve rule limits, triage calls, and resolve flags.
+* **Positioning:** CareLoop keeps the days after discharge from going quiet: it automates the routine, shows its reason for every alert, answers only from the patient's own papers, and makes sure a person closes every loop.
+* **Tagline:** *After discharge, nothing should go quiet.*
+
+### Scope Separation: Core Scope vs Extensions
+
+Per committed project requirements:
+
+* **Core Scope (Committed Baseline):**
+  - **Wearable Hardware:** ESP32 DevKit V1, MAX30102 pulse & estimated SpO₂ sensor (I2C SDA 21, SCL 22), MPU-6050 accelerometer/gyroscope, 0.96-inch SSD1306 OLED, tactile push button for SOS, Li-Po battery and charging module.
+  - **Device API:** `POST /device/readings` and `POST /device/events` over Wi-Fi with device key authentication.
+  - **Relational Storage:** MySQL 8.0+ transactional database (InnoDB) with stored procedures, triggers, views, and integrity constraints.
+  - **Rule-Based Triage:** Deterministic SQL triggers evaluate doctor-approved thresholds (`alert_rules`) and raise prioritized flags on breach.
+  - **Dashboards & Workstations:** Four role-specialized workstations (Doctor, Nurse, Patient, Family Helper) using BhoomiSetu design tokens and dark/light themes.
+  - **Immutable Audit Trail:** Append-only log (`audit_log`) capturing every administrative, clinical, and patient action.
+  - **Emergency Keyword Bypass:** Zero-latency plain-code regex matching (English and Hindi) providing direct 112 guidance.
+
+* **Extensions (Additive Capabilities):**
+  *(Note: Extensions are built as modular additive capabilities; pending supervisor confirmation before calling extensions formally approved.)*
+  - **Ask My Papers Assistant:** Hybrid RAG pipeline (ChromaDB dense vectors + MySQL keyword search) with cited source chips and strict dose modification refusal.
+  - **Automated Rounds & Automation Policy:** Background engine executing a transparent 24-hour lookahead for routine actions (quiet hours 22:00–07:00, daily message limits, patient pause, and clinician proposals).
+  - **Two-Way SMS Service:** Twilio integration behind `SMS_ENABLED` (logged to database when disabled) supporting patient commands: `1` (dose confirmed), `2` (status check), `3` (urgent callback request), and `STOP`/`START` compliance.
+  - **Guided Health Check-in:** Step-by-step check-in wizard with text-to-speech audio guidance, speech-to-text voice input, and instant emergency keyword detection.
+  - **Recovery & Wound Photo Quality Check:** Client and server-side deterministic quality evaluation (Laplacian sharpness variance, mean brightness, resolution), EXIF metadata stripping, and nurse side-by-side comparative review.
+  - **Recovery Plan Drafter & Patient Admission:** Discharge paper parsing, strict number grounding guard, reconciliation mismatch detection, doctor approval lifecycle, and 7-step nurse patient admission wizard.
+  - **Watch Events & Possible Fall Prompts:** Bounded motion event evaluation (*"No text says detected"*), 2-minute patient inquiry prompt (*"Are you OK?"*), and 3 deterministic outcomes (A: I'm OK, B: Need Help, C: Wait time expired $\rightarrow$ Immediate flag).
 
 ---
 
-## 2. Architecture Diagram and Data Flow
+## 2. What CareLoop Adds: Comparison Table
+
+Each row is implemented and verified directly in codebase tests:
+
+| Capability Area | First-Generation "AI Nurse" Concept | CareLoop Post-Discharge Architecture | Proven In Code |
+| :--- | :--- | :--- | :--- |
+| **Clinical Decision Authority** | LLM evaluates vitals and decides whether to alert doctor or change care plan. | **The LLM never flags.** Deterministic SQL triggers evaluate doctor-approved thresholds. LLM only formats text or drafts notes. | [`database/schema.sql`](file:///Users/yugantverma/Desktop/CareLoop/database/schema.sql), `test_doctor_desk_p3.py` |
+| **Image & Wound Inspection** | AI diagnostic model claims to diagnose wound infection or healing stages. | **No AI diagnosis of images.** Deterministic quality check only (blur, brightness, resolution); licensed nurse reviews side-by-side. | [`backend/app/photo_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/photo_service.py), `test_photo_check.py` |
+| **Care Plan Generation** | AI hallucinates recovery guidelines from generic medical training data. | **Grounded strictly in patient papers.** Extracted from patient's own discharge summary with cited passages, number grounding guard, and doctor sign-off. | [`backend/app/plan_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/plan_service.py), `test_plan_and_admission.py` |
+| **Background Automation** | Unmonitored background agents execute unverified actions and messages. | **Transparent Rounds with Safety Policy.** 24-hour visible lookahead, quiet hours (22:00–07:00), daily caps, patient pause, and clinician proposals. | [`backend/app/automation_policy.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/automation_policy.py), [`backend/app/rounds.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rounds.py), `test_automation_policy.py` |
+| **Fall Handling** | Black-box algorithm makes diagnostic claims without clinical validation. | **Bounded Possible Fall Inquiry.** Watch reports motion shock; asks *"Are you OK?"* with 2-min timer; no unvalidated diagnostic claims. | [`backend/app/device_event_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/device_event_service.py), `test_watch_events_p5.py` |
+| **Telemetry Quality** | Raw sensor readings are displayed blindly, confusing patients with artifacts. | **Headline Quality Filtering.** Plausibility trigger flags impossible spikes (450 bpm) as `Invalid`; only verified readings become headlines. | `trg_sensor_plausibility`, `test_watch_events_p5.py` |
+| **Emergency Safety** | Emergency words wait for LLM completion token generation. | **Zero-Latency Bypass.** Plain regex catches emergency keywords (English and Hindi) immediately, giving direct 112 guidance. | [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py), `test_checkin_guide.py` |
+| **Patient Privacy & Family** | Family members see sensitive medical details without explicit consent. | **Immediate Consent Cutoff.** When patient flips sharing off, caregiver portal immediately returns HTTP 403. Zero clinical note leakage. | [`backend/app/permissions.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/permissions.py), `test_patient_family_p5.py` |
+
+---
+
+## 3. Architecture Diagram and End-to-End Data Flow
 
 ```mermaid
 flowchart TD
-    subgraph EdgeDevice["1. Telemetry Ingestion"]
-        ESP32["ESP32 Wearable / Simulator"] -->|POST /device/readings| DevIngest["Device Endpoint"]
-        DevIngest -->|Plausibility Check| PlausTrigger["trg_sensor_plausibility"]
-        PlausTrigger -->|Valid Readings| SensorDB[("sensor_readings")]
-        PlausTrigger -->|Invalid >300bpm| FilterNote["Quality = 'Invalid'"]
+    subgraph EdgeWearable["1. Wearable Watch & Ingestion"]
+        ESP32["ESP32 DevKit V1 (MAX30102 + MPU6050)"] -->|POST /device/readings| ReadingAPI["Readings Ingestion"]
+        ESP32 -->|POST /device/events| EventAPI["Watch Event Ingestion"]
+        ReadingAPI -->|Plausibility Trigger| SensorDB[("sensor_readings")]
+        EventAPI -->|Rule Check| FallService["device_event_service"]
     end
 
-    subgraph DatabaseEngine["2. Deterministic Rule Engine"]
+    subgraph RelationalEngine["2. MySQL 8.0 Relational Engine & Rules"]
         SensorDB -->|AFTER INSERT| RuleTrigger["trg_sensor_rules_after_insert"]
         RuleTrigger -->|Limit Check| AlertRules[("alert_rules")]
-        AlertRules -->|Breach Detected| FlagsDB[("flags (Open)")]
-        FlagsDB -->|Escalation Engine| Ladder["Escalation Ladder"]
+        AlertRules -->|Breach| FlagsDB[("flags (Open)")]
+        FlagsDB -->|Escalation Engine| Ladder["4-Tier Escalation Ladder"]
+        Ladder --> TaskDB[("follow_up_tasks")]
     end
 
-    subgraph Portals["3. Four Role Workspaces"]
-        Ladder -->|Urgent Banner| PatientPortal["Patient App (/patient)"]
-        Ladder -->|SMS if Consent Granted| FamilyPortal["Family View (/family)"]
-        Ladder -->|Queued Call Task| NurseDesk["Nurse Desk (/nurse)"]
-        Ladder -->|Needs Decision| DoctorDesk["Doctor Desk (/doctor)"]
+    subgraph AutomationRounds["3. Background Automation & Policy"]
+        Policy["automation_policy (Quiet hours, Caps, Pause)"] --> Rounds["rounds engine (24h lookahead)"]
+        Rounds --> ActionsDB[("scheduled_actions")]
+        Rounds --> SMS["sms_service (Two-way SMS 1, 2, 3)"]
+        Rounds --> ProposalsDB[("rounds_proposals")]
     end
 
-    subgraph GroundedAI["4. Grounded AI Assistance"]
-        PatientPortal -->|Chat Query| RAG["Hybrid RAG Pipeline"]
-        RAG -->|Vector Search| ChromaDB[("ChromaDB Index")]
-        RAG -->|Read-only Tools| MySQLTools[("MySQL Patient Tools")]
-        RAG -->|Factual Synthesis| LLM["Gemini Model (Text-only)"]
-        LLM -->|Citation & Numeric Guard| GuardedAnswer["Grounded Output + Citations"]
+    subgraph ClinicalWorkstations["4. Four Role Workspaces"]
+        PatientApp["Patient Portal (/patient)"] <-->|Doses, Guided Check-in, My Plan| API["FastAPI Backend"]
+        FamilyApp["Family View (/family)"] <-->|Helped Dose, Consent-gated| API
+        NurseDesk["Nurse Workstation (/nurse)"] <-->|Call List, Rounds, Photo Review, Admit| API
+        DoctorDesk["Doctor Desk (/doctor)"] <-->|Decisions, Plan Approvals, Limit Approvals| API
+    end
+
+    subgraph GroundedIntelligence["5. Grounded RAG & Document Services"]
+        DischargeDocs[("discharge_documents")] --> Chunks[("document_chunks + ChromaDB")]
+        PatientApp -->|Chat Question| RAG["Hybrid RAG Pipeline"]
+        RAG --> Citations["Cited Passage Chips"]
+        NurseDesk -->|Draft Plan| PlanService["plan_service"]
+        PlanService --> NumberGuard["Number Grounding Guard"]
+        NumberGuard --> RecoveryPlans[("recovery_plans")]
+        RecoveryPlans -->|Doctor Approval| PatientPlan["Active My Plan"]
     end
 ```
 
 ---
 
-## 3. Technology Stack
+## 4. Technology Stack
 
 | Layer | Component | Version / Library | Purpose in CareLoop |
 | :--- | :--- | :--- | :--- |
@@ -75,52 +136,58 @@ flowchart TD
 | **Frontend Routing** | React Router | `7.11.0` | Client-side routing with role-based navigation guards |
 | **Frontend UI & Tokens** | Tailwind CSS & Icons | `tailwindcss 3.4.17`, `lucide-react 0.562.0` | BhoomiSetu design token styling, dark/light theme |
 | **Backend Framework** | FastAPI | `0.128.0` (Starlette TestClient) | REST API endpoints, JWT role enforcement, CORS |
-| **ASGI Server** | Uvicorn | Standard | Asynchronous HTTP server |
-| **Database** | MySQL | `8.0.16+` (InnoDB) | Relational store, stored procedures, triggers, views |
+| **ASGI Server** | Uvicorn | `0.34.0` | Asynchronous HTTP server |
+| **Database** | MySQL | `8.0.16+` (InnoDB) | Relational store, 35 tables, stored procedures, triggers, views |
 | **Database Driver** | PyMySQL | `1.1.1` (DictCursor) | Pure-Python transactional client with session time zone |
 | **Vector Store** | ChromaDB | `0.5.23` | Embeddings and dense document chunk retrieval |
 | **LLM Provider** | Google GenAI | `google-genai 0.1.1` | Gemini model access with strict offline fallbacks |
+| **Two-Way SMS** | Twilio REST API | `twilio 9.0.0+` | Outbound alerts and inbound SMS command handler |
+| **Image Processing** | Pillow (PIL) | `Pillow 11.0.0+` | Image resolution verification, EXIF stripping, Laplacian sharpness |
 | **Auth & Security** | PyJWT & Bcrypt | `python-jose 3.5.0`, `bcrypt 5.0.0` | HS256 token encoding, secure demo password hashing |
-| **IoT Wearable** | ESP32 Arduino C++ | Arduino Core | MAX30102 pulse oximeter & MPU6050 fall detector firmware |
+| **IoT Wearable** | ESP32 Arduino C++ | Arduino Core 2.0+ | MAX30102 pulse oximeter & MPU6050 accelerometer firmware |
 
 ---
 
-## 4. Repository Folder Structure
+## 5. Repository Folder Structure
 
 ```
 CareLoop/
-├── README.md                           # Quickstart guide, demo credentials, and disclaimer
+├── README.md                           # Quickstart guide, demo credentials, scope, and disclaimer
 ├── PROJECT_GUIDE.md                    # Single authoritative clinical and technical guide
 ├── .gitignore                          # Excludes env, dependencies, caches, and local databases
 ├── .env.example                        # Template environment variables (no secrets)
 ├── backend/
 │   ├── requirements.txt                # Python runtime dependencies
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                     # FastAPI application, route mounting, and middleware
-│   │   ├── auth.py                     # JWT token issuance, verification, password hashing
-│   │   ├── db.py                       # PyMySQL connection pool and session context manager
-│   │   ├── models.py                   # Pydantic schemas for request/response payloads
-│   │   ├── permissions.py              # Role dependencies (require_doctor, require_nurse, etc.)
-│   │   ├── clinical_summaries.py       # SBAR fact-sheet builder, AI drafting, and safety guard
-│   │   ├── escalation.py               # Escalation ladder state machine and SMS dispatch simulator
-│   │   ├── governance_interop.py       # HL7 FHIR R4 JSON export and LACE risk calculation
-│   │   ├── llm.py                      # Single resilient Gemini API wrapper
-│   │   ├── rag.py                      # Core RAG functions, emergency terms, dose refusals
-│   │   ├── rag_config.py               # Assistant prompts, refusal templates, intent taxonomy
-│   │   ├── rag_pipeline.py             # Advanced RAG: hybrid search, numeric/citation guards
-│   │   ├── rag_tools.py                # Read-only SQL tools for discharge assistant
-│   │   ├── safety.py                   # Plain-code emergency detection and dose check logic
-│   │   └── scheduler.py                # Periodic task runner for SLA evaluation and timeouts
-│   └── rag_eval/
-│       ├── golden.jsonl                # 44 golden benchmark queries for RAG grounding
-│       └── run_eval.py                 # Grounding accuracy evaluation runner
+│   ├── uploads/photos/                 # Secure wound photo storage (outside web root)
+│   └── app/
+│       ├── __init__.py
+│       ├── main.py                     # FastAPI application, route mounting, and middleware
+│       ├── auth.py                     # JWT token issuance, verification, password hashing
+│       ├── db.py                       # PyMySQL connection pool and session context manager
+│       ├── permissions.py              # Role dependencies (require_doctor, require_nurse, etc.)
+│       ├── automation_policy.py        # Safety gate for automated actions (quiet hours, limits, pause)
+│       ├── rounds.py                   # Automated Rounds engine, 24h lookahead, proposal generator
+│       ├── sms_service.py              # Outbound SMS dispatcher and inbound command parser (1, 2, 3)
+│       ├── checkin_guide.py            # Guided check-in engine, templates, and Hindi voice support
+│       ├── photo_service.py            # Image quality evaluator, EXIF stripper, and audit logger
+│       ├── plan_service.py             # Recovery plan drafter, number grounding guard, reconciliation
+│       ├── admit_service.py            # 7-step nurse patient admission workflow
+│       ├── device_event_service.py     # Watch event ingestion, Possible_Fall rule and timeout handler
+│       ├── clinical_summaries.py       # SBAR fact-sheet builder, AI drafting, and safety guard
+│       ├── escalation.py               # 4-tier escalation ladder state machine
+│       ├── governance_interop.py       # HL7 FHIR R4 JSON export and LACE risk calculation
+│       ├── llm.py                      # Single resilient Gemini API wrapper with offline fallback
+│       ├── rag.py                      # Core RAG functions, emergency terms, dose refusals
+│       ├── rag_config.py               # Assistant prompts, refusal templates, intent taxonomy
+│       ├── rag_pipeline.py             # Advanced RAG: hybrid search, numeric/citation guards
+│       ├── rag_tools.py                # Read-only SQL tools for discharge assistant
+│       └── safety.py                   # Plain-code emergency detection and dose check logic
 ├── database/
-│   ├── schema.sql                      # Unified MySQL DDL (tables, views, procedures, triggers)
+│   ├── schema.sql                      # Unified MySQL DDL (35 tables, views, procedures, triggers)
 │   └── reset_demo.sql                  # Idempotent demo dataset reset SQL script
 ├── device/
-│   ├── simulator.py                    # Sensor simulator streaming Heart Rate and SpO2
-│   ├── watch_bridge.py                 # Bluetooth serial forwarder to /device/readings
+│   ├── simulator.py                    # Sensor simulator streaming Heart Rate, SpO2, and Fall events
+│   ├── watch_bridge.py                 # Serial forwarder to /device/readings
 │   └── esp32_careloop/
 │       └── esp32_careloop.ino          # ESP32 MAX30102/MPU6050 hardware firmware
 ├── frontend/
@@ -135,286 +202,246 @@ CareLoop/
 │       ├── App.js                      # React router configuration and RoleRouteGuard
 │       ├── ThemeContext.js             # Dark and light theme state provider
 │       ├── components/                 # Role workspaces and clinical components
-│       │   ├── AuditLogViewer.jsx      # Doctor-only audit log inspection drawer
 │       │   ├── CareLoopLogin.jsx       # Glassmorphism login portal with 1-click role buttons
 │       │   ├── CareLoopPatientPortal.jsx # Patient recovery home, check-in, and assistant
 │       │   ├── CareLoopStaffPortal.jsx # Staff workstation shell housing Doctor and Nurse views
-│       │   ├── ClinicalSummaries.jsx   # Clinical SBAR summary review, edit, and sign-off
-│       │   ├── DoctorFhirExportView.jsx # Doctor FHIR R4 JSON bundle export view
-│       │   ├── DoctorLimitsView.jsx    # Doctor limit approvals and pathway rules
-│       │   ├── FamilyPortal.jsx        # Consent-gated family helper schedule
-│       │   ├── FlagDrawer.jsx          # Clinical flag detail drawer with escalation history
-│       │   ├── Icons.jsx               # SVG icon primitives
-│       │   ├── Landingpage.jsx         # Public landing page with 4 role cards and real counts
+│       │   ├── PatientOverviewTab.jsx  # Comprehensive clinical chart, Device Health, and timeline
+│       │   ├── RoundsView.jsx          # Automated Rounds 24h lookahead and proposals view
+│       │   ├── CheckinGuide.jsx        # Step-by-step guided check-in with audio & speech input
+│       │   ├── WoundPhotoUpload.jsx    # Patient photo upload modal with quality checker
+│       │   ├── PatientMyPlanView.jsx   # Patient active recovery plan view with cited sources
+│       │   ├── DoctorLimitsView.jsx    # Doctor limit approvals and Possible Fall counters
 │       │   ├── NurseCallListView.jsx   # Nurse priority triage call queue
-│       │   ├── NurseCallModal.jsx      # Nurse call logging modal with quick outcome notes
-│       │   ├── NurseProposeLimitModal.jsx # Nurse threshold proposal modal
-│       │   ├── NurseTaskCompleteModal.jsx # Nurse task completion dialog
-│       │   ├── OperationalInsights.jsx # Clinical operations and response SLA metrics
-│       │   ├── PatientDirectory.jsx    # Complete patient directory with ABHA IDs
-│       │   ├── PatientIdentity.jsx     # Reusable patient demographic and ID badge
-│       │   ├── PatientOverviewTab.jsx  # Comprehensive clinical chart and recovery timeline
-│       │   ├── ShiftHandoff.jsx        # I-PASS structured shift handoff tool
-│       │   ├── SwitchDemoWorkspace.jsx # Top-bar demo workspace switcher and reset button
-│       │   ├── TaskQueue.jsx           # Multi-staff follow-up task management queue
-│       │   └── ThemeToggle.jsx         # Dark/light theme switcher toggle
+│       │   ├── FamilyPortal.jsx        # Consent-gated family helper view
+│       │   ├── FlagDrawer.jsx          # Clinical flag detail drawer with escalation history
+│       │   ├── AuditLogViewer.jsx      # Doctor-only audit log inspection drawer
+│       │   ├── Landingpage.jsx         # Public landing page with 4 role cards and real counts
+│       │   └── Icons.jsx               # SVG icon primitives
 │       └── services/
 │           └── api.js                  # Axios/fetch HTTP client with JWT interceptors
 ├── scripts/
-│   ├── reset_demo.py                   # Sub-second reset command runner
-│   ├── seed_demo.py                    # Synthetic data seeder
-│   ├── validate_demo.py                # 12-check validation suite
+│   ├── reset_demo.py                   # Sub-second reset command runner (< 0.35s)
+│   ├── seed_demo.py                    # Synthetic data seeder (18 idempotent steps)
+│   ├── validate_demo.py                # 21-check validation suite
 │   ├── simulate_event.py               # Live SpO2 91% event simulator
-│   ├── index_document.py               # Discharge PDF/text chunker and Chroma indexer
-│   └── set_demo_passwords.py           # Demo account password hash utility
-└── tests/
-    ├── test_role_permissions_p2.py     # Role isolation, data privacy, and HTTP 403 checks
-    ├── test_doctor_desk_p3.py          # Doctor decision desk, approvals, and FHIR export
-    ├── test_nurse_desk_p4.py           # Nurse call list, task workflows, and limit proposals
-    ├── test_patient_family_p5.py       # Patient daily regimen, check-ins, and family consent
-    ├── test_connected_demo_p6.py       # End-to-end connected demo event and reset validation
-    └── test_phase7_acceptance.py       # LLM-offline resilience and Section 10 contract checks
+│   └── index_document.py               # Discharge PDF/text chunker and Chroma indexer
+└── tests/                              # Complete 99-test pytest acceptance test suite
 ```
 
 ---
 
-## 5. Frontend Workstations & Design Tokens
+## 6. Core Services & Capabilities
 
-### Role Color Accents (BhoomiSetu Standard)
-* **Doctor (`/doctor`):** Navy / Slate (`#0284c7`, CSS `--accent-doc`) — Symbolizes governance, clinical authority, and medical oversight.
-* **Nurse (`/nurse`):** Amber / Orange (`#d97706`, CSS `--accent-nurse`) — Symbolizes active execution, triage urgency, and care coordination.
-* **Patient (`/patient`):** Emerald / Teal (`#059669`, CSS `--accent-patient`) — Symbolizes personal recovery, calm assurance, and daily actions.
-* **Family Helper (`/family`):** Violet / Purple (`#7c3aed`, CSS `--accent-family`) — Symbolizes supportive care, loved-one context, and consent-bound assistance.
+### 6.1 Rounds & Automation Policy
+* **Engine:** [`backend/app/rounds.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rounds.py) & [`backend/app/automation_policy.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/automation_policy.py).
+* **Guiding Principle:** *"Automate the routine. Propose the rest. Humans decide."*
+* **Safety Gates:**
+  1. *Quiet Hours:* 22:00 to 07:00 IST. Routine dose reminders and check-in prompts are silenced; only emergency escalations and possible fall safety inquiries may bypass.
+  2. *Message Limits:* At most 2 reminders per scheduled dose. At most 3 automated patient messages per calendar day outside dose reminders.
+  3. *Emergency Freeze:* Automated prompts are suspended for any patient with an active open emergency/urgent flag.
+  4. *Patient Pause:* Staff can pause automation for a designated patient (`rounds_paused_until` timestamp) with a mandatory clinical reason.
+  5. *Patient STOP:* Honored when `sms_opt_out = 1` for SMS transmissions.
+  6. *Explicit Reason Required:* Every entry in `scheduled_actions` must carry an explainable reason.
+* **Clinician Proposals:** Ambiguous situations (e.g. repeated missed doses, unclear symptom trends, incorrect plan understanding) generate non-self-executing entries in `rounds_proposals` for doctor or nurse review.
 
-### Typography and Themes
-* **Fonts:** `Inter` (body copy, numbers, data tables) and `Outfit` (headings, badges, primary numbers).
-* **Theme Switching:** Managed via `ThemeContext.js` through `data-theme="dark"` or `"light"`. CSS custom variables adapt backgrounds (`--bg-base`, `--bg-surface`), borders (`--border-subtle`), and text (`--text-primary`, `--text-secondary`).
+### 6.2 Two-Way SMS & Guided Check-in
+* **Engine:** [`backend/app/sms_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/sms_service.py) & [`backend/app/checkin_guide.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/checkin_guide.py).
+* **Inbound Command Parser:**
+  - `1`: Confirms dose taken (matches next scheduled dose within 2 hours; cancels pending reminders; records helped dose if sent by caregiver). If an active fall prompt is awaiting response, confirms *"I'm OK"*.
+  - `2`: Returns current regimen status and next scheduled medicine.
+  - `3`: Requests urgent callback from Nurse Priya; creates an immediate nurse callback task in `follow_up_tasks`. If an active fall prompt is awaiting response, raises an Immediate flag.
+  - `STOP`: Sets `sms_opt_out = 1`, blocking outbound SMS without cutting off app or voice channels.
+  - `START`: Re-enables SMS communications.
+* **Guided Check-in:** Step-by-step interactive questionnaire (pain rating, symptom chips, trend). Features browser SpeechSynthesis for TTS read-aloud and SpeechRecognition for voice input in English and Hindi. Emergency keywords trigger instant 112 guidance.
 
-### Accessibility Standards
-* **WCAG 2.1 AA Compliant:** Minimum 44px tap targets on interactive buttons, visible `:focus-visible` rings, `aria-live` announcements for alert banners, and high-contrast color pairings.
-* **Bilingual UI:** Patient portal supports instant language toggling between English (`en`) and Hindi (`hi`).
+### 6.3 Wound Photo Quality Check & Review
+* **Engine:** [`backend/app/photo_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/photo_service.py).
+* **Deterministic Quality Gates (No AI Diagnosis):**
+  - Resolution: Minimum $480 \times 480$ pixels.
+  - Sharpness: Laplacian variance $\ge 65.0$ (blurry images flagged).
+  - Brightness: Mean luminance $\ge 40.0$ and $\le 235.0$ (too dark or overexposed images flagged).
+  - Clean Metadata: EXIF and GPS tags stripped prior to saving in `uploads/photos/` outside the web root.
+* **Nurse Comparative Review:** Priya reviews the photo side-by-side with previous photos, recording structured findings (`No_Concern_Seen`, `Needs_Monitoring`, `Escalated_To_Doctor`).
 
----
+### 6.4 Recovery Plan Drafter & Admission
+* **Engine:** [`backend/app/plan_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/plan_service.py) & [`backend/app/admit_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/admit_service.py).
+* **Grounding & Reconciliation Guard:**
+  - Extracts medication, follow-up, and activity instructions from discharge records.
+  - *Number Grounding Guard:* Strict regex check ensures every number (dosages, frequencies, days) is grounded in the source text.
+  - *Reconciliation Check:* Compares discharge prescriptions against admission orders; flags mismatches prominently for doctor review.
+* **Doctor Approval Lifecycle:** Draft plans (`Draft`) are completely invisible to the patient until Dr. Sharma reviews, verifies cited passages, and clicks **Approve** (`Approved`), automatically superseding previous versions.
+* **7-Step Admission Wizard:** Nurse flow for admitting post-discharge patients: Demographics $\rightarrow$ Discharge Document Indexing $\rightarrow$ Prescriptions $\rightarrow$ Alert Rules Setup $\rightarrow$ Device Linking $\rightarrow$ Family Consent $\rightarrow$ Review & Finalize.
 
-## 6. Backend Services, Endpoints & Escalation
+### 6.5 Watch Events & Possible Fall Service
+* **Engine:** [`backend/app/device_event_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/device_event_service.py).
+* **Honest, Bounded Workflow (*"No text says detected"*):**
+  - Evaluates motion spikes ($\ge 2.8g$) followed by prolonged stillness.
+  - *Rule Off (Default for Cohort):* Device event is recorded in `device_events` and logged in `audit_log` only; no prompt sent, no flag created.
+  - *Rule On (Sunita Rao, Pt 5):* Sends patient inquiry banner and SMS: *"CareLoop check: We noticed sudden movement from your watch. Are you OK?"* with a 2-minute countdown timer.
+  - *Outcome A ("✓ I'm OK"):* Event closed, prompt OK counter incremented, timeout action cancelled, no flag.
+  - *Outcome B ("🚨 I need help"):* Creates Immediate flag (`source_type = 'Fall'`), initiates 4-tier escalation, opens urgent nurse callback task.
+  - *Outcome C (Wait time expired):* Rounds timeout fires, creating Immediate flag: *"Watch reported a possible fall at 14:02. No reply within 2 minutes."*
 
-### Permission Matrix & Security
-* **Doctor Only:** `/staff/doctor/decisions`, `/staff/audit-log`, `/staff/patients/{pid}/fhir`, `/staff/summaries/{id}/approve`, `/staff/summaries/{id}/reject`, `/staff/rules/{id}/approve`.
-* **Staff (Doctor or Nurse):** `/staff/patients`, `/staff/patients/{pid}`, `/staff/flags`, `/staff/tasks`, `/staff/handoff`, `/staff/notes`.
-* **Nurse Only Workflow:** `/staff/nurse/call-list`, `/staff/nurse/contact-log`, `/staff/nurse/propose-limit`.
-* **Patient Only:** `/patient/me/today`, `/patient/me/doses`, `/patient/me/doses/{id}/taken`, `/patient/me/doses/{id}/undo`, `/patient/me/checkin`, `/patient/me/chat`, `/patient/me/consent/caregiver`.
-* **Family Helper Only:** `/family/me/today`, `/family/me/dose/{id}/helped`. Forbidden from clinical chat, clinician notes, and symptom free-text.
-
-### Escalation State Machine
-```mermaid
-stateDiagram-v2
-    [*] --> RuleBreach: Telemetry or Symptom breach
-    RuleBreach --> FlagOpen: Stored procedure creates Flag
-    FlagOpen --> Step1_PatientPrompt: Instant in-app calm banner
-    Step1_PatientPrompt --> Step2_CaregiverSMS: If Consent = 1 (dispatched via SMS)
-    Step1_PatientPrompt --> Step2_Skipped: If Consent = 0 (logged as Skipped_No_Consent)
-    Step2_CaregiverSMS --> Step3_NurseAlert: Queued in Nurse Call List
-    Step3_NurseAlert --> Resolved: Nurse resolves routine flag
-    Step3_NurseAlert --> Step4_DoctorAlert: Urgent flag or Nurse escalates
-    Step4_DoctorAlert --> Resolved: Doctor decides and resolves
-    Resolved --> [*]: Audit log updated
-```
+### 6.6 Grounded RAG Assistant & Safety Gates
+* **Engine:** [`backend/app/rag_pipeline.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rag_pipeline.py) & [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py).
+* **Citations & Refusal Guard:**
+  - Patient questions are answered strictly from indexed discharge documents with clickable section citations (*"Discharge summary · Warning signs"*).
+  - *Dose Modification Refusal:* Questions requesting dose increases or schedule alterations trigger an immediate polite refusal: *"I cannot recommend changing your medication dose. Please consult Dr. Sharma."* and opens a nurse follow-up task.
+  - *Offline Fallback:* Operates cleanly with deterministic extractive tool fallbacks if Google GenAI is offline or unreachable.
 
 ---
 
 ## 7. Database Schema, Views, Procedures & Triggers
 
-### Relational Entities (32 Tables)
-1. **Core Identity:** `patients`, `care_staff`, `caregivers`, `user_accounts`, `care_assignments`.
-2. **Clinical Records:** `discharge_records`, `discharge_documents`, `document_chunks`, `prescriptions`, `prescription_times`, `medicines`.
-3. **Telemetry & Sensoring:** `devices`, `sensor_readings`.
-4. **Safety & Rules:** `alert_rules`, `alert_rules_history`, `flags`, `flag_events`, `escalations`.
-5. **Execution & Tasks:** `medication_logs`, `symptom_reports`, `symptom_report_tags`, `follow_up_tasks`, `contact_log`, `clinician_notes`, `appointments`.
-6. **AI & Audit:** `ai_summaries`, `chat_messages`, `chat_message_sources`, `chat_feedback`, `risk_context`, `risk_snapshots`, `audit_log`.
+### Relational Entities (35 Tables)
+1. **Core Identity & Cohort:** `patients`, `care_staff`, `caregivers`, `user_accounts`, `care_assignments`.
+2. **Clinical Records & Prescriptions:** `discharge_records`, `discharge_documents`, `document_chunks`, `prescriptions`, `prescription_times`, `medicines`.
+3. **Telemetry & Sensoring:** `devices`, `sensor_readings`, `device_events`.
+4. **Safety, Rules & Escalation:** `alert_rules`, `alert_rules_history`, `flags`, `flag_events`, `escalations`.
+5. **Execution & Workflows:** `medication_logs`, `symptom_reports`, `symptom_report_tags`, `follow_up_tasks`, `contact_log`, `clinician_notes`, `appointments`.
+6. **Automation & Rounds:** `scheduled_actions`, `rounds_proposals`, `sms_messages`, `checkin_templates`, `checkin_sessions`, `checkin_answers`.
+7. **Photos & Plans:** `wound_photos`, `recovery_plans`, `recovery_plan_items`.
+8. **AI & Audit:** `ai_summaries`, `chat_messages`, `chat_message_sources`, `chat_feedback`, `risk_context`, `risk_snapshots`, `audit_log`.
 
 ### Views (8)
-* `v_device_status`: Real-time connectivity and last-seen telemetry times.
+* `v_device_status`: Connectivity status, minutes since last seen, and silence status.
 * `v_latest_risk`: Cached composite clinical risk score per patient.
-* `v_latest_sensor_readings`: Latest valid physiological readings per metric.
+* `v_latest_sensor_readings`: Latest valid physiological readings per metric (ignoring invalid noise).
 * `v_medication_adherence`: 7-day adherence percentages across confirmed doses.
-* `v_patient_timeline`: Merged chronological stream of vitals, doses, notes, and alerts.
+* `v_patient_timeline`: Merged chronological stream of vitals, doses, notes, photos, and alerts.
 * `v_pending_followups`: Unresolved staff follow-up tasks with priority.
 * `v_triage_board`: Open clinical flags sorted by severity and elapsed time.
 * `v_worklist_by_patient`: Patient-aggregated worklist with SLA rankings.
 
-### Stored Procedures (16)
-* `sp_generate_daily_doses(target_date)`: Creates daily dose schedule rows from active prescriptions.
-* `sp_mark_overdue_doses_missed()`: Marks unconfirmed doses past due window as Missed.
-* `sp_acknowledge_flag(flag_id, staff_id)`: Atomically transitions flag to Acknowledged.
-* `sp_resolve_flag(flag_id, staff_id, resolution_code, note)`: Atomically closes flag with mandatory clinical reason.
-* `sp_assign_flag(flag_id, staff_id)`: Reassigns flag ownership.
-* `sp_claim_task(task_id, staff_id)` / `sp_assign_task(...)` / `sp_snooze_task(...)`: Follow-up task operations.
-* `sp_complete_task(task_id, staff_id, outcome_code, note)`: Completes task with structured clinical outcome.
-* `sp_approve_summary(summary_id, staff_id, text)` / `sp_reject_summary(...)`: Doctor summary review lifecycle.
-* `sp_daily_report(patient_id, report_date)`: Generates deterministic fact-sheet metrics.
-* `sp_compute_risk_snapshot(patient_id)` / `sp_compute_all_risk_snapshots()`: Calculates LACE-influenced risk index.
-* `sp_evaluate_missed_dose_rules()`: Checks for consecutive missed dose breaches.
-* `sp_evaluate_no_data_rules()`: Detects missing telemetry transmissions exceeding rule thresholds.
-
-### Triggers (3)
-* `trg_sensor_plausibility`: (BEFORE INSERT on `sensor_readings`) Marks values outside physiological bounds (e.g., HR > 300 bpm or SpO2 > 100%) as `Invalid`.
-* `trg_sensor_rules_after_insert`: (AFTER INSERT on `sensor_readings`) Evaluates active rules on valid readings and creates `flags` on breach.
-* `trg_symptom_rules_after_insert`: (AFTER INSERT on `symptom_reports`) Raises flags for severe pain ($\ge 7$) or emergency terms, with 60-minute duplicate suppression.
+### Stored Procedures (16) & Triggers (3)
+* `trg_sensor_plausibility`: Marks readings outside physiological limits (HR > 300 bpm or SpO₂ > 100%) as `Invalid`.
+* `trg_sensor_rules_after_insert`: Evaluates active rules on valid readings and raises `flags` on threshold breach.
+* `trg_symptom_rules_after_insert`: Raises flags for severe pain ($\ge 7$) or emergency terms with 60-min deduplication.
+* Standard stored procedures manage atomic transactions for flag acknowledgment, resolution, task completion, daily dose generation, risk snapshot computation, and summary review.
 
 ---
 
-## 8. AI Pipeline & Clinical Safeguards
+## 8. Roles, Permissions & Security Matrix
 
-### Grounded RAG Assistant Architecture
-```
-Patient Question
-       │
-       ▼
-1. Emergency Keyword Filter (Plain code, EN & HI) ──[Matches]──► Immediate 112 guidance
-       │ (No match)
-       ▼
-2. Dose Change Refusal Guard (Plain code) ─────────[Matches]──► Refusal + Care Team Alert
-       │ (No match)
-       ▼
-3. Intent Router ──[Structured Intent]──► Direct Read-Only SQL Tool (Appointment/Meds/Vitals)
-       │ (General Document Query)
-       ▼
-4. Hybrid Retrieval (Chroma Dense Vector + MySQL Keyword Search + Reciprocal Rank Fusion)
-       │
-       ▼
-5. Strict Prompt Constraint: "Answer ONLY from CONTEXT. If missing, say NOT_IN_DOCUMENTS."
-       │
-       ▼
-6. Numeric & Citation Guard: Verifies all numbers match source records. Rejects hallucinations.
-```
-
-### Deterministic SBAR Clinical Summaries
-1. **Deterministic Fact Sheet:** Aggregates objective counts (readings, missed doses, reported symptoms, open flags) into structured JSON.
-2. **Draft Generation:** Gemini model formats facts into SBAR format (Situation, Background, Assessment, Recommendation).
-3. **Adjective Guard:** Rejects summaries containing banned judgment words: *"stable"*, *"normal"*, *"optimal"*, *"improving"*, *"worsening"*.
-4. **Offline Fallback:** If the LLM is offline or raises an exception, the system outputs the deterministic fact sheet as a draft SBAR note without failing.
-
----
-
-## 9. Roles, Permissions & Escalation Chain
-
-| Feature / Action | Doctor (Dr. Ananya Sharma) | Nurse (Priya Nair) | Patient (Aarav Patel) | Family Helper (Neha Patel) |
+| Feature / Endpoint | Doctor (Dr. Ananya Sharma) | Nurse (Priya Nair) | Patient (Aarav Patel) | Family Helper (Neha Patel) |
 | :--- | :---: | :---: | :---: | :---: |
 | **Landing Workspace** | `/staff/doctor/decisions` | `/staff/nurse/call-list` | `/patient` | `/family` |
-| **Primary Responsibility** | Clinical governance & decisions | Care coordination & calls | Self-care regimen & check-in | Consent-gated daily support |
-| **Acknowledge / Call Patient** | Yes | Yes | N/A | N/A |
-| **Resolve Routine Flags** | Yes | Yes | N/A | N/A |
-| **Resolve Urgent / Emergency Flags**| **Yes** | No (Escalates to Doctor) | N/A | N/A |
-| **Approve / Reject AI Summaries** | **Yes** | No (HTTP 403) | N/A | N/A |
-| **Approve Telemetry Limits** | **Yes** | No (Can Propose only) | N/A | N/A |
-| **Audit Log Inspection** | **Yes** | No (HTTP 403) | N/A | N/A |
-| **HL7 FHIR R4 Bundle Export** | **Yes** | No (HTTP 403) | N/A | N/A |
-| **Mark Dose Taken / Undo** | No | No | **Yes (1-Tap & 5-min Undo)** | Yes (I helped Aarav) |
-| **Submit Symptom Check-in** | No | No | **Yes (Slider & Chips)** | No |
-| **Discharge Q&A Assistant** | No | No | **Yes (Grounded)** | No (HTTP 403) |
+| **Needs My Decision Queue** | **Yes** | No (HTTP 403) | No | No |
+| **My Call List & Triage** | Yes | **Yes** | No | No |
+| **Automated Rounds View** | Yes | **Yes** | No | No |
+| **Start Follow-Up (Admission)** | Yes | **Yes** | No | No |
+| **Resolve Routine Flags** | Yes | Yes | No | No |
+| **Resolve Urgent / Fall Flags** | **Yes** | No (Escalates to Doctor) | No | No |
+| **Approve / Reject Recovery Plans** | **Yes** | No (HTTP 403) | No | No |
+| **Approve / Reject AI Summaries** | **Yes** | No (HTTP 403) | No | No |
+| **Approve Alert Limits** | **Yes** | No (Can Propose only) | No | No |
+| **Audit Log Inspection** | **Yes** | No (HTTP 403) | No | No |
+| **HL7 FHIR R4 Bundle Export** | **Yes** | No (HTTP 403) | No | No |
+| **Mark Dose Taken / 5-min Undo** | No | No | **Yes** | Yes (Helped dose) |
+| **Guided Check-in (Voice/TTS)** | No | No | **Yes** | No |
+| **Wound Photo Upload** | No | No | **Yes** | No (HTTP 403) |
+| **Wound Photo Review** | Yes | **Yes** | No | No |
+| **Ask My Papers Assistant** | No | No | **Yes** | No (HTTP 403) |
 | **Toggle Family Consent** | No | No | **Yes (Live switch)** | No |
 | **See Clinical Notes / Free-Text** | Yes | Yes | Yes | **No (Zero leakage)** |
 
 ---
 
-## 10. Safety Principles & Honesty Boundaries
+## 9. Safety Principles & Honesty Boundaries
 
 1. **No Medical Thresholds in Code:** Alert limits come only from doctor-approved records in `alert_rules`.
-2. **Valid Readings as Headline:** The headline reading in the patient and staff portals is always the latest `Valid` reading. Spurious telemetry (e.g. 450 bpm) is tagged `Invalid` and surfaced as a clean data check note (`"1 reading ignored: impossible value"`).
+2. **Valid Readings as Headline:** The headline reading in the patient and staff portals is always the latest `Valid` reading. Spurious telemetry (e.g. 450 bpm) is tagged `Invalid` and surfaced as a clean data check note.
 3. **Emergency Bypass:** Detection of life-threatening symptoms never waits for LLM responses. Plain regex pattern matching routes patients directly to emergency guidance.
 4. **Immediate Consent Cutoff:** When a patient toggles family sharing off, caregiver access is revoked immediately across all queries.
-5. **No Unprovable Claims:** Interface and documentation completely prohibit unprovable marketing claims (*"prevents readmissions"*, *"100% accurate"*, *"hardware-verified"*, *"AI detected"*).
+5. **No Unprovable Claims:** Interface and documentation completely prohibit unprovable marketing claims (*"guarantees recovery"*, *"100% accurate"*, *"hardware-verified"*, *"AI detected"*).
+6. **No Automated Prescribing:** The system never alters medication dosages or clinical plans without human clinician sign-off.
 
 ---
 
-## 11. Synthetic Demo Cast & Walkthrough Script
+## 10. Synthetic Demo Cohort & 8-Minute Demo Story
 
 ### The 5 Synthetic Demo Patients
+1. **Aarav Patel (Day 3 Post-CABG):** Baseline candidate. Valid headline vitals (74 bpm, 98% SpO₂), invalid 450 bpm spike ignored, family sharing active. Target of live SpO₂ event simulation.
+2. **Meera Sharma (Day 6 Heart Failure):** Open `Review_Soon` flag: silent telemetry device (>24h without data). Family consent revoked by patient.
+3. **Rajesh Verma (Day 5 Acute MI):** Open `Urgent_Review` flag: acute emergency symptom check-in (chest pressure) with nurse call task.
+4. **Kabir Mehta (Day 9 Valve Replacement):** Historical candidate: resolved flag with full audit history, approved summary ready.
+5. **Sunita Rao (Day 4 Post-PCI Stenting):** Open `Review_Soon` flag: two consecutive missed medication doses with pending nurse call task. Possible Fall rule enabled.
 
-| Patient | Diagnosis | Day Post-Discharge | Baseline Scenario & Flag State |
+### The 8-Minute Connected Demo Script
+
+| Time | Persona | Action & Demonstration Steps | Key Message to Judges |
 | :--- | :--- | :--- | :--- |
-| **Aarav Patel** | Post-CABG recovery | **Day 3** | Baseline candidate: valid headline vitals (74 bpm, 98% SpO₂), invalid 450 bpm spike ignored, family sharing active. Target of live SpO₂ event simulation. |
-| **Meera Joshi** | Heart Failure | **Day 6** | Open `Review_Soon` flag: silent telemetry device (>24h without data). Family consent revoked by patient. |
-| **Rajesh Kumar** | Acute MI | **Day 5** | Open `Urgent_Review` flag: acute emergency symptom check-in (chest pressure) with nurse call task. |
-| **Kabir Mehta** | Valve Replacement | **Day 9** | Historical candidate: resolved flag with full audit history, approved summary ready. |
-| **Sunita Rao** | Post-PCI Stenting | **Day 4** | Open `Review_Soon` flag: two consecutive missed medication doses with pending nurse call task. |
-
-### The 6:30 Minute Connected Demo Walkthrough
-
-| Time | Persona | Action & Demonstration Steps | Key Message to Audience |
-| :--- | :--- | :--- | :--- |
-| **0:00** | **Landing Page** | Point to the 4 role cards with their Section 2.1 pitches and distinct accent colors. | CareLoop is built around 4 distinct roles with separated scopes. |
-| **0:30** | **Patient (Aarav)** | Home shows next medicine $\rightarrow$ tap **Taken** $\rightarrow$ opens Check-in (pain 2) $\rightarrow$ asks *"When is my next appointment?"* (answers with cited source chip) $\rightarrow$ asks *"Can I double my dose?"* (safe refusal). | Patient acts; assistant is strictly grounded and refuses dose changes. |
-| **2:00** | **Presenter** | Click **"Send test reading"** (SpO₂ 91% for Aarav). | Wearable telemetry streams into the clinical rules engine. |
-| **2:15** | **Patient** | Banner updates: *"Your care team has been told. Call 112 if you have chest pain."* | Patient receives immediate, calm, actionable guidance. |
-| **2:30** | **Family (Neha)** | Refresh family view: sees action item *"The care team is checking on Aarav. Please contact him."* Taps **"I helped Aarav take it"** on evening dose. | Family helper is informed without seeing private medical notes. |
-| **3:15** | **Nurse (Priya)** | My Call List shows Aarav at top with timer and reason (*"SpO₂ reading 91% is below approved limit of 94%"*). Clicks **Call**, logs note, clicks **Ask Doctor**. | Nurse works the queue and escalates explainable flags. |
-| **4:15** | **Doctor (Dr. Sharma)**| Needs My Decision shows Aarav with nurse's note and Rajesh's emergency item. Opens flag drawer $\rightarrow$ checks limit provenance $\rightarrow$ **Resolve**. Opens Approvals $\rightarrow$ reviews SBAR summary $\rightarrow$ **Approves**. | Doctor governs and decides; AI drafts, humans sign. |
-| **5:30** | **Doctor $\rightarrow$ Audit** | Opens Audit Log: inspects end-to-end chain (reading, flag, SMS, call log, escalation, resolution, summary sign-off). | Every action is permanently audited. |
-| **6:00** | **Patient Home** | Toggles **Family sharing: Off**. Switch to family view: displays *"Aarav has turned sharing off."* | Patient privacy and consent are absolute. |
-| **6:30** | **Conclusion** | Recite core governing principle: *"The LLM talks. Rules decide. Humans act."* | Reliable post-discharge engineering. |
+| **0:00** | **Landing Page** | Show the 4 role cards with distinct accents and positioning: *"CareLoop keeps the days after discharge from going quiet."* | Role-based separation of concerns. |
+| **0:30** | **Nurse $\rightarrow$ Rounds** | Opens Rounds: inspects 24-hour lookahead table (*"What CareLoop will do next, and why"*). Shows due reminders and silence checks. | Automation you can see; every action has a reason. |
+| **1:15** | **Patient (Aarav)** | Reviews **My Plan** with cited discharge passages $\rightarrow$ starts Guided Check-in with TTS read-aloud and voice $\rightarrow$ uploads recovery photo with quality check. | Papers-first recovery, voice access, and image quality gates. |
+| **2:30** | **SMS Simulator** | Demonstrates basic-phone interaction: sends inbound SMS `1` (dose confirmed) and `3` (urgent callback). | Accessible to patients without smartphones. |
+| **3:00** | **Nurse (Priya)** | My Call List displays callback request $\rightarrow$ Photos to Review shows photo side-by-side with baseline $\rightarrow$ records *"No concern seen"*. | Human clinicians review images; no AI diagnosis. |
+| **3:45** | **Presenter** | Triggers simulated low SpO₂ reading (91% < 94%) for Aarav. | Wearable telemetry streams into the SQL rules engine. |
+| **4:00** | **Patient & Family** | Aarav receives calm guidance banner; Neha receives SMS notice with Aarav's explicit consent. | Calm patient guidance; family helper informed with consent. |
+| **4:30** | **Nurse $\rightarrow$ Doctor** | Priya logs call, clicks **Ask Doctor** $\rightarrow$ Dr. Sharma inspects escalation evidence and resolves flag. | Clinicians close the loop; full human oversight. |
+| **5:15** | **Doctor (Dr. Sharma)** | Opens Approvals $\rightarrow$ reviews drafted recovery plan with reconciliation mismatch warning $\rightarrow$ **Approves** $\rightarrow$ signs clinical summary. | AI drafts from papers; doctor reviews and approves. |
+| **6:15** | **Presenter** | Simulates possible fall for Sunita (Pt 5) $\rightarrow$ patient prompt appears $\rightarrow$ timer expires $\rightarrow$ Immediate flag and escalation ladder start. | Bounded fall prompt; no unvalidated detection claims. |
+| **7:00** | **Nurse $\rightarrow$ Admit** | Walks through 7-step admission wizard: document indexed, doctor limits configured, welcome call scheduled. | Onboarding is a structured clinical flow. |
+| **7:30** | **Doctor $\rightarrow$ Audit** | Inspects append-only audit trail verifying every automated and human action with timestamps and reasons. | Complete verifiable accountability. |
+| **7:50** | **Conclusion** | Recite core principle: *"Automates the routine. Proposes the rest. Humans decide."* | Engineering rigor and safety boundaries. |
 
 ---
 
-## 12. Device Telemetry, ESP32 Firmware & Simulator
+## 11. Hardware Specifications & IoT Simulator
 
 ### Hardware Specifications
-* **Microcontroller:** ESP32 DevKit V1 (30-pin / 36-pin).
+* **Microcontroller:** ESP32 DevKit V1 (30-pin, dual-core Tensilica Xtensa 32-bit LX6).
 * **Sensors:**
-  - MAX30102 via $I^2C$ (SDA: GPIO 21, SCL: GPIO 22) measuring optical PPG for Heart Rate (bpm) and SpO₂ (%).
-  - MPU6050 Accelerometer/Gyroscope for fall detection ($\sqrt{x^2+y^2+z^2} > 2.8g$).
+  - MAX30102 via $I^2C$ (SDA: GPIO 21, SCL: GPIO 22) measuring optical PPG for Heart Rate (bpm) and estimated SpO₂ (%).
+  - MPU-6050 Accelerometer/Gyroscope for motion spike analysis ($\sqrt{x^2+y^2+z^2} \ge 2.8g$).
 * **Local Display:** SSD1306 0.96" OLED ($I^2C$ address `0x3C`).
+* **Hardware SOS:** Tactile momentary push button pulling GPIO down to GND.
+* **Firmware:** Located in `device/esp32_careloop/esp32_careloop.ino`.
 
 ### Software Telemetry Simulator
-The Python simulator (`device/simulator.py`) generates physiological telemetry without requiring physical hardware:
+The Python simulator (`device/simulator.py`) generates physiological telemetry and event shock profiles:
 ```bash
-# Continuous streaming every 10 seconds
+# Continuous physiological telemetry streaming every 10 seconds
 python3 device/simulator.py --interval 10
 
 # Single low SpO2 breach cycle (89-91%) for alert testing
 python3 device/simulator.py --low-spo2 --once
+
+# Simulate motion spike followed by stillness (Possible Fall event)
+python3 device/simulator.py --device DEV-ESP32-005 --fall
 ```
 
 ---
 
-## 13. Testing Strategy & Kept Test Suites
+## 12. Testing Strategy & Test Suites (99 Tests)
 
-### The 6 Core Test Suites (51 Passing Tests)
+CareLoop enforces regression prevention through 11 test suites comprising 99 safety-critical tests:
 
 ```bash
-PYTHONPATH=. ./backend/env/bin/pytest \
-  tests/test_role_permissions_p2.py \
-  tests/test_doctor_desk_p3.py \
-  tests/test_nurse_desk_p4.py \
-  tests/test_patient_family_p5.py \
-  tests/test_connected_demo_p6.py \
-  tests/test_phase7_acceptance.py -v
+PYTHONPATH=. ./backend/env/bin/pytest tests/ -v
 ```
 
-1. **`test_role_permissions_p2.py` (14 tests):** Enforces role boundary HTTP 403s, IDOR token binding, family consent toggle cutoff, and nurse vs doctor flag authority.
-2. **`test_doctor_desk_p3.py` (7 tests):** Tests doctor decision queue, AI summary approval/rejection, limit proposals, and HL7 FHIR R4 JSON export.
-3. **`test_nurse_desk_p4.py` (7 tests):** Tests nurse call list queue, contact call logging, task completion with outcome codes, and shift handoffs.
-4. **`test_patient_family_p5.py` (9 tests):** Tests daily regimen, 5-minute undo, check-in emergency detection, grounded RAG citations, and family zero-leakage view.
-5. **`test_connected_demo_p6.py` (5 tests):** Tests sub-second database reset, live SpO₂ drop event simulation, and landing page claims.
-6. **`test_phase7_acceptance.py` (9 tests):** Tests offline LLM resilience (deterministic tool fallbacks, extractive chunk grounding, SBAR draft fallback), English/Hindi 112 emergency bypass, and headline vital filtering (ignoring 450 bpm).
+1. **`test_automation_policy.py` (11 tests):** Quiet hours enforcement (22:00–07:00), daily patient message caps, dose reminder limits, patient pause honor, open emergency freeze, and mandatory explicit reasons.
+2. **`test_checkin_guide.py` (5 tests):** Active template loading, nurse approval prohibition (doctor-only), instant emergency keyword trigger during check-in, routine completion, and template approval lifecycle.
+3. **`test_two_way_sms.py` (7 tests):** Inbound SMS commands (`1` dose confirmed, `3` urgent callback), `STOP`/`START` opt-out lifecycle, emergency keyword interception, unknown phone number handling, and Twilio webhook integration.
+4. **`test_photo_check.py` (7 tests):** Four deterministic quality cases (good, dark, blurry, low resolution), EXIF metadata removal, caregiver HTTP 403 access denial, patient cross-identity isolation, view audit logging, and nurse review workflow.
+5. **`test_plan_and_admission.py` (9 tests):** Section detection, number grounding guard (rejection of invented dosages), reconciliation mismatch detection, patient draft invisibility, doctor approval lifecycle, understanding check feedback proposal, and 7-step nurse admission flow.
+6. **`test_watch_events_p5.py` (9 tests):** Device key authentication, Rule OFF audit logging only, Rule ON prompt dispatch and 2-min countdown timer, Outcome A (I'm OK), Outcome B (Need Help $\rightarrow$ Immediate flag), Outcome C (Timeout $\rightarrow$ Immediate flag), inbound SMS fall prompt resolution, device health reporting, and zero "detected" wording leakage.
+7. **`test_role_permissions_p2.py` (14 tests):** Role boundary HTTP 403 enforcement, token IDOR binding, family consent toggle cutoff, and nurse vs doctor flag authority.
+8. **`test_doctor_desk_p3.py` (7 tests):** Doctor decision queue, AI summary approval/rejection, limit proposals, and HL7 FHIR R4 JSON export.
+9. **`test_nurse_desk_p4.py` (7 tests):** Nurse call list queue, contact call logging, task completion with outcome codes, and shift handoffs.
+10. **`test_patient_family_p5.py` (9 tests):** Patient daily regimen, 5-minute undo, check-in emergency detection, grounded RAG citations, and family zero-leakage view.
+11. **`test_connected_demo_p6.py` (5 tests):** Sub-second database reset contract, live SpO₂ drop event simulation, and landing page claims clean audit.
+12. **`test_phase7_acceptance.py` (9 tests):** Offline LLM resilience (deterministic tool fallbacks, extractive chunk grounding, SBAR draft fallback), English/Hindi 112 emergency bypass, and headline vital filtering (ignoring 450 bpm).
 
 ---
 
-## 14. Troubleshooting & Verification
+## 13. Troubleshooting & Verification
 
-| Problem | Root Cause | Solution |
+| Problem | Root Cause | Resolution |
 | :--- | :--- | :--- |
 | Database connection error (`1045 Access Denied`) | Credentials mismatch in `.env` | Ensure `.env` has `DB_USER=careloop_api` and `DB_PASSWORD=careloop_dev_pass`. |
-| Flag count mismatch after testing | Transactional tests modified flags | Run `python3 scripts/reset_demo.py` (< 0.25s) to restore baseline. |
-| AI Assistant returns fallback | LLM API key missing or unreachable | Verify `GOOGLE_API_KEY` in `.env`. If offline, assistant operates in deterministic fallback mode. |
-| Port 8000 or 3000 already in use | Stale background process | Kill process: `lsof -ti:8000 \| xargs kill -9`. |
-
----
-
-## 15. Limitations & Honest Future Scope
-
-* **Synthetic Data Prototype:** All records, patient names, and thresholds are synthetic test values. CareLoop is not certified as a medical device.
-* **Single Selected Region:** Configured for single-region deployment without multi-region cross-replication.
-* **No Closed-Loop Prescribing:** System never adjusts medicine dosages or modifies clinical regimens autonomously.
-* **Future Work:** Hospital EHR bi-directional integration via FHIR subscription hooks, clinical trials for alarm fatigue mitigation, and automated hardware device onboarding.
-
+| Flag count mismatch after testing | Transactional tests modified flags | Run `./backend/env/bin/python scripts/reset_demo.py` (< 0.35s) to restore clean baseline. |
+| AI Assistant returns fallback note | LLM API key missing or unreachable | Verify `GOOGLE_API_KEY` in `.env`. System operates safely in deterministic extractive fallback mode when offline. |
+| Port 8000 or 3000 already in use | Stale background process | Kill process: `lsof -ti:8000,3000 \| xargs kill -9`. |
+| Device event returns 401 | Missing or incorrect device key | Include `X-Device-Key: demo-device-key-change-me` in request headers. |

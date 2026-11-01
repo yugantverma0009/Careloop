@@ -146,7 +146,7 @@ export default function LandingPage() {
               transition: 'background 0.15s ease',
             }}
           >
-            <span>Launch demo</span>
+            <span>Enter workspace</span>
             <IconArrowRight width={14} height={14} />
           </button>
         </div>
@@ -192,15 +192,15 @@ export default function LandingPage() {
 
           <h1
             style={{
-              fontSize: '46px',
+              fontSize: '44px',
               fontWeight: 800,
-              lineHeight: 1.14,
+              lineHeight: 1.15,
               letterSpacing: '-0.035em',
               color: '#0b1528',
-              marginBottom: '18px',
+              marginBottom: '16px',
             }}
           >
-            Four people. Four jobs. One connected recovery loop.
+            After discharge, nothing should go quiet.
           </h1>
 
           <p
@@ -208,10 +208,10 @@ export default function LandingPage() {
               fontSize: '16px',
               lineHeight: 1.6,
               color: '#475569',
-              marginBottom: '28px',
+              marginBottom: '26px',
             }}
           >
-            CareLoop makes each role genuinely different: patients act and check in, family helpers support with consent, nurses work the prioritized queue, and doctors decide and approve.
+            CareLoop keeps the days after discharge from going quiet: it automates the routine, shows its reason for every alert, answers only from the patient's own papers, and makes sure a person closes every loop.
           </p>
 
           {/* Action Buttons */}
@@ -261,9 +261,9 @@ export default function LandingPage() {
           {/* 3 Checkpoints */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
             {[
-              '4 genuinely different roles',
+              'Automates the routine · Proposes the rest · Humans decide',
               'Rules create flags; LLM drafts only',
-              'Synthetic sample cohort',
+              'Active post-discharge cohort',
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span
@@ -340,7 +340,7 @@ export default function LandingPage() {
             }}
           >
             <div style={{ fontSize: '10px', fontWeight: 800, color: '#0284c7', textTransform: 'uppercase', marginBottom: '4px' }}>
-              DEMO COHORT SUMMARY
+              PATIENT COHORT SUMMARY
             </div>
             <div style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a', marginBottom: '16px' }}>
               Current Recovery Worklist
@@ -351,7 +351,7 @@ export default function LandingPage() {
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>PATIENTS</div>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '2px 0' }}>5</div>
-                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Synthetic cohort</div>
+                <div style={{ fontSize: '9px', color: '#059669', fontWeight: 600 }}>Active cohort</div>
               </div>
 
               <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
@@ -501,7 +501,7 @@ export default function LandingPage() {
               DATABASE AT A GLANCE
             </div>
             <div style={{ fontSize: '17px', fontWeight: 800, lineHeight: 1.3, marginTop: '4px' }}>
-              Real counts from local MySQL schema. No exaggerated claims.
+              Operational registry counts for active post-discharge cohort.
             </div>
           </div>
 
@@ -689,7 +689,7 @@ export default function LandingPage() {
               id: 'doctor',
               role: 'Doctor',
               name: 'Dr. Ananya Sharma',
-              pitch: 'The doctor decides, approves and exports.',
+              pitch: 'The doctor approves recovery plans, decides escalated alerts, and sets limits.',
               firstScreen: 'Needs my decision',
               email: 'ananya.demo@example.test',
               accent: '#7c3aed',
@@ -701,7 +701,7 @@ export default function LandingPage() {
               id: 'nurse',
               role: 'Nurse',
               name: 'Priya Nair',
-              pitch: 'The nurse calls, logs, rechecks and escalates.',
+              pitch: 'The nurse runs Rounds, reviews recovery photos, calls patients, and starts follow-ups.',
               firstScreen: 'My call list',
               email: 'priya.demo@example.test',
               accent: '#0d9488',
@@ -713,7 +713,7 @@ export default function LandingPage() {
               id: 'patient',
               role: 'Patient',
               name: 'Aarav Patel',
-              pitch: 'The patient acts, checks in and asks their papers.',
+              pitch: 'The patient follows My Plan, completes voice or SMS check-ins, and asks their papers.',
               firstScreen: 'Home',
               email: 'aarav.demo@example.test',
               accent: '#2563eb',
@@ -725,7 +725,7 @@ export default function LandingPage() {
               id: 'caregiver',
               role: 'Family Helper',
               name: 'Neha Patel',
-              pitch: 'The family helper supports, is informed with consent, and calls 112 if needed.',
+              pitch: 'The family helper supports with consent, sees calm updates, and calls 112 if needed.',
               firstScreen: 'Today',
               email: 'caregiver1.demo@example.test',
               accent: '#ea580c',
@@ -819,7 +819,7 @@ export default function LandingPage() {
                     }}
                   >
                     <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>
-                      Sign-in credentials (Judge Access)
+                      Sign-in credentials (Role access)
                     </div>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a', fontFamily: 'monospace' }}>
                       {card.email}
@@ -913,41 +913,41 @@ export default function LandingPage() {
           {[
             {
               step: 'Step 1',
-              title: 'Patient Morning Action',
+              title: 'Patient Guided Day',
               who: 'Aarav Patel (Patient)',
-              desc: 'Taps Taken on morning medicines, sends pain check-in, and asks his discharge notes when his follow-up is.',
+              desc: 'Reviews My plan extracted from discharge papers, completes voice or SMS check-in, and submits wound recovery photo.',
               color: '#2563eb',
               bg: '#eff6ff',
             },
             {
               step: 'Step 2',
-              title: 'Continuous Telemetry',
-              who: 'Wearable Watch (DEV-ESP32-001)',
-              desc: 'Streams heart rate & oxygen. Rule engine filters out impossible values (450 bpm) and evaluates valid readings.',
+              title: 'Rounds & Watch Telemetry',
+              who: 'Background Automation & ESP32 Watch',
+              desc: 'Rounds executes 24h schedule with explicit reasons; watch streams vitals, filters invalid noise, and reports possible falls.',
               color: '#0284c7',
               bg: '#f0f9ff',
             },
             {
               step: 'Step 3',
-              title: 'Prompt & Caregiver Alert',
+              title: 'Alert & Family Support',
               who: 'Neha Patel (Family)',
-              desc: 'SpO₂ drops to 91% (< 94% limit). Aarav sees a calm 112 guidance banner. Neha gets SMS notification with Aarav’s consent.',
+              desc: 'When vitals cross limits, Aarav sees a calm guidance banner. Neha receives SMS notice with Aarav’s explicit consent.',
               color: '#ea580c',
               bg: '#fff7ed',
             },
             {
               step: 'Step 4',
-              title: 'Nurse Queue & Escalation',
+              title: 'Nurse Queue & Image Review',
               who: 'Priya Nair (Lead Nurse)',
-              desc: 'Aarav appears at top of My Call List with reason. Priya calls him, logs notes, and escalates to Dr. Sharma.',
+              desc: 'Inspects wound photos side-by-side, calls patient from prioritized queue, logs call notes, and starts follow-ups.',
               color: '#0d9488',
               bg: '#f0fdfa',
             },
             {
               step: 'Step 5',
-              title: 'Physician Review & Sign-Off',
+              title: 'Doctor Decision & Approvals',
               who: 'Dr. Ananya Sharma (Attending)',
-              desc: 'Aarav appears in Needs My Decision. Dr. Sharma inspects escalation evidence, resolves flag, and approves AI summaries.',
+              desc: 'Approves drafted recovery plans with cited passages, reviews escalated flags, and signs clinical summaries.',
               color: '#7c3aed',
               bg: '#f5f3ff',
             },
@@ -1036,7 +1036,7 @@ export default function LandingPage() {
             Safety and Privacy Principles
           </h2>
           <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
-            CareLoop is built on clear clinical safeguards. We make no unprovable claims: no readmission prevention guarantees, no arbitrary accuracy percentages, no medical device classification.
+            CareLoop is built on clear clinical safeguards. We make no unprovable outcome claims: no arbitrary accuracy percentages, no unverified guarantees, and no medical device classification.
           </p>
         </div>
 

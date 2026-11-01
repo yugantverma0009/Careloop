@@ -203,9 +203,9 @@ def test_section10_landing_page_contract():
     with open(landing_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "The doctor decides, approves and exports." in content
-    assert "The nurse calls, logs, rechecks and escalates." in content
-    assert "The patient acts, checks in and asks their papers." in content
-    assert "The family helper supports, is informed with consent, and calls 112 if needed." in content
+    assert "The doctor approves recovery plans, decides escalated alerts, and sets limits." in content
+    assert "The nurse runs Rounds, reviews recovery photos, calls patients, and starts follow-ups." in content
+    assert "The patient follows My Plan, completes voice or SMS check-ins, and asks their papers." in content
+    assert "The family helper supports with consent, sees calm updates, and calls 112 if needed." in content
     assert "The LLM talks. Rules decide. Humans act." in content
     assert "Sample data. Not medical advice. Synthetic-data prototype, not a medical device." in content

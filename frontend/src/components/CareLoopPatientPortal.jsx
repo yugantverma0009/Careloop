@@ -161,7 +161,7 @@ export default function CareLoopPatientPortal({ user }) {
   const [isListening, setIsListening] = useState(false);
   const [checkinSubmitting, setCheckinSubmitting] = useState(false);
 
-  // Plain-code real-time emergency detection (chips or text in English & Hindi)
+  // Plain-code immediate emergency detection (chips or text in English & Hindi)
   const hasEmergencyTrigger =
     selectedChips.some((id) => {
       const chip = CHECKIN_SYMPTOM_CHIPS.find((c) => c.id === id);

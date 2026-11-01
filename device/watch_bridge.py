@@ -47,9 +47,9 @@ try:
                     fall = int(parts[1]) if len(parts) > 1 else 0
                     
                     if fall == 1:
-                        print(f"ALERT: FALL DETECTED! | BPM: {bpm}")
+                        print(f"ALERT: POSSIBLE FALL REPORTED | BPM: {bpm}")
                     else:
-                        print(f"BPM: {bpm} | Status: Normal")
+                        print(f"BPM: {bpm} | Status: Recorded")
                     
                     now = int(time.time())
                     payload = {

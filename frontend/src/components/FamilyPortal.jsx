@@ -821,7 +821,7 @@ export default function FamilyPortal({ user }) {
                         textDecoration: 'none',
                       }}
                     >
-                      <span>{lang === 'hi' ? 'अस्पताल हेल्पडेस्क' : 'Hospital Desk'}</span>
+                      <span>{lang === 'hi' ? 'क्लीनिक सहायता' : 'Clinic Support'}</span>
                     </a>
                   </div>
                 </div>
@@ -1035,7 +1035,7 @@ export default function FamilyPortal({ user }) {
                 {/* Hospital Desk */}
                 <div style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-card-hover)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    {lang === 'hi' ? 'केयरलूप अस्पताल हेल्पडेस्क' : 'CareLoop Hospital Desk'}
+                    {lang === 'hi' ? 'केयरलूप क्लीनिक सहायता डेस्क' : 'CareLoop Clinic Support Desk'}
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
                     {lang === 'hi' ? 'सामान्य फॉलो-अप हेल्पडेस्क' : 'General Follow-Up Desk'}
