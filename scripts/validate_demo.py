@@ -221,6 +221,37 @@ def validate():
             pct_val = sunita_adh["self_reported_taken_pct"] if sunita_adh else "N/A"
             print(f"  ✓ Sunita adherence accurately reflects dose logs ({pct_val}%, unconfirmed doses penalized)")
 
+        # Check 16: Check-in Templates (Phase 2 Feature F2)
+        cur.execute("SELECT COUNT(*) AS total_t, SUM(is_active = 1) AS active_t FROM checkin_templates")
+        t_row = cur.fetchone()
+        if not t_row or t_row["total_t"] < 2 or t_row["active_t"] != 1:
+            failures.append(f"❌ checkin_templates mismatch: total={t_row.get('total_t')}, active={t_row.get('active_t')} (expected >=2 total, 1 active)")
+        else:
+            print(f"  ✓ Check-in templates verified: {t_row['total_t']} templates ({t_row['active_t']} active doctor-approved)")
+
+        # Check 17: Check-in Sessions & Answers Integrity (Phase 2 Feature F2)
+        cur.execute("SELECT COUNT(*) AS total_sessions FROM checkin_sessions")
+        s_count = cur.fetchone()["total_sessions"]
+        cur.execute(
+            """SELECT COUNT(*) AS orphan_answers
+               FROM checkin_answers a
+               LEFT JOIN checkin_sessions s ON a.session_id = s.session_id
+               WHERE s.session_id IS NULL"""
+        )
+        orphans = cur.fetchone()["orphan_answers"]
+        if orphans > 0:
+            failures.append(f"❌ checkin_answers has {orphans} orphaned answers!")
+        else:
+            print(f"  ✓ Check-in sessions and answers verified ({s_count} sessions, 0 orphaned answers)")
+
+        # Check 18: Two-Way SMS Messages (Phase 2 Feature F3)
+        cur.execute("SELECT COUNT(*) AS total_sms, SUM(direction = 'Inbound') AS in_sms, SUM(direction = 'Outbound') AS out_sms FROM sms_messages")
+        sms_row = cur.fetchone()
+        if not sms_row or sms_row["total_sms"] < 4:
+            failures.append(f"❌ sms_messages count too low: {sms_row.get('total_sms') if sms_row else 0} (expected >= 4)")
+        else:
+            print(f"  ✓ Two-Way SMS messages verified: {sms_row['total_sms']} messages ({sms_row['out_sms']} outbound, {sms_row['in_sms']} inbound)")
+
     conn.close()
 
     if failures:
@@ -229,7 +260,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 15 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 18 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 

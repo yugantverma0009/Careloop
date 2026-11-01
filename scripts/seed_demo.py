@@ -508,6 +508,41 @@ def main():
                     (pid, aname, ptype, reas, evid, now - timedelta(hours=1))
                 )
 
+            # Step 15: Seed Check-in Sessions & Two-Way SMS Messages (Phase 2)
+            print("  15. Seeding Check-in Sessions and Two-Way SMS Messages...")
+            # 15a. Completed Check-in session for Aarav
+            cur.execute(
+                """INSERT INTO checkin_sessions (session_id, patient_id, template_id, channel, status, current_step, started_at, completed_at, symptom_report_id)
+                   VALUES (1, 1, 1, 'App_Guided', 'Completed', 5, NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY + INTERVAL 3 MINUTE, 1)"""
+            )
+            answers = [
+                (1, 1, "1", "Scale: 1/10"),
+                (1, 2, "No", "Emergency: No"),
+                (1, 3, "all", "Choice: All taken"),
+                (1, 4, "fine", "Choice: Healing well"),
+                (1, 5, "Morning walk went smoothly.", "Text: Morning walk went smoothly."),
+            ]
+            for sid, qid, val, raw in answers:
+                cur.execute(
+                    """INSERT INTO checkin_answers (session_id, question_id, answer_value, raw_input, created_at)
+                       VALUES (%s, %s, %s, %s, NOW() - INTERVAL 1 DAY)""",
+                    (sid, qid, val, raw)
+                )
+
+            # 15b. Two-Way SMS messages for Aarav & Neha
+            sms_data = [
+                ("Outbound", 1, None, "+91-98765-43210", "CareLoop Reminder: CardioPulse-XR scheduled at 08:00 AM. Reply 1 if taken, 2 if skipped.", "Dose_Reminder", "medication_log", 1, "Logged", now - timedelta(hours=13, minutes=10)),
+                ("Inbound", 1, None, "+91-98765-43210", "1", None, "medication_log", 1, "Received", now - timedelta(hours=13, minutes=8)),
+                ("Outbound", 1, None, "+91-98765-43210", "Confirmed: Your dose of CardioPulse-XR (08:00 AM) has been marked taken. Thank you.", "Dose_Confirmation", "medication_log", 1, "Logged", now - timedelta(hours=13, minutes=7)),
+                ("Outbound", 1, None, "+91-98765-43210", "CareLoop: Your daily recovery check-in is ready. Open your portal or reply 1 to confirm doses.", "Checkin_Prompt", "checkin_session", 1, "Logged", now - timedelta(hours=4)),
+            ]
+            for direct, pid, cid, ph, body, tkey, rtype, rid, stat, cat in sms_data:
+                cur.execute(
+                    """INSERT INTO sms_messages (direction, patient_id, caregiver_id, phone, body, template_key, related_type, related_id, status, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (direct, pid, cid, ph, body, tkey, rtype, rid, stat, cat)
+                )
+
         conn.commit()
         duration = (datetime.now() - start_time).total_seconds()
         print(f"✅ Seeding complete in {duration:.2f} seconds!")

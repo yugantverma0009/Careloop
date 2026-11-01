@@ -510,4 +510,33 @@ export const acceptProposal = (proposalId) =>
 export const dismissProposal = (proposalId, dismissReason) =>
   post(`/staff/agent/proposals/${proposalId}/dismiss`, { dismiss_reason: dismissReason });
 
+// ─── Feature F2 & F3: Check-in Guide & Two-Way SMS API ───────────────────────
+
+export const getActiveCheckinTemplate = () =>
+  get('/patient/me/checkin/template');
+
+export const startCheckinSession = (channel = 'App_Guided') =>
+  post('/patient/me/checkin/start', { channel });
+
+export const recordCheckinAnswer = (sessionId, questionId, answerValue, rawInput = null) =>
+  post('/patient/me/checkin/answer', {
+    session_id: sessionId,
+    question_id: questionId,
+    answer_value: String(answerValue),
+    raw_input: rawInput,
+  });
+
+export const getDoctorCheckinTemplates = () =>
+  get('/staff/checkin-templates');
+
+export const approveDoctorCheckinTemplate = (templateId) =>
+  post(`/staff/checkin-templates/${templateId}/approve`, {});
+
+export const simulateInboundSms = (fromPhone, body) =>
+  post('/staff/sms/simulate-inbound', { from_phone: fromPhone, body });
+
+export const getPatientSmsMessages = (patientId) =>
+  get(`/staff/patients/${patientId}/messages`);
+
+
 

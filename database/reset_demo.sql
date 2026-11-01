@@ -8,6 +8,11 @@ USE careloop;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. Truncate all transactional tables
+TRUNCATE TABLE checkin_answers;
+TRUNCATE TABLE checkin_sessions;
+TRUNCATE TABLE checkin_questions;
+TRUNCATE TABLE checkin_templates;
+TRUNCATE TABLE sms_messages;
 TRUNCATE TABLE agent_proposals;
 TRUNCATE TABLE scheduled_actions;
 TRUNCATE TABLE audit_log;
@@ -139,6 +144,7 @@ INSERT INTO alert_rules (rule_id, patient_id, rule_type, measurement_type, thres
 (4, 1, 'Pain_At_Least', NULL,           7.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 2 DAY, 1),
 (5, 1, 'Missed_Doses',  NULL,           2.00, 24,   'Review_Soon',   1, NOW() - INTERVAL 2 DAY, 1),
 (6, 1, 'No_Data_Hours', NULL,           6.00, NULL, 'Review_Soon',   1, NOW() - INTERVAL 2 DAY, 1),
+(17, 1, 'Missed_Checkins', NULL,        2.00, 24,   'Review_Soon',   1, NOW() - INTERVAL 2 DAY, 1),
 
 -- Meera Sharma (Patient 2: Silent device threshold 6 hours)
 (7, 2, 'No_Data_Hours', NULL,           6.00, NULL, 'Review_Soon',   1, NOW() - INTERVAL 5 DAY, 1),
@@ -192,5 +198,22 @@ INSERT INTO document_chunks (chunk_id, document_id, chunk_index, chunk_text, sec
 (11, 4, 2, 'FOLLOW-UP: Follow-up visit scheduled in 6 days for incision clearance.', 'Follow-up', 'follow_up', 1),
 (12, 5, 1, 'MEDICATIONS: CardioPulse-XR 1 tablet twice daily with water.', 'Medications', 'medications', 1),
 (13, 5, 2, 'WARNING SIGNS: Missed doses or sudden weight gain requires immediate clinical review.', 'Warning Signs', 'warning_signs', 1);
+
+-- Check-in Templates & Standard Questions (Phase 2)
+INSERT INTO checkin_templates (template_id, name, version, status, approved_by_staff_id, approved_at, is_active) VALUES
+(1, 'Standard Post-Discharge Recovery Check-in', 1, 'Approved', 1, NOW() - INTERVAL 5 DAY, 1),
+(2, 'Cardiac Post-CABG Specialized Check-in', 1, 'Draft', NULL, NULL, 0);
+
+INSERT INTO checkin_questions (question_id, template_id, step_order, question_key, text_en, text_hi, response_type, choices, is_emergency_trigger) VALUES
+(1, 1, 1, 'pain', 'How would you rate your pain right now, on a scale from 0 (none) to 10 (severe)?', '0 (बिल्कुल नहीं) से 10 (अत्यधिक) के पैमाने पर, अभी आपका दर्द कितना है?', 'Scale_0_10', NULL, 0),
+(2, 1, 2, 'emergency_symptoms', 'Do you have any acute chest pain, severe shortness of breath, or sudden dizziness?', 'क्या आपको सीने में तेज दर्द, सांस लेने में अत्यधिक तकलीफ या अचानक चक्कर आ रहे हैं?', 'Yes_No', NULL, 1),
+(3, 1, 3, 'medications_taken', 'Have you taken all your scheduled medications today?', 'क्या आपने आज की अपनी सभी निर्धारित दवाइयाँ ली हैं?', 'Choice', '[{"key": "all", "label_en": "Yes, all taken", "label_hi": "हाँ, सभी ली हैं"}, {"key": "some", "label_en": "Some taken", "label_hi": "कुछ ली हैं"}, {"key": "none", "label_en": "None taken yet", "label_hi": "अभी तक नहीं ली"}]', 0),
+(4, 1, 4, 'wound_status', 'How does your incision or surgical recovery site feel today?', 'आज आपका सर्जिकल चीरा या रिकवरी का स्थान कैसा महसूस हो रहा है?', 'Choice', '[{"key": "fine", "label_en": "Healing well / No concern", "label_hi": "अच्छी तरह ठीक हो रहा है / कोई चिंता नहीं"}, {"key": "mild", "label_en": "Mild discomfort / Unsure", "label_hi": "हल्की तकलीफ / अनिश्चित"}, {"key": "worried", "label_en": "Red, painful, or worried", "label_hi": "लाल, दर्दनाक या चिंताजनक"}]', 0),
+(5, 1, 5, 'additional_notes', 'Is there anything else you want your care team to know? (Optional)', 'क्या कुछ और है जो आप अपनी देखभाल टीम को बताना चाहते हैं? (वैकल्पिक)', 'Text', NULL, 0),
+(6, 2, 1, 'sternal_pain', 'Rate your chest or sternal incision pain from 0 to 10.', 'अपने सीने या चीरे के दर्द को 0 से 10 के पैमाने पर आंकें।', 'Scale_0_10', NULL, 0),
+(7, 2, 2, 'cardiac_emergency', 'Any new shortness of breath, palpitation, or radiating arm pain?', 'क्या सांस फूलना, दिल की धड़कन तेज होना या बांह में दर्द महसूस हो रहा है?', 'Yes_No', NULL, 1),
+(8, 2, 3, 'leg_swelling', 'Do you observe any unusual swelling or redness in your graft harvest leg?', 'क्या आपके पैर में कोई असामान्य सूजन या लालिमा दिखाई दे रही है?', 'Choice', '[{"key": "none", "label_en": "No swelling", "label_hi": "कोई सूजन नहीं"}, {"key": "mild", "label_en": "Mild swelling", "label_hi": "हल्की सूजन"}, {"key": "severe", "label_en": "Puffy or painful", "label_hi": "सूजन और दर्दनाक"}]', 0),
+(9, 2, 4, 'mobility_check', 'Were you able to complete your recommended 15-minute gentle walk today?', 'क्या आज आप अपनी निर्धारित 15 मिनट की हल्की सैर पूरी कर पाए?', 'Choice', '[{"key": "yes", "label_en": "Completed walk", "label_hi": "सैर पूरी की"}, {"key": "partial", "label_en": "Walked a little", "label_hi": "थोड़ा चले"}, {"key": "unable", "label_en": "Unable due to fatigue", "label_hi": "थकान के कारण नहीं चल सके"}]', 0),
+(10, 2, 5, 'patient_feedback', 'Any symptoms or questions for Dr. Sharma?', 'डॉ. शर्मा के लिए कोई लक्षण या प्रश्न?', 'Text', NULL, 0);
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -82,6 +82,12 @@ export default function DoctorLimitsView({ user = {} }) {
     if (r.rule_type === 'No_Data_Hours') {
       return `> ${val} hours silent`;
     }
+    if (r.rule_type === 'Missed_Checkins') {
+      return `≥ ${val} missed check-ins`;
+    }
+    if (r.rule_type === 'Possible_Fall') {
+      return `Motion shock trigger`;
+    }
     return `${val}`;
   };
 

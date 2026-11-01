@@ -20,6 +20,7 @@ import {
 } from '../services/api';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
+import CheckinGuide from './CheckinGuide';
 import {
   IconLogo,
   IconPill,
@@ -146,7 +147,8 @@ export default function CareLoopPatientPortal({ user }) {
   // In-App Reminders State (Brief Sec 6.8)
   const [remindersOpen, setRemindersOpen] = useState(false);
 
-  // Phase 3 Check-in State (Brief Sec 6.4)
+  // Phase 3 Check-in State (Brief Sec 6.4) & Phase 2 Check-in Guide
+  const [checkinMode, setCheckinMode] = useState('guided'); // 'guided' | 'quick'
   const [painLevel, setPainLevel] = useState(0);
   const [selectedChips, setSelectedChips] = useState([]);
   const [selectedSites, setSelectedSites] = useState([]);
@@ -3598,6 +3600,58 @@ export default function CareLoopPatientPortal({ user }) {
                   )}
                 </div>
 
+                {/* Mode Switcher: Guided Guide vs Quick Form */}
+                {!checkinSuccessData && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '8px',
+                      background: 'var(--bg-base, #f1f5f9)',
+                      padding: '4px',
+                      borderRadius: '8px',
+                      marginBottom: '18px',
+                      marginTop: '10px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setCheckinMode('guided')}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: checkinMode === 'guided' ? '#ffffff' : 'transparent',
+                        color: checkinMode === 'guided' ? '#0b1528' : 'var(--text-secondary, #475569)',
+                        fontWeight: checkinMode === 'guided' ? 700 : 500,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        boxShadow: checkinMode === 'guided' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      }}
+                    >
+                      {lang === 'hi' ? '🧭 गाइडेड चेक-इन (अनुशंसित)' : '🧭 Check-in Guide (Recommended)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCheckinMode('quick')}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: checkinMode === 'quick' ? '#ffffff' : 'transparent',
+                        color: checkinMode === 'quick' ? '#0b1528' : 'var(--text-secondary, #475569)',
+                        fontWeight: checkinMode === 'quick' ? 700 : 500,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        boxShadow: checkinMode === 'quick' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      }}
+                    >
+                      {lang === 'hi' ? '⚡ त्वरित फॉर्म' : '⚡ Quick Form'}
+                    </button>
+                  </div>
+                )}
+
                 {/* POST-SUBMISSION CONFIRMATION STATE */}
                 {checkinSuccessData ? (
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -3758,6 +3812,26 @@ export default function CareLoopPatientPortal({ user }) {
                       </div>
                     </div>
                   </div>
+                ) : checkinMode === 'guided' ? (
+                  <CheckinGuide
+                    lang={lang}
+                    onComplete={(res) => {
+                      setCheckinSuccessData({
+                        res,
+                        payload: {
+                          pain_level: res.pain_level ?? 0,
+                          trend: 'Completed via Guide',
+                          chips: [],
+                          sites: [],
+                          text: res.message || 'Check-in completed',
+                        },
+                      });
+                      getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
+                    }}
+                    onEmergency={() => {
+                      getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
+                    }}
+                  />
                 ) : (
                   /* ACTIVE CHECK-IN FORM */
                   <form onSubmit={handleCheckinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '22px', marginTop: '18px' }}>

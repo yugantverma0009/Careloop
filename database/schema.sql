@@ -588,6 +588,113 @@ CREATE TABLE `agent_proposals` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `checkin_templates`
+--
+
+DROP TABLE IF EXISTS `checkin_templates`;
+CREATE TABLE `checkin_templates` (
+  `template_id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(80) NOT NULL,
+  `version` smallint NOT NULL DEFAULT '1',
+  `status` enum('Draft','Approved','Archived') NOT NULL DEFAULT 'Draft',
+  `approved_by_staff_id` int DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`template_id`),
+  KEY `fk_template_staff` (`approved_by_staff_id`),
+  CONSTRAINT `fk_template_staff` FOREIGN KEY (`approved_by_staff_id`) REFERENCES `care_staff` (`staff_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `checkin_questions`
+--
+
+DROP TABLE IF EXISTS `checkin_questions`;
+CREATE TABLE `checkin_questions` (
+  `question_id` int NOT NULL AUTO_INCREMENT,
+  `template_id` int NOT NULL,
+  `step_order` smallint NOT NULL,
+  `question_key` varchar(40) NOT NULL,
+  `text_en` varchar(255) NOT NULL,
+  `text_hi` varchar(255) NOT NULL,
+  `response_type` enum('Scale_0_10','Yes_No','Choice','Text') NOT NULL,
+  `choices` json DEFAULT NULL,
+  `is_emergency_trigger` tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`question_id`),
+  KEY `fk_question_template` (`template_id`),
+  CONSTRAINT `fk_question_template` FOREIGN KEY (`template_id`) REFERENCES `checkin_templates` (`template_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `checkin_sessions`
+--
+
+DROP TABLE IF EXISTS `checkin_sessions`;
+CREATE TABLE `checkin_sessions` (
+  `session_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `template_id` int NOT NULL,
+  `channel` enum('App_Guided','SMS','Voice') NOT NULL DEFAULT 'App_Guided',
+  `status` enum('In_Progress','Completed','Abandoned','Missed') NOT NULL DEFAULT 'In_Progress',
+  `current_step` smallint NOT NULL DEFAULT '1',
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at` datetime DEFAULT NULL,
+  `symptom_report_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`session_id`),
+  KEY `fk_checkin_patient` (`patient_id`),
+  KEY `fk_checkin_template` (`template_id`),
+  KEY `fk_checkin_report` (`symptom_report_id`),
+  CONSTRAINT `fk_checkin_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_checkin_report` FOREIGN KEY (`symptom_report_id`) REFERENCES `symptom_reports` (`symptom_report_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_checkin_template` FOREIGN KEY (`template_id`) REFERENCES `checkin_templates` (`template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `checkin_answers`
+--
+
+DROP TABLE IF EXISTS `checkin_answers`;
+CREATE TABLE `checkin_answers` (
+  `answer_id` bigint NOT NULL AUTO_INCREMENT,
+  `session_id` bigint NOT NULL,
+  `question_id` int NOT NULL,
+  `answer_value` varchar(255) NOT NULL,
+  `raw_input` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`answer_id`),
+  KEY `fk_answer_session` (`session_id`),
+  KEY `fk_answer_question` (`question_id`),
+  CONSTRAINT `fk_answer_question` FOREIGN KEY (`question_id`) REFERENCES `checkin_questions` (`question_id`),
+  CONSTRAINT `fk_answer_session` FOREIGN KEY (`session_id`) REFERENCES `checkin_sessions` (`session_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `sms_messages`
+--
+
+DROP TABLE IF EXISTS `sms_messages`;
+CREATE TABLE `sms_messages` (
+  `sms_id` bigint NOT NULL AUTO_INCREMENT,
+  `direction` enum('Outbound','Inbound') NOT NULL,
+  `patient_id` int DEFAULT NULL,
+  `caregiver_id` int DEFAULT NULL,
+  `phone` varchar(20) NOT NULL,
+  `body` varchar(480) NOT NULL,
+  `template_key` varchar(60) DEFAULT NULL,
+  `related_type` varchar(30) DEFAULT NULL,
+  `related_id` bigint DEFAULT NULL,
+  `status` enum('Logged','Sent','Delivered','Failed','Received') NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`sms_id`),
+  KEY `idx_sms_patient_time` (`patient_id`,`created_at`),
+  KEY `fk_sms_caregiver` (`caregiver_id`),
+  CONSTRAINT `fk_sms_caregiver` FOREIGN KEY (`caregiver_id`) REFERENCES `caregivers` (`caregiver_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_sms_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `medication_logs`
 --
 

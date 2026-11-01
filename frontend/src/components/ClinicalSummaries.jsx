@@ -9,6 +9,8 @@ import {
   getRuleProposals,
   approveRuleProposal,
   rejectRuleProposal,
+  getDoctorCheckinTemplates,
+  approveDoctorCheckinTemplate,
 } from '../services/api';
 
 export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
@@ -38,6 +40,33 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
   const [rejectPropModalOpen, setRejectPropModalOpen] = useState(false);
   const [rejectPropId, setRejectPropId] = useState(null);
   const [rejectPropReason, setRejectPropReason] = useState('');
+
+  // Check-in Templates State (Phase 2 Feature F2)
+  const [checkinTemplates, setCheckinTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
+  const fetchCheckinTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const data = await getDoctorCheckinTemplates();
+      setCheckinTemplates(data.templates || []);
+    } catch (err) {
+      console.error('Failed to load check-in templates:', err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const handleApproveTemplate = async (templateId) => {
+    try {
+      await approveDoctorCheckinTemplate(templateId);
+      setActionMsg(`Check-in template #${templateId} approved and activated for all patient portals.`);
+      setTimeout(() => setActionMsg(''), 4000);
+      await fetchCheckinTemplates();
+    } catch (err) {
+      alert(`Template approval failed: ${err.message || 'Error'}`);
+    }
+  };
 
   const fetchProposals = async () => {
     setProposalsLoading(true);
@@ -81,6 +110,8 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
   useEffect(() => {
     if (approvalTab === 'limits') {
       fetchProposals();
+    } else if (approvalTab === 'checkin_templates') {
+      fetchCheckinTemplates();
     }
   }, [approvalTab]);
 
@@ -266,6 +297,38 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
             {proposals.length} pending
           </span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setApprovalTab('checkin_templates')}
+          style={{
+            padding: '8px 18px',
+            borderRadius: '8px',
+            border: 'none',
+            background: approvalTab === 'checkin_templates' ? 'var(--role-doctor, #7c3aed)' : 'transparent',
+            color: approvalTab === 'checkin_templates' ? '#ffffff' : 'var(--text-secondary, #475569)',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>📋 Check-in Templates</span>
+          <span
+            style={{
+              fontSize: '11px',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: approvalTab === 'checkin_templates' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+              color: approvalTab === 'checkin_templates' ? '#ffffff' : '#475569',
+              fontWeight: 800,
+            }}
+          >
+            {checkinTemplates.length}
+          </span>
+        </button>
       </div>
 
       {/* SECTION B: LIMIT PROPOSALS (Phase 3 Task 3) */}
@@ -431,6 +494,179 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* SECTION C: CHECK-IN TEMPLATES (Phase 2 Feature F2) */}
+      {approvalTab === 'checkin_templates' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '20px 24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  Doctor-Approved Check-in Questionnaires ({checkinTemplates.length})
+                </h3>
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  Questionnaires presented to discharged patients require attending physician review and approval. Emergency triggers immediately halt routine forms and route urgent guidance.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchCheckinTemplates}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  background: 'var(--bg-card, #ffffff)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: 'var(--text-secondary, #475569)',
+                }}
+              >
+                ↻ Refresh
+              </button>
+            </div>
+
+            {templatesLoading ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                Loading check-in questionnaires...
+              </div>
+            ) : checkinTemplates.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                No check-in questionnaires configured.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {checkinTemplates.map((tpl) => (
+                  <div
+                    key={tpl.template_id}
+                    style={{
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderLeft: tpl.is_active ? '4px solid #10b981' : '4px solid #f59e0b',
+                      borderRadius: '8px',
+                      padding: '18px 20px',
+                      background: 'var(--bg-surface, #ffffff)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '14px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                            {tpl.name}
+                          </span>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#f1f5f9', color: '#475569', fontWeight: 700 }}>
+                            v{tpl.version}
+                          </span>
+                          {tpl.is_active ? (
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#ecfdf5', color: '#047857', fontWeight: 700 }}>
+                              ✓ Active in Patient Portal
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fffbeb', color: '#b45309', fontWeight: 700 }}>
+                              {tpl.status || 'Draft'}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>
+                          {tpl.is_active && tpl.approved_by_name ? (
+                            <span>Approved by <strong>{tpl.approved_by_name}</strong> on {tpl.approved_at ? new Date(tpl.approved_at).toLocaleDateString() : 'Active'}</span>
+                          ) : (
+                            <span>Created on {tpl.created_at ? new Date(tpl.created_at).toLocaleDateString() : 'Recently'} · Awaiting Doctor Approval</span>
+                          )}
+                          {' · '}
+                          <span>{tpl.question_count || (tpl.questions ? tpl.questions.length : 0)} clinical questions</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        {tpl.is_active ? (
+                          <div style={{ fontSize: '12px', color: '#047857', fontWeight: 700, padding: '6px 12px', background: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                            ✓ Active Standard Protocol
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleApproveTemplate(tpl.template_id)}
+                            style={{
+                              padding: '8px 18px',
+                              borderRadius: '6px',
+                              border: 'none',
+                              background: 'var(--role-doctor, #7c3aed)',
+                              color: '#ffffff',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              boxShadow: 'var(--shadow-sm)',
+                            }}
+                          >
+                            Approve &amp; Activate
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step questions list */}
+                    {tpl.questions && tpl.questions.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>
+                          Sequential Patient Steps:
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '8px' }}>
+                          {tpl.questions.map((q) => (
+                            <div
+                              key={q.question_id}
+                              style={{
+                                padding: '10px 12px',
+                                borderRadius: '6px',
+                                background: q.is_emergency_trigger ? '#fef2f2' : 'var(--bg-base, #f8fafc)',
+                                border: q.is_emergency_trigger ? '1px solid #fecaca' : '1px solid var(--border-subtle, #e2e8f0)',
+                                fontSize: '12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '4px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 700, color: q.is_emergency_trigger ? '#dc2626' : '#334155' }}>
+                                  Step {q.step_order}: {q.question_key}
+                                </span>
+                                {q.is_emergency_trigger && (
+                                  <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: '#dc2626', color: '#ffffff', fontWeight: 800 }}>
+                                    EMERGENCY TRIGGER
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 500 }}>
+                                {q.text_en}
+                              </div>
+                              <div style={{ color: '#64748b', fontSize: '11px', fontStyle: 'italic' }}>
+                                {q.text_hi}
+                              </div>
+                              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                                Response type: <code>{q.response_type}</code>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

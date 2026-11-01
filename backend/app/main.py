@@ -6435,3 +6435,141 @@ def dismiss_proposal_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ─── Phase 2: Check-in Guide & Two-Way SMS Endpoints ────────────────────────
+
+class CheckinStartIn(BaseModel):
+    channel: Optional[str] = "App_Guided"
+
+
+class CheckinAnswerIn(BaseModel):
+    session_id: int
+    question_id: int
+    answer_value: str
+    raw_input: Optional[str] = None
+
+
+class SimulateSmsIn(BaseModel):
+    from_phone: str
+    body: str
+
+
+@app.get("/patient/me/checkin/template")
+def get_active_patient_checkin_template(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Returns the doctor-approved active check-in template and questions for the patient."""
+    from .checkin import get_active_checkin_template
+    tmpl = get_active_checkin_template()
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="No doctor-approved check-in template is currently active.")
+    return tmpl
+
+
+@app.post("/patient/me/checkin/start")
+def start_patient_checkin_session(
+    body: CheckinStartIn = CheckinStartIn(),
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Starts a new step-by-step guided check-in session for the patient."""
+    from .checkin import start_checkin_session
+    pid = get_effective_patient_id(user)
+    try:
+        return start_checkin_session(pid, body.channel or "App_Guided")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/patient/me/checkin/answer")
+def record_patient_checkin_answer(
+    body: CheckinAnswerIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Records an answer for the current question in the guided session."""
+    from .checkin import record_checkin_answer
+    pid = get_effective_patient_id(user)
+    try:
+        return record_checkin_answer(
+            session_id=body.session_id,
+            patient_id=pid,
+            question_id=body.question_id,
+            answer_value=body.answer_value,
+            raw_input=body.raw_input
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/staff/checkin-templates")
+def list_doctor_checkin_templates(
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """List check-in templates for Doctor Approvals overview."""
+    from .checkin import get_doctor_templates_overview
+    return {"templates": get_doctor_templates_overview()}
+
+
+@app.post("/staff/checkin-templates/{template_id}/approve")
+def approve_doctor_checkin_template(
+    template_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor approves a check-in template and activates it for all guided check-ins."""
+    from .checkin import approve_template
+    doctor_id = user["staff_id"]
+    try:
+        return approve_template(template_id, doctor_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/sms/inbound")
+async def twilio_inbound_webhook(request: Request):
+    """Inbound Twilio SMS webhook."""
+    from .sms_service import handle_inbound_sms
+    # Read either form body or JSON
+    content_type = request.headers.get("content-type", "")
+    from_num = ""
+    body_text = ""
+    if "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        from_num = form.get("From", "")
+        body_text = form.get("Body", "")
+    else:
+        try:
+            data = await request.json()
+            from_num = data.get("From") or data.get("from_phone", "")
+            body_text = data.get("Body") or data.get("body", "")
+        except Exception:
+            pass
+
+    res = handle_inbound_sms(from_num, body_text)
+    # Twilio expects TwiML XML or plain response
+    reply_msg = res.get("reply") or ""
+    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{reply_msg}</Message></Response>'
+    return Response(content=twiml, media_type="application/xml")
+
+
+@app.post("/staff/sms/simulate-inbound")
+def simulate_inbound_sms(
+    body: SimulateSmsIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    SMS Simulator for staff / presenters:
+    Executes the exact same deterministic inbound parser as real Twilio SMS.
+    """
+    from .sms_service import handle_inbound_sms
+    return handle_inbound_sms(body.from_phone, body.body)
+
+
+@app.get("/staff/patients/{patient_id}/messages")
+def get_patient_sms_history(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Retrieve full SMS message history (outbound + inbound) for a patient."""
+    from .sms_service import get_patient_sms_messages
+    return {"messages": get_patient_sms_messages(patient_id)}
+
+
+

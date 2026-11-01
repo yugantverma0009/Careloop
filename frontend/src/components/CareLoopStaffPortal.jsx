@@ -13,6 +13,7 @@ import {
   globalStaffSearch,
   getDoctorDecisions,
   getNurseCallList,
+  simulateInboundSms,
   logout,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
@@ -138,6 +139,31 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
   const [commandLoading, setCommandLoading] = useState(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [highlightedRowIndex, setHighlightedRowIndex] = useState(0);
+
+  // Phase 2 Feature F3: SMS Patient Simulator State
+  const [smsSimOpen, setSmsSimOpen] = useState(false);
+  const [smsSimPhone, setSmsSimPhone] = useState('+91-98765-00001');
+  const [smsSimBody, setSmsSimBody] = useState('1');
+  const [smsSimLoading, setSmsSimLoading] = useState(false);
+  const [smsSimResult, setSmsSimResult] = useState(null);
+  const [smsSimError, setSmsSimError] = useState(null);
+
+  const handleSimulateSms = async (overrideBody = null) => {
+    const textToSend = overrideBody !== null ? overrideBody : smsSimBody;
+    if (!textToSend || !textToSend.trim()) return;
+    setSmsSimLoading(true);
+    setSmsSimError(null);
+    setSmsSimResult(null);
+    try {
+      const res = await simulateInboundSms(smsSimPhone, textToSend.trim());
+      setSmsSimResult(res);
+      loadData();
+    } catch (err) {
+      setSmsSimError(err.message || 'SMS simulation failed');
+    } finally {
+      setSmsSimLoading(false);
+    }
+  };
 
   // D-12 Idle Timeout (15 minutes)
   useEffect(() => {
@@ -771,6 +797,27 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             </div>
 
             <SwitchDemoWorkspace currentUser={user} />
+
+            <button
+              type="button"
+              onClick={() => { setSmsSimOpen(true); setSmsSimResult(null); setSmsSimError(null); }}
+              title="Simulate inbound patient SMS (Feature F3)"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 11px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-subtle, #cbd5e1)',
+                background: 'var(--bg-base, #ffffff)',
+                color: 'var(--text-primary, #0f172a)',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <span>📱 SMS Sim</span>
+            </button>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div
@@ -1730,6 +1777,222 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                   <span style={{ color: 'var(--text-secondary, #475569)', fontSize: '12px' }}>{sc.desc}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 2 Feature F3: SMS Patient Simulator Modal */}
+      {smsSimOpen && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px',
+          }}
+          onClick={() => setSmsSimOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '14px',
+              padding: '24px',
+              maxWidth: '520px',
+              width: '100%',
+              boxShadow: 'var(--shadow-xl, 0 20px 25px -5px rgba(0,0,0,0.1))',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '20px' }}>📱</span>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  Two-Way SMS Patient Simulator
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSmsSimOpen(false)}
+                style={{ border: 'none', background: 'transparent', fontSize: '18px', cursor: 'pointer', color: '#94a3b8' }}
+              >
+                ×
+              </button>
+            </div>
+
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+              Simulates inbound SMS messages sent to Twilio. The deterministic rule engine confirms doses, schedules nurse callbacks, toggles DPDP opt-outs, or raises emergency escalations.
+            </p>
+
+            {/* Patient phone selector */}
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase' }}>
+                Patient Phone Number
+              </label>
+              <select
+                value={smsSimPhone}
+                onChange={(e) => setSmsSimPhone(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  background: 'var(--bg-base, #ffffff)',
+                  color: 'var(--text-primary, #0f172a)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="+91-98765-00001">Aarav Patel (+91-98765-00001)</option>
+                <option value="+91-98765-00002">Meera Sharma (+91-98765-00002)</option>
+                <option value="+91-98765-00003">Rajesh Verma (+91-98765-00003)</option>
+                <option value="+91-98765-00004">Kabir Mehta (+91-98765-00004)</option>
+                <option value="+91-98765-00005">Sunita Rao (+91-98765-00005)</option>
+                <option value="+91-99999-99999">Unknown Number (+91-99999-99999)</option>
+              </select>
+            </div>
+
+            {/* Preset quick command buttons */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '6px', textTransform: 'uppercase' }}>
+                Quick Inbound Commands
+              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {[
+                  { label: '1 (Dose Taken)', val: '1' },
+                  { label: '2 (Dose Skipped)', val: '2' },
+                  { label: '3 (Nurse Callback)', val: '3' },
+                  { label: 'STOP (Opt-Out)', val: 'STOP' },
+                  { label: 'START (Opt-In)', val: 'START' },
+                  { label: 'Chest pain & dizzy', val: 'Chest pain and feeling dizzy' },
+                ].map((chip) => (
+                  <button
+                    key={chip.val}
+                    type="button"
+                    onClick={() => {
+                      setSmsSimBody(chip.val);
+                      handleSimulateSms(chip.val);
+                    }}
+                    style={{
+                      padding: '4px 9px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      color: 'var(--text-primary, #0f172a)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Message input */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '4px', textTransform: 'uppercase' }}>
+                SMS Text Body
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  value={smsSimBody}
+                  onChange={(e) => setSmsSimBody(e.target.value)}
+                  placeholder="Type '1', 'HELP', or custom text..."
+                  style={{
+                    flex: 1,
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                    background: 'var(--bg-base, #ffffff)',
+                    color: 'var(--text-primary, #0f172a)',
+                    fontSize: '13px',
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={smsSimLoading || !smsSimBody.trim()}
+                  onClick={() => handleSimulateSms()}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: '#0284c7',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: smsSimLoading ? 'not-allowed' : 'pointer',
+                    opacity: smsSimLoading ? 0.7 : 1,
+                  }}
+                >
+                  {smsSimLoading ? 'Simulating...' : 'Send SMS'}
+                </button>
+              </div>
+            </div>
+
+            {/* Result feedback */}
+            {smsSimError && (
+              <div style={{ padding: '10px 12px', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '12px', marginBottom: '12px' }}>
+                ❌ {smsSimError}
+              </div>
+            )}
+
+            {smsSimResult && (
+              <div style={{ padding: '12px 14px', borderRadius: '8px', background: 'var(--bg-base, #f0fdf4)', border: '1px solid #bbf7d0', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#166534' }}>
+                    Engine Action: <code>{smsSimResult.action}</code>
+                  </span>
+                  <span style={{ fontSize: '11px', padding: '1px 6px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                    ✓ Processed
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#1e293b', marginBottom: '4px' }}>
+                  <strong>Outbound Reply Body:</strong>
+                </div>
+                <div style={{ fontSize: '12px', color: '#334155', background: '#ffffff', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontStyle: 'italic' }}>
+                  &ldquo;{smsSimResult.reply_body}&rdquo;
+                </div>
+                {smsSimResult.action === 'help_callback_created' && (
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#b45309', fontWeight: 600 }}>
+                    ⚡ High-priority callback task has been dispatched to the Nurse queue.
+                  </div>
+                )}
+                {smsSimResult.action === 'emergency_alert_escalated' && (
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#dc2626', fontWeight: 700 }}>
+                    🚨 Emergency flag raised on patient chart; dial 112 guidance dispatched.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setSmsSimOpen(false)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary, #475569)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

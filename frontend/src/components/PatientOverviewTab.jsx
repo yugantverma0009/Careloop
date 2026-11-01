@@ -17,6 +17,7 @@ import {
   getPatientLace,
   recordPatientLace,
   getAgentActivity,
+  getPatientSmsMessages,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import {
@@ -74,6 +75,10 @@ export default function PatientOverviewTab({
   // Agent Activity subtab state
   const [agentActivityData, setAgentActivityData] = useState([]);
   const [agentActivityLoading, setAgentActivityLoading] = useState(false);
+
+  // SMS Messages subtab state (Phase 2 Feature F3)
+  const [smsMessagesData, setSmsMessagesData] = useState([]);
+  const [smsMessagesLoading, setSmsMessagesLoading] = useState(false);
 
   // Timeline subtab filters
   const [timelineType, setTimelineType] = useState('All');
@@ -298,6 +303,18 @@ export default function PatientOverviewTab({
     }
   };
 
+  const fetchSmsMessages = async () => {
+    try {
+      setSmsMessagesLoading(true);
+      const res = await getPatientSmsMessages(patientId);
+      setSmsMessagesData(res.messages || []);
+    } catch (err) {
+      console.error('Failed to load SMS messages:', err);
+    } finally {
+      setSmsMessagesLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchOverview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,6 +327,7 @@ export default function PatientOverviewTab({
       else if (subTab === 'timeline') fetchTimeline();
       else if (subTab === 'notes') fetchNotesAndContacts();
       else if (subTab === 'agent_activity') fetchAgentActivity();
+      else if (subTab === 'messages') fetchSmsMessages();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subTab, detailData, timelineType, timelineRange]);
@@ -507,6 +525,7 @@ export default function PatientOverviewTab({
             { id: 'rules', label: 'Limits', Icon: IconShieldCheck },
             { id: 'notes', label: 'Notes', Icon: IconFileText },
             { id: 'agent_activity', label: 'Agent Activity', Icon: IconClock },
+            { id: 'messages', label: 'SMS Messages', Icon: IconFileText },
           ].map((tab) => {
             const isActive = subTab === tab.id;
             const TabIcon = tab.Icon;
@@ -2101,6 +2120,160 @@ export default function PatientOverviewTab({
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Subtab 7: SMS Messages (Two-Way SMS History) */}
+          {subTab === 'messages' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header Bar */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '18px 24px',
+                  boxShadow: 'var(--shadow-card)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                    Two-Way SMS Conversation Log
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
+                    Outbound automated prompts and patient inbound replies for {p.phone || 'patient'}.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {p.sms_opt_out ? (
+                    <span
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: '8px',
+                        background: '#fef2f2',
+                        border: '1px solid #fca5a5',
+                        color: '#b91c1c',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      🛑 SMS Opted Out (STOP)
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: '8px',
+                        background: 'var(--success-green-soft, #f0fdf4)',
+                        border: '1px solid var(--success-green, #059669)',
+                        color: 'var(--success-green, #059669)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      ✓ SMS Active
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={fetchSmsMessages}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'transparent',
+                      color: 'var(--text-secondary, #475569)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              {/* Message List Card */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '20px 24px',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: '0 0 16px 0' }}>
+                  Message History ({smsMessagesData.length})
+                </h3>
+
+                {smsMessagesLoading ? (
+                  <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                    Loading SMS history...
+                  </div>
+                ) : smsMessagesData.length === 0 ? (
+                  <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                    No SMS messages recorded for this patient.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {smsMessagesData.map((m) => {
+                      const isInbound = m.direction === 'Inbound';
+                      return (
+                        <div
+                          key={m.sms_id}
+                          style={{
+                            padding: '14px 16px',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            background: isInbound ? '#f0f9ff' : 'var(--bg-base, #f8fafc)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  textTransform: 'uppercase',
+                                  padding: '2px 7px',
+                                  borderRadius: '6px',
+                                  background: isInbound ? '#0284c7' : 'var(--navy-deep, #0b1528)',
+                                  color: '#ffffff',
+                                }}
+                              >
+                                {isInbound ? '📥 Inbound from Patient' : '📤 Outbound from CareLoop'}
+                              </span>
+                              {m.template_key && (
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>
+                                  ({m.template_key})
+                                </span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                              {m.created_at} · Status: <strong>{m.status}</strong>
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', lineHeight: 1.5 }}>
+                            {m.body}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
