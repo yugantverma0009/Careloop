@@ -903,15 +903,27 @@ export default function CareLoopPatientPortal({ user }) {
     }));
     try {
       const res = await askCareTeamForChatMessage(messageId);
-      setCareTeamContactState((prev) => ({
-        ...prev,
-        [messageId]: { status: 'sent', taskId: res.task_id },
-      }));
-      setUndoToast(
-        lang === 'hi'
-          ? 'आपकी केयर टीम को संदेश भेज दिया गया है। स्टाफ़ जल्द समीक्षा करेगा।'
-          : 'Request sent to your care team. A nurse will follow up shortly.'
-      );
+      if (res.status === 'task_already_exists' || res.created === false) {
+        setCareTeamContactState((prev) => ({
+          ...prev,
+          [messageId]: { status: 'already_sent', taskId: res.task_id },
+        }));
+        setUndoToast(
+          lang === 'hi'
+            ? 'इस विषय पर आपकी केयर टीम के पास आज का अनुरोध पहले से खुला है।'
+            : 'Your care team already has an open request for this topic today.'
+        );
+      } else {
+        setCareTeamContactState((prev) => ({
+          ...prev,
+          [messageId]: { status: 'sent', taskId: res.task_id },
+        }));
+        setUndoToast(
+          lang === 'hi'
+            ? 'आपकी केयर टीम को अनुरोध भेज दिया गया है।'
+            : 'Request sent to your care team.'
+        );
+      }
     } catch (err) {
       console.error('Ask care team error', err);
       setCareTeamContactState((prev) => ({
@@ -4709,8 +4721,8 @@ export default function CareLoopPatientPortal({ user }) {
                     </h2>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
                       {lang === 'hi'
-                        ? 'उत्तर सीधे आपके डिस्चार्ज पेपर्स और केयर प्लान से प्रमाणित हैं'
-                        : 'Answers are strictly grounded in your hospital discharge papers & care plan'}
+                        ? 'उत्तर आपके डिस्चार्ज पेपर्स से आते हैं, मूल अंश के साथ।'
+                        : 'Answers come from your discharge papers, with the passage shown.'}
                     </div>
                   </div>
                 </div>
@@ -4739,7 +4751,7 @@ export default function CareLoopPatientPortal({ user }) {
                   </button>
                   <span className="status-pill status-pill-blue">
                     <IconShieldCheck width={12} height={12} style={{ marginRight: '4px' }} />
-                    {lang === 'hi' ? 'प्रमाणित स्रोत' : 'Grounded records'}
+                    {lang === 'hi' ? 'आपके पेपर्स से' : 'From your papers'}
                   </span>
                 </div>
               </div>
@@ -4936,16 +4948,16 @@ export default function CareLoopPatientPortal({ user }) {
                               <button
                                 type="button"
                                 onClick={() => handleAskCareTeam(msgId)}
-                                disabled={careTeamState?.status === 'loading' || careTeamState?.status === 'sent'}
+                                disabled={careTeamState?.status === 'loading' || careTeamState?.status === 'sent' || careTeamState?.status === 'already_sent'}
                                 style={{
                                   padding: '6px 12px',
                                   borderRadius: '6px',
                                   border: '1px solid var(--accent-teal, #0d9488)',
-                                  background: careTeamState?.status === 'sent' ? 'var(--accent-teal, #0d9488)' : '#ffffff',
-                                  color: careTeamState?.status === 'sent' ? '#ffffff' : 'var(--accent-teal, #0d9488)',
+                                  background: careTeamState?.status === 'sent' || careTeamState?.status === 'already_sent' ? 'var(--accent-teal, #0d9488)' : '#ffffff',
+                                  color: careTeamState?.status === 'sent' || careTeamState?.status === 'already_sent' ? '#ffffff' : 'var(--accent-teal, #0d9488)',
                                   fontSize: '12px',
                                   fontWeight: 700,
-                                  cursor: careTeamState?.status === 'sent' ? 'default' : 'pointer',
+                                  cursor: careTeamState?.status === 'sent' || careTeamState?.status === 'already_sent' ? 'default' : 'pointer',
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   gap: '6px',
@@ -4955,6 +4967,8 @@ export default function CareLoopPatientPortal({ user }) {
                                   ? (lang === 'hi' ? 'भेजा जा रहा है...' : 'Sending...')
                                   : careTeamState?.status === 'sent'
                                   ? (lang === 'hi' ? '✓ अनुरोध भेज दिया गया' : '✓ Request Sent')
+                                  : careTeamState?.status === 'already_sent'
+                                  ? (lang === 'hi' ? '✓ पहले से लंबित' : '✓ Already awaiting review')
                                   : (lang === 'hi' ? '👨‍⚕️ केयर टीम से पूछें' : '👨‍⚕️ Ask My Care Team')}
                               </button>
                             </div>
@@ -5002,9 +5016,9 @@ export default function CareLoopPatientPortal({ user }) {
                               {lang === 'hi' ? 'स्रोत:' : 'Sources:'}
                             </span>
                             {sources.map((src, srcIdx) => {
-                              const label = src.tool_name
-                                ? `${src.tool_name === 'appointments' ? '🗓️ Appointments' : src.tool_name === 'today_doses' ? '💊 Today doses' : src.tool_name === 'medicine_plan' ? '📋 Care plan' : '🩺 Vitals'}`
-                                : `📄 Discharge summary · ${src.section_title || 'General'}${src.page_no ? ` · p.${src.page_no}` : ''}`;
+                              const label = src.label || (src.tool_name
+                                ? 'From your care plan'
+                                : `Discharge summary - ${src.section_title || 'General'}${src.page_no ? ` - p.${src.page_no}` : ''}`);
 
                               return (
                                 <button
@@ -5104,10 +5118,10 @@ export default function CareLoopPatientPortal({ user }) {
                               )}
                             </div>
 
-                            {/* Timestamp */}
+                            {/* Timestamp (12-hour format e.g. 8:04 PM) */}
                             {msg.timestamp && (
                               <span style={{ fontSize: '10px' }}>
-                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
                               </span>
                             )}
                           </div>

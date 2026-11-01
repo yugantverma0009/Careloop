@@ -29,6 +29,7 @@ EMERGENCY_TERMS = [
     "सीने में दर्द",
     "सीने में तेज दर्द",
     "सीने में बहुत तेज दर्द",
+    "असहनीय दर्द",
     "सांस नहीं",
     "सांस लेने में तकलीफ",
     "सांस फूलना",
@@ -134,6 +135,8 @@ def has_emergency_term(text: str) -> bool:
             continue
         if term in t:
             return True
+    if re.search(r"सीने में.*दर्द", t):
+        return True
     return False
 
 
@@ -144,4 +147,12 @@ def is_dose_change_question(text: str) -> bool:
     if not text:
         return False
     t = text.lower()
-    return any(p in t for p in DOSE_CHANGE_PATTERNS)
+    if any(p in t for p in DOSE_CHANGE_PATTERNS):
+        return True
+    if re.search(r"\b(double|halve|skip|increase|decrease|stop|change|adjust)\b.*?\b(dose|dosage|tablet|pill|medicine|medication)\b", t):
+        return True
+    if re.search(r"(दवा|गोली|खुराक|ख़ुराक).*?(छोड़|रोक|बढ़ा|कम|बदल|दोगुनी|आधी)", t):
+        return True
+    if re.search(r"(छोड़|रोक|बढ़ा|कम|बदल|दोगुनी|आधी).*?(दवा|गोली|खुराक|ख़ुराक)", t):
+        return True
+    return False

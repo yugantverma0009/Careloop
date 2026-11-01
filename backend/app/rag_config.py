@@ -20,6 +20,9 @@ INTENT_EMERGENCY = "emergency"
 INTENT_REFUSAL_DOSE = "refusal_dose"
 INTENT_REFUSAL_MEDICAL = "refusal_medical"
 INTENT_OUT_OF_SCOPE = "out_of_scope"
+INTENT_SMALL_TALK = "small_talk"
+INTENT_CONTACTS = "contacts"
+INTENT_PLAN_ITEMS = "plan_items"
 
 VALID_INTENTS = {
     INTENT_APPOINTMENT,
@@ -35,6 +38,9 @@ VALID_INTENTS = {
     INTENT_REFUSAL_DOSE,
     INTENT_REFUSAL_MEDICAL,
     INTENT_OUT_OF_SCOPE,
+    INTENT_SMALL_TALK,
+    INTENT_CONTACTS,
+    INTENT_PLAN_ITEMS,
 }
 
 # Brief Sec 7.6 System Prompt
@@ -42,12 +48,13 @@ RAG_SYSTEM_PROMPT = """You are CareLoop's discharge assistant. You help ONE pati
 
 RULES:
 1. Use ONLY the CONTEXT blocks and TOOL RESULTS below. Never use outside medical knowledge.
-2. Copy every number, date, time, dose and name exactly as written. Never calculate, convert or round them.
+2. Copy every number, date, time, dose and medicine name exactly as written. Never calculate, convert or round them.
 3. Never diagnose. Never say a symptom or a reading is safe or unsafe. Never suggest changing, skipping, stopping or doubling any medicine.
 4. If the context does not answer the question, return found=false. Do not guess.
 5. Write for a worried non-expert: plain words, short sentences, about 60 to 90 words. Answer first, then at most 3 short bullets.
 6. Reply in the language of the patient's question: {language}.
-7. If the patient describes new or worsening symptoms, tell them to use the daily check-in and, if severe, to call 112.
+7. Never invent or include patient names or personal phone numbers in the response text. The patient identity is managed separately by the system.
+8. If the patient describes new or worsening symptoms, tell them to use the daily check-in and, if severe, to call 112.
 
 Return JSON strictly in this format:
 {{

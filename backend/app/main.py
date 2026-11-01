@@ -3483,6 +3483,11 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
 
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Fetch patient name for name-by-code friendly replies
+            cur.execute("SELECT full_name FROM patients WHERE patient_id = %s", (pid,))
+            p_row = cur.fetchone()
+            patient_name = p_row["full_name"] if p_row else "Aarav"
+
             # 1. Insert patient message
             cur.execute(
                 """INSERT INTO chat_messages (patient_id, sender, message_text, conversation_id)
@@ -3509,6 +3514,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
                 conversation_id=body.conversation_id,
                 language=body.language or "en",
                 history=history,
+                patient_name=patient_name,
             )
             ans = rag_res["answer"]
             bullets = rag_res.get("bullets", [])
@@ -3529,17 +3535,21 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
             answer_type = "grounded" if is_grounded else "not_found"
             debug_data = {"legacy": True}
 
+        # Store answer_type inside retrieval_debug so it works cleanly without violating enum
+        debug_data["answer_type"] = answer_type
+        db_answer_type = answer_type if answer_type in ('grounded','structured','refusal_dose','refusal_medical','emergency','not_found','unavailable') else 'not_found'
+
         with conn.cursor() as cur:
             # 3. Insert AI message with answer_type and retrieval_debug
             cur.execute(
                 """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded, answer_type, conversation_id, retrieval_debug)
                    VALUES (%s, 'AI_Nurse', %s, %s, %s, %s, %s)""",
-                (pid, ans, is_grounded, answer_type, body.conversation_id, json.dumps(debug_data, ensure_ascii=False)),
+                (pid, ans, is_grounded, db_answer_type, body.conversation_id, json.dumps(debug_data, ensure_ascii=False)),
             )
             ai_msg_id = cur.lastrowid
 
-            # 4. Link citations
-            if citations:
+            # 4. Link citations (only if not small talk or refusal)
+            if citations and answer_type not in ("small_talk", "refusal_dose", "refusal_medical", "emergency"):
                 for vid in citations:
                     cur.execute(
                         "SELECT chunk_id FROM document_chunks WHERE vector_id = %s OR chunk_id = %s LIMIT 1",
@@ -3587,6 +3597,7 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
         cur.execute(
             """SELECT m.message_id, m.patient_id, m.sender, m.message_text,
                       m.is_grounded, m.created_at, m.answer_type, m.conversation_id,
+                      m.retrieval_debug,
                       f.rating AS feedback_rating
                FROM chat_messages m
                LEFT JOIN chat_feedback f ON f.message_id = m.message_id
@@ -3601,9 +3612,20 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
             msg_id = r["message_id"]
             created = r["created_at"].strftime("%d %b, %I:%M %p") if isinstance(r["created_at"], datetime) else str(r["created_at"])
 
-            # Fetch sources for AI messages
+            effective_ans_type = r["answer_type"]
+            if r.get("retrieval_debug"):
+                try:
+                    dbg = json.loads(r["retrieval_debug"]) if isinstance(r["retrieval_debug"], str) else r["retrieval_debug"]
+                    if isinstance(dbg, dict) and dbg.get("answer_type"):
+                        effective_ans_type = dbg["answer_type"]
+                    elif isinstance(dbg, dict) and dbg.get("intent") == "small_talk":
+                        effective_ans_type = "small_talk"
+                except Exception:
+                    pass
+
+            # Fetch sources for AI messages (never for small talk, refusals, emergency)
             sources = []
-            if r["sender"] == "AI_Nurse":
+            if r["sender"] == "AI_Nurse" and effective_ans_type not in ("small_talk", "refusal_dose", "refusal_medical", "emergency", "not_found"):
                 cur.execute(
                     """SELECT c.chunk_id, c.chunk_text, c.section_title, c.page_no
                        FROM chat_message_sources s
@@ -3612,11 +3634,13 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
                     (msg_id,),
                 )
                 for s_row in cur.fetchall():
-                    sec = s_row["section_title"] or "Discharge summary"
+                    sec = s_row["section_title"] or "General"
                     p_num = s_row["page_no"] or 1
                     sources.append({
                         "chunk_id": s_row["chunk_id"],
-                        "label": f"Discharge summary · {sec} · p.{p_num}",
+                        "label": f"Discharge summary - {sec} - p.{p_num}",
+                        "section_title": sec,
+                        "page_no": p_num,
                         "snippet": s_row["chunk_text"][:160] + "...",
                         "text": s_row["chunk_text"],
                     })
@@ -3628,9 +3652,9 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
                 "content": r["message_text"],
                 "message_text": r["message_text"],
                 "response": r["message_text"],
-                "is_grounded": bool(r["is_grounded"]),
-                "grounded": bool(r["is_grounded"]),
-                "answer_type": r["answer_type"] or ("grounded" if r["is_grounded"] else "not_found"),
+                "is_grounded": bool(r["is_grounded"]) if effective_ans_type != "small_talk" else False,
+                "grounded": bool(r["is_grounded"]) if effective_ans_type != "small_talk" else False,
+                "answer_type": effective_ans_type or ("grounded" if r["is_grounded"] else "not_found"),
                 "conversation_id": r["conversation_id"],
                 "created_at": created,
                 "timestamp": r["created_at"].isoformat() if isinstance(r["created_at"], datetime) else str(r["created_at"]),
@@ -3647,7 +3671,8 @@ def ask_care_team_from_chat(
     user: Dict[str, Any] = Depends(require_patient),
 ):
     """
-    Creates a clinical follow-up task and writes an audit row when a patient escalates a question (Brief Sec 7.7 & 8.6).
+    Creates a clinical follow-up task and writes an audit row when a patient escalates a question.
+    De-duplicated: strictly creates at most ONE task per topic per day (Brief Sec A.6).
     """
     pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
@@ -3668,21 +3693,42 @@ def ask_care_team_from_chat(
         drow = cur.fetchone() or {}
         assigned_staff = drow.get("attending_staff_id") or 1
 
-        task_reason = f"Patient asked care team to follow up on: '{msg['message_text'][:200]}'"
+        # Determine clinical topic for deduplication
+        m_text = (msg["message_text"] or "").lower()
+        if any(w in m_text for w in ["dose", "medicine", "pill", "tablet", "doses", "cardiopulse", "vasculonorm"]):
+            topic = "medication"
+        elif any(w in m_text for w in ["diet", "food", "eat", "drink", "nutrition"]):
+            topic = "diet"
+        elif any(w in m_text for w in ["walk", "exercise", "activity", "lift", "stairs"]):
+            topic = "activity"
+        elif any(w in m_text for w in ["wound", "incision", "bandage", "dressing", "stitches"]):
+            topic = "wound_care"
+        elif any(w in m_text for w in ["appointment", "visit", "doctor", "clinic"]):
+            topic = "appointment"
+        else:
+            topic = "general"
+
+        # Check for existing task created today for this patient and topic
         cur.execute(
             """SELECT followup_id FROM follow_up_tasks
-               WHERE patient_id = %s AND status = 'Pending' AND reason = %s LIMIT 1""",
-            (pid, task_reason),
+               WHERE patient_id = %s
+                 AND status = 'Pending'
+                 AND DATE(created_at) = CURDATE()
+                 AND (reason LIKE %s OR reason LIKE %s)
+               LIMIT 1""",
+            (pid, f"%{topic}%", f"%{msg['message_text'][:35]}%"),
         )
         existing_task = cur.fetchone()
         if existing_task:
             return {
                 "ok": True,
+                "created": False,
                 "status": "task_already_exists",
                 "task_id": existing_task["followup_id"],
-                "message": "Your question is already awaiting care team review.",
+                "message": "Your question on this topic is already awaiting care team review.",
             }
 
+        task_reason = f"Patient question about {topic}: '{msg['message_text'][:160]}'"
         cur.execute(
             """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
                VALUES (%s, %s, 'Routine', %s, 'Pending')""",
@@ -3693,12 +3739,13 @@ def ask_care_team_from_chat(
         cur.execute(
             """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
                VALUES ('Patient', %s, 'ASK_CARE_TEAM', 'chat_message', %s,
-                       JSON_OBJECT('task_id', %s, 'assigned_staff', %s))""",
-            (str(user["account_id"]), message_id, task_id, assigned_staff),
+                       JSON_OBJECT('task_id', %s, 'assigned_staff', %s, 'topic', %s))""",
+            (str(user["account_id"]), message_id, task_id, assigned_staff, topic),
         )
 
         return {
             "ok": True,
+            "created": True,
             "status": "task_created",
             "task_id": task_id,
             "message": "Your question has been forwarded to your care team.",

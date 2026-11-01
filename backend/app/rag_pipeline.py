@@ -44,12 +44,18 @@ from .rag_config import (
     INTENT_REFUSAL_DOSE,
     INTENT_REFUSAL_MEDICAL,
     INTENT_OUT_OF_SCOPE,
+    INTENT_SMALL_TALK,
+    INTENT_CONTACTS,
+    INTENT_PLAN_ITEMS,
 )
+from .assistant_router import route_intent_v2, detect_small_talk, handle_small_talk
 from .rag_tools import (
     get_next_appointment,
     get_today_doses,
     get_medicine_plan,
     get_latest_readings,
+    get_care_team_contacts,
+    get_plan_items,
 )
 
 logger = logging.getLogger(__name__)
@@ -208,96 +214,9 @@ def guard_numeric_and_citations(
 
 def route_intent(question: str) -> str:
     """
-    Brief Sec 7.4: Keyword & rule-based intent router (English + Hindi).
+    Assistant v2 Intent Router: calls route_intent_v2 from assistant_router.
     """
-    q = question.lower().strip()
-
-    # Emergency check
-    if has_emergency_term(q):
-        return INTENT_EMERGENCY
-
-    # Dose change check
-    if is_dose_change_question(q):
-        return INTENT_REFUSAL_DOSE
-
-    # Medical diagnosis refusal check
-    for pat in MEDICAL_DIAGNOSIS_PATTERNS:
-        if re.search(pat, q):
-            return INTENT_REFUSAL_MEDICAL
-
-    # Out of scope check
-    for pat in OUT_OF_SCOPE_PATTERNS:
-        if re.search(pat, q):
-            return INTENT_OUT_OF_SCOPE
-
-    # Appointment intent
-    appointment_keywords = [
-        "appointment", "visit", "doctor", "follow up", "follow-up", "whom", "next visit",
-        "मिलना", "विज़िट", "डॉक्टर", "अपॉइंटमेंट", "कब आना है", "अगली विज़िट", "मुलाक़ात", "मुलाकात", "अगली मुलाक़ात"
-    ]
-    if any(k in q for k in appointment_keywords) and not any(k in q for k in ["medicine", "tablet", "दवा"]):
-        return INTENT_APPOINTMENT
-
-    # Today doses intent
-    today_doses_keywords = [
-        "what medicine", "medicines today", "doses today", "take today", "morning dose",
-        "evening dose", "night dose", "what time do i take", "time do i take",
-        "दवाइयां आज", "आज कौन सी दवा", "रात की दवा", "सुबह की दवा", "दवा का समय",
-        "कौन सी दवाइयाँ", "कौन सी दवा", "दवा लेनी है", "गोली खानी है", "दवाइयां लेनी"
-    ]
-    if any(k in q for k in today_doses_keywords):
-        return INTENT_TODAY_DOSES
-
-    # Medicine plan course end intent
-    medicine_plan_keywords = [
-        "until when", "how long do i take", "course end", "finish medicine", "finish",
-        "last date of medicine", "कब तक लेनी है", "दवा कब तक", "कोर्स कब खत्म", "कब तक दवा",
-        "कब तक दवाइयाँ", "दवा कब समाप्त होगी", "कब खत्म होगी", "कोर्स कब"
-    ]
-    if any(k in q for k in medicine_plan_keywords):
-        return INTENT_MEDICINE_PLAN
-
-    # Sensor readings / vitals intent
-    vitals_keywords = [
-        "oxygen", "pulse", "heart rate", "spo2", "reading", "sensor", "blood pressure", "vitals",
-        "ऑक्सीजन", "हार्ट रेट", "पल्स", "रीडिंग", "बीपी", "दिल की धड़कन", "ब्लड प्रेशर", "रक्तचाप"
-    ]
-    if any(k in q for k in vitals_keywords):
-        return INTENT_VITALS
-
-    # Warning signs intent
-    warning_signs_keywords = [
-        "warning sign", "warning signs", "red flag", "danger", "emergency sign", "watch for", "when to call", "call the hospital",
-        "खतरे के लक्षण", "ख़तरे के लक्षण", "चेतावनी", "सावधानी", "खतरा", "अस्पताल को सूचना"
-    ]
-    if any(k in q for k in warning_signs_keywords):
-        return INTENT_WARNING_SIGNS
-
-    # Activity & restrictions intent
-    activity_keywords = [
-        "shower", "bath", "exercise", "walk", "lift", "heavy lifting", "heavy objects", "stairs", "bending", "physical activity",
-        "सीढ़ियां", "नहाना", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने"
-    ]
-    if any(k in q for k in activity_keywords):
-        return INTENT_ACTIVITY
-
-    # Diet intent
-    diet_keywords = [
-        "diet", "food", "eat", "drink", "water", "meal", "eat and drink",
-        "खाना", "आहार", "भोजन", "पानी", "डाइट", "पानी पीना"
-    ]
-    if any(k in q for k in diet_keywords):
-        return INTENT_DIET
-
-    # Wound care intent
-    wound_care_keywords = [
-        "wound", "dressing", "incision", "bandage", "stitches", "surgical wound",
-        "टांके", "घाव", "पट्टी", "ड्रेसिंग", "घाव की देखभाल"
-    ]
-    if any(k in q for k in wound_care_keywords):
-        return INTENT_WOUND_CARE
-
-    return INTENT_GENERAL_DOCS
+    return route_intent_v2(question)
 
 
 def rewrite_followup_question(question: str, history: List[Dict[str, str]]) -> str:
@@ -470,6 +389,7 @@ def answer_patient_query(
     conversation_id: Optional[str] = None,
     language: str = "en",
     history: Optional[List[Dict[str, str]]] = None,
+    patient_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Main Entrypoint for the Upgraded Discharge Assistant Pipeline.
@@ -502,20 +422,31 @@ def answer_patient_query(
             if lang == "en"
             else "मैं दवा की खुराक बदलने, रोकने या बदलने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से बात करें।"
         )
-        # Create staff follow-up task
+        # Create staff follow-up task (checked for topic duplication today)
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
-                   VALUES (%s, 1, 'Review_Soon', %s, 'Pending')""",
-                (patient_id, f"Patient asked about dose change: '{clean_q}'"),
+                """SELECT followup_id FROM follow_up_tasks
+                   WHERE patient_id = %s AND status = 'Pending' AND DATE(created_at) = CURDATE()
+                     AND (reason LIKE '%%dose%%' OR reason LIKE '%%medication%%')
+                   LIMIT 1""",
+                (patient_id,),
             )
-            task_id = cur.lastrowid
-            cur.execute(
-                """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-                   VALUES ('Agent', 'AI_Nurse', 'DOSE_CHANGE_REFUSAL', 'follow_up_task', %s,
-                           JSON_OBJECT('patient_id', %s, 'question', %s))""",
-                (task_id, patient_id, clean_q),
-            )
+            existing_task = cur.fetchone()
+            if not existing_task:
+                cur.execute(
+                    """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
+                       VALUES (%s, 1, 'Review_Soon', %s, 'Pending')""",
+                    (patient_id, f"Patient asked about dose change: '{clean_q}'"),
+                )
+                task_id = cur.lastrowid
+                cur.execute(
+                    """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                       VALUES ('Agent', 'AI_Nurse', 'DOSE_CHANGE_REFUSAL', 'follow_up_task', %s,
+                               JSON_OBJECT('patient_id', %s, 'question', %s))""",
+                    (task_id, patient_id, clean_q),
+                )
+            else:
+                task_id = existing_task["followup_id"]
 
         return {
             "answer_type": "refusal_dose",
@@ -531,8 +462,13 @@ def answer_patient_query(
             "is_grounded": False,
             "response": refusal_msg,
             "citations": [],
-            "retrieval_debug": {"intent": INTENT_REFUSAL_DOSE, "task_created": True},
+            "retrieval_debug": {"intent": INTENT_REFUSAL_DOSE, "task_id": task_id},
         }
+
+    # Step 2.5: Small-talk Check (Instant Friendly Reply, No LLM, No Sources, Patient Name inserted by code)
+    small_talk_type = detect_small_talk(clean_q)
+    if small_talk_type:
+        return handle_small_talk(clean_q, language=lang, patient_name=patient_name)
 
     # Step 3: Intent Routing
     intent = route_intent(clean_q)
@@ -582,16 +518,22 @@ def answer_patient_query(
     tool_source = None
     if intent == INTENT_APPOINTMENT:
         tool_result = get_next_appointment(patient_id)
-        tool_source = "Your care plan · Appointments"
+        tool_source = "From your care plan"
     elif intent == INTENT_TODAY_DOSES:
         tool_result = get_today_doses(patient_id)
-        tool_source = "Your care plan · Today's doses"
+        tool_source = "From your care plan"
     elif intent == INTENT_MEDICINE_PLAN:
         tool_result = get_medicine_plan(patient_id)
-        tool_source = "Your care plan · Prescriptions"
+        tool_source = "From your care plan"
     elif intent == INTENT_VITALS:
         tool_result = get_latest_readings(patient_id)
-        tool_source = "Your care plan · Sensor readings"
+        tool_source = "From your care plan"
+    elif intent == INTENT_CONTACTS:
+        tool_result = get_care_team_contacts(patient_id)
+        tool_source = "From your care plan"
+    elif intent == INTENT_PLAN_ITEMS:
+        tool_result = get_plan_items(patient_id)
+        tool_source = "From your care plan"
 
     # Step 5: Document Retrieval (if not resolved by structured tool)
     context_chunks = []
@@ -632,8 +574,8 @@ def answer_patient_query(
         sources_payload.append({
             "chunk_id": f"tool_{intent}",
             "tool_name": intent.replace("tool_", ""),
-            "section_title": tool_source,
-            "label": tool_source,
+            "section_title": "Care Plan",
+            "label": "From your care plan",
             "snippet": json.dumps(tool_result, ensure_ascii=False),
             "text": json.dumps(tool_result, indent=2, ensure_ascii=False),
         })
@@ -641,12 +583,12 @@ def answer_patient_query(
         for idx, chk in enumerate(context_chunks):
             sid = f"S{idx + 1}"
             valid_source_ids.add(sid)
-            sec_title = chk.get("section_title") or "Discharge summary"
+            sec_title = chk.get("section_title") or "General"
             p_no = chk.get("page_no") or 1
             context_blocks.append(f"[{sid}] ({sec_title}, Page {p_no}): {chk['chunk_text']}")
             sources_payload.append({
                 "chunk_id": chk.get("chunk_id") or chk.get("vector_id"),
-                "label": f"Discharge summary · {sec_title} · p.{p_no}",
+                "label": f"Discharge summary - {sec_title} - p.{p_no}",
                 "section_title": sec_title,
                 "page_no": p_no,
                 "snippet": chk["chunk_text"][:160] + "...",

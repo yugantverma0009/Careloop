@@ -21,6 +21,8 @@ from dotenv import load_dotenv
 
 # Load backend environment
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../backend/.env"))
 load_dotenv(env_path)
 
@@ -326,41 +328,41 @@ def main():
                            JSON_OBJECT('day_number', 8, 'discharge_date', DATE_FORMAT(CURDATE() - INTERVAL 8 DAY, '%d %b %Y'), 'total_medications_scheduled', 1, 'total_doses_taken', 7, 'total_doses_skipped', 0, 'total_doses_unconfirmed', 0, 'adherence', '100%', 'vitals_count', 42, 'open_flags', 0))"""
             )
 
-            # Step 10: Aarav's Exact 6 Chat Messages
+            # Step 10: Aarav's Exact 6 Chat Messages (Assistant v2 Seed Contract)
             print("  10. Seeding Aarav chat messages...")
             conv_id = f"conv-aarav-{today.strftime('%Y%m%d')}"
             chat_data = [
-                # 1. Next appointment
-                ("Patient", "When is my next appointment?", None, None, conv_id),
-                ("AI_Nurse", "Your next scheduled cardiology appointment is on post-discharge day 7 at 10:30 AM with Dr. Ananya Sharma at OPD Clinic Room 302.", 1, "grounded", conv_id),
-                # 2. Warning signs
-                ("Patient", "What warning signs should I watch for?", None, None, conv_id),
-                ("AI_Nurse", "Watch for severe chest tightness, sudden shortness of breath, SpO2 dropping below 94%, or heart rate above 100 bpm. Call 112 immediately if chest pain is severe or radiating.", 1, "grounded", conv_id),
-                # 3. Refusal dose question (generates 0 duplicate tasks because we capped tasks)
-                ("Patient", "Can I double my dose?", None, None, conv_id),
-                ("AI_Nurse", "I cannot advise on changing or doubling your medication dose. Your discharge instructions state to take your medicines exactly as prescribed. I have alerted your care team to follow up with you directly.", 0, "refusal_dose", conv_id),
-                # 4. Diet not found
-                ("Patient", "What should I eat?", None, None, conv_id),
-                ("AI_Nurse", "I could not find specific dietary instructions in your discharge summary. Please consult your care team or clinical dietitian for personalized nutrition guidance.", 0, "not_found", conv_id),
-                # 5. Follow-up
-                ("Patient", "Understood, thank you. Is walking permitted?", None, None, conv_id),
-                ("AI_Nurse", "Yes, your discharge instructions state: walk indoors for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg.", 1, "grounded", conv_id),
-                # 6. Thank you
-                ("Patient", "Thank you for the guidance.", None, None, conv_id),
-                ("AI_Nurse", "You are welcome, Aarav. Please rest and reach out if you notice any warning signs.", 1, "grounded", conv_id),
+                # 1. Next appointment (Tool-grounded via care plan)
+                ("Patient", "When is my next appointment?", None, None, conv_id, None, {}),
+                ("AI_Nurse", "Your next scheduled cardiology appointment is on post-discharge day 7 at 10:30 AM with Dr. Ananya Sharma at OPD Clinic Room 302.", 1, "structured", conv_id, 2, {"intent": "appointment", "tool_used": True}),
+                # 2. Warning signs (Document-grounded, cites Warning Signs chunk 3, page 2)
+                ("Patient", "What warning signs should I watch for?", None, None, conv_id, None, {}),
+                ("AI_Nurse", "Watch for severe chest tightness, sudden shortness of breath, SpO2 dropping below 94%, or heart rate above 100 bpm. Call 112 immediately if chest pain is severe or radiating.", 1, "grounded", conv_id, 3, {"intent": "warning_signs", "source_ids": ["S1"]}),
+                # 3. Refusal dose question (deterministic refusal, creates 1 task)
+                ("Patient", "Can I double my dose?", None, None, conv_id, None, {}),
+                ("AI_Nurse", "I cannot advise on changing or doubling your medication dose. Your discharge instructions state to take your medicines exactly as prescribed. I have alerted your care team to follow up with you directly.", 0, "refusal_dose", conv_id, None, {"intent": "refusal_dose"}),
+                # 4. Diet not found (not in papers)
+                ("Patient", "What should I eat?", None, None, conv_id, None, {}),
+                ("AI_Nurse", "I could not find specific dietary instructions in your discharge summary. Please consult your care team or clinical dietitian for personalized nutrition guidance.", 0, "not_found", conv_id, None, {"intent": "diet", "found": False}),
+                # 5. Follow-up (Document-grounded, cites Activity Guidelines chunk 4, page 3)
+                ("Patient", "Understood, thank you. Is walking permitted?", None, None, conv_id, None, {}),
+                ("AI_Nurse", "Yes, your discharge instructions state: walk indoors for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg.", 1, "grounded", conv_id, 4, {"intent": "activity", "source_ids": ["S1"]}),
+                # 6. Thank you (Small talk, NO source chip, name inserted by code)
+                ("Patient", "Thank you for the guidance.", None, None, conv_id, None, {}),
+                ("AI_Nurse", "You are welcome, Aarav. Please rest and reach out if you notice any warning signs.", 0, "not_found", conv_id, None, {"intent": "small_talk", "answer_type": "small_talk", "llm_called": False, "name_inserted_by_code": True}),
             ]
-            for sender, text, is_grnd, ans_type, cid in chat_data:
+            for sender, text, is_grnd, ans_type, cid, target_chunk_id, rdebug in chat_data:
                 cur.execute(
-                    """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded, answer_type, conversation_id, created_at)
-                       VALUES (1, %s, %s, %s, %s, %s, NOW() - INTERVAL 4 HOUR + INTERVAL 5 MINUTE)""",
-                    (sender, text, is_grnd, ans_type, cid)
+                    """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded, answer_type, conversation_id, retrieval_debug, created_at)
+                       VALUES (1, %s, %s, %s, %s, %s, %s, NOW() - INTERVAL 4 HOUR + INTERVAL 5 MINUTE)""",
+                    (sender, text, is_grnd, ans_type, cid, json.dumps(rdebug) if rdebug else None)
                 )
                 msg_id = cur.lastrowid
-                if is_grnd == 1:
+                if target_chunk_id:
                     cur.execute(
                         """INSERT INTO chat_message_sources (message_id, chunk_id)
-                           VALUES (%s, 1)""",
-                        (msg_id,)
+                           VALUES (%s, %s)""",
+                        (msg_id, target_chunk_id)
                     )
 
             # Step 11: Aarav's Check-in History (5 check-ins, mild pain 1-3)
@@ -743,6 +745,40 @@ def main():
                     json.dumps({"battery_pct": 14}),
                 )
             )
+
+            # 19. Seed Chroma vector collections from document_chunks
+            print("  19. Indexing discharge document chunks into ChromaDB...")
+            try:
+                import chromadb
+                from backend.app.rag import get_embedding_fn
+                ef = get_embedding_fn()
+                chroma_path = os.getenv("CHROMA_PATH", "./chroma")
+                chroma_client = chromadb.PersistentClient(path=chroma_path)
+
+                cur.execute("SELECT document_id, vector_collection FROM discharge_documents")
+                docs = cur.fetchall()
+                for doc in docs:
+                    c_name = doc["vector_collection"]
+                    try:
+                        chroma_client.delete_collection(c_name)
+                    except Exception:
+                        pass
+                    if ef:
+                        col = chroma_client.create_collection(c_name, embedding_function=ef)
+                    else:
+                        col = chroma_client.create_collection(c_name)
+
+                    cur.execute(
+                        "SELECT chunk_id, chunk_index, chunk_text FROM document_chunks WHERE document_id = %s",
+                        (doc["document_id"],)
+                    )
+                    c_rows = cur.fetchall()
+                    if c_rows:
+                        ids = [f"{doc['document_id']}-{r['chunk_index']}" for r in c_rows]
+                        texts = [r["chunk_text"] for r in c_rows]
+                        col.add(ids=ids, documents=texts)
+            except Exception as e:
+                print(f"      [Warning] Chroma collection indexing skipped: {e}")
 
 
         conn.commit()
