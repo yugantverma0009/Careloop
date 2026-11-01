@@ -13,6 +13,7 @@ TRUNCATE TABLE checkin_sessions;
 TRUNCATE TABLE checkin_questions;
 TRUNCATE TABLE checkin_templates;
 TRUNCATE TABLE sms_messages;
+TRUNCATE TABLE wound_photos;
 TRUNCATE TABLE agent_proposals;
 TRUNCATE TABLE scheduled_actions;
 TRUNCATE TABLE audit_log;

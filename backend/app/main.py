@@ -11,7 +11,8 @@ import re
 from datetime import datetime, timedelta, date, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, Header, HTTPException, Depends, Request, Response, Query
+from fastapi import FastAPI, Header, HTTPException, Depends, Request, Response, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -3258,7 +3259,21 @@ def get_patient_timeline(
         )
         notes = cur.fetchall()
 
-        # 7. Approved Rule Limits for Chart
+        # 7. Photos (Phase 3 Feature F4)
+        cur.execute(
+            """SELECT wp.photo_id AS event_id, wp.taken_at AS event_time, 'Photo' AS event_type,
+                      CONCAT('Wound Photo (', wp.quality_status, '): ', COALESCE(wp.finding, wp.review_status)) AS summary,
+                      COALESCE(cs.full_name, 'Patient') AS actor, NULL AS quality_status,
+                      wp.photo_id, wp.finding, wp.review_status, wp.patient_note
+               FROM wound_photos wp
+               LEFT JOIN care_staff cs ON cs.staff_id = wp.reviewed_by_staff_id
+               WHERE wp.patient_id = %s
+               ORDER BY wp.taken_at DESC LIMIT %s""",
+            (pid, limit),
+        )
+        photos = cur.fetchall()
+
+        # 8. Approved Rule Limits for Chart
         cur.execute(
             """SELECT rule_type, measurement_type, threshold_value
                FROM alert_rules
@@ -3277,7 +3292,7 @@ def get_patient_timeline(
     all_events = []
     selected_types = [t.strip().lower() for t in event_types.split(",")] if event_types != "All" else None
 
-    candidates = list(readings) + list(symptoms) + list(doses) + list(flags) + list(calls) + list(notes)
+    candidates = list(readings) + list(symptoms) + list(doses) + list(flags) + list(calls) + list(notes) + list(photos)
     for ev in candidates:
         ev_type = ev["event_type"].lower()
         if selected_types and ev_type not in selected_types and "all" not in selected_types:
@@ -4148,6 +4163,33 @@ def get_shift_handoff(
             is_received = rec_row is not None
             received_at = rec_row["created_at"].strftime("%H:%M") if rec_row else None
 
+            # Photos waiting for review (Phase 3 Feature F4)
+            cur.execute(
+                """SELECT COUNT(*) AS c FROM wound_photos 
+                   WHERE patient_id = %s AND review_status IN ('Pending', 'Needs_Doctor')""",
+                (pid,),
+            )
+            pending_photos_cnt = cur.fetchone()["c"]
+
+            combined_actions = [
+                {
+                    "task_id": t["followup_id"],
+                    "reason": t["reason"],
+                    "priority": t["priority"],
+                    "due_at": str(t["due_at"]) if t["due_at"] else "Today",
+                    "owner": t["assigned_staff_name"] or "Unassigned",
+                }
+                for t in tasks
+            ]
+            if pending_photos_cnt > 0:
+                combined_actions.insert(0, {
+                    "task_id": f"photo_{pid}",
+                    "reason": f"{pending_photos_cnt} wound photo waiting for review",
+                    "priority": "Review_Soon",
+                    "due_at": "Today",
+                    "owner": "Nursing Staff",
+                })
+
             handoff_cards.append({
                 "patient_id": pid,
                 "patient_code": p["patient_code"],
@@ -4160,16 +4202,7 @@ def get_shift_handoff(
                     "discharge_date": str(p["discharge_date"] or ""),
                     "day_number": max(1, p["day_number"] or 1),
                 },
-                "action_list": [
-                    {
-                        "task_id": t["followup_id"],
-                        "reason": t["reason"],
-                        "priority": t["priority"],
-                        "due_at": str(t["due_at"]) if t["due_at"] else "Today",
-                        "owner": t["assigned_staff_name"] or "Unassigned",
-                    }
-                    for t in tasks
-                ],
+                "action_list": combined_actions,
                 "situation_awareness": {
                     "open_flags": [
                         {"flag_id": f["flag_id"], "severity": f["severity"], "reason": f["reason"]}
@@ -5807,6 +5840,40 @@ def get_doctor_decisions(
                 "priority_weight": 50,
             })
 
+        # 6. Photos Needing Doctor Review (Phase 3 Feature F4)
+        cur.execute(
+            """SELECT wp.photo_id, wp.patient_id, p.full_name, p.patient_code,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary, wp.quality_status, wp.patient_note, wp.review_note,
+                      wp.taken_at,
+                      ROUND(TIMESTAMPDIFF(MINUTE, wp.taken_at, NOW())) AS waited_mins,
+                      cs.full_name AS requested_by_name
+               FROM wound_photos wp
+               JOIN patients p ON wp.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               LEFT JOIN care_staff cs ON wp.reviewed_by_staff_id = cs.staff_id
+               WHERE wp.review_status = 'Needs_Doctor'
+               ORDER BY wp.taken_at ASC"""
+        )
+        photo_doctor_rows = cur.fetchall() or []
+        for pr in photo_doctor_rows:
+            waited = f"{pr['waited_mins']}m" if pr['waited_mins'] < 60 else f"{pr['waited_mins'] // 60}h {pr['waited_mins'] % 60}m"
+            decision_items.append({
+                "type": "photo_review",
+                "id": pr["photo_id"],
+                "photo_id": pr["photo_id"],
+                "patient_id": pr["patient_id"],
+                "patient_name": pr["full_name"],
+                "patient_code": pr["patient_code"],
+                "patient_age": pr["age"],
+                "condition": pr["condition_summary"] or "Recovery",
+                "title": f"Wound Photo review requested by Nurse {pr['requested_by_name'] or 'Staff'}",
+                "detail": pr["review_note"] or pr["patient_note"] or "Nurse requested attending physician evaluation of wound photograph.",
+                "tier": "Review_Soon",
+                "waited_text": f"Waited {waited}",
+                "priority_weight": 70,
+            })
+
         # Sort all decision items by priority weight descending, then id
         decision_items.sort(key=lambda x: x["priority_weight"], reverse=True)
 
@@ -5815,6 +5882,7 @@ def get_doctor_decisions(
                 "needs_decision_now": len(decision_items),
                 "summaries_to_approve": len(summary_rows),
                 "limit_change_requests": len(proposal_rows),
+                "photo_reviews_waiting": len(photo_doctor_rows),
                 "patients_in_followup": total_patients,
             },
             "items": decision_items,
@@ -5999,11 +6067,18 @@ def get_nurse_call_list(
         calls_to_make = len(formatted_flags) + len(formatted_tasks)
         visits_today = len(formatted_tasks)
 
+        # 6. Photos waiting for nurse review (Phase 3 Feature F4)
+        cur.execute(
+            """SELECT COUNT(*) AS total FROM wound_photos WHERE review_status = 'Pending'"""
+        )
+        photos_to_review_count = cur.fetchone()["total"]
+
         return {
             "cards": {
                 "calls_to_make": calls_to_make,
                 "visits_today": visits_today,
                 "pending_limit_requests": pending_proposals_count,
+                "photos_to_review": photos_to_review_count,
                 "active_patients": total_patients,
             },
             "call_items": formatted_flags,
@@ -6570,6 +6645,215 @@ def get_patient_sms_history(
     """Retrieve full SMS message history (outbound + inbound) for a patient."""
     from .sms_service import get_patient_sms_messages
     return {"messages": get_patient_sms_messages(patient_id)}
+
+
+# ─── Feature F4: Wound Photo Check Endpoints ─────────────────────────────────
+
+class ReviewPhotoRequest(BaseModel):
+    finding: str
+    review_note: Optional[str] = None
+    action: str = "none"
+
+
+class CleanupRetentionRequest(BaseModel):
+    retention_days: int = 30
+
+
+@app.post("/patient/me/photos/quality-check")
+async def check_photo_quality(
+    file: UploadFile = File(...),
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Run deterministic quality check on uploaded photo bytes without saving.
+    Returns plain-language recommendation and metrics.
+    """
+    from .photo_service import analyze_image_quality
+    contents = await file.read()
+    return analyze_image_quality(contents)
+
+
+@app.post("/patient/me/photos")
+async def upload_patient_photo(
+    file: UploadFile = File(...),
+    patient_note: Optional[str] = Form(None),
+    session_id: Optional[int] = Form(None),
+    use_anyway: bool = Form(False),
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Upload a recovery / wound photo.
+    Enforces quality checks, strips EXIF, generates thumbnail, and records audit log.
+    """
+    from .photo_service import save_wound_photo
+    contents = await file.read()
+    patient_id = user["patient_id"]
+    try:
+        res = save_wound_photo(
+            patient_id=patient_id,
+            image_bytes=contents,
+            original_filename=file.filename or "photo.jpg",
+            patient_note=patient_note,
+            session_id=session_id,
+            use_anyway=use_anyway,
+            actor_id=user.get("account_id"),
+            actor_role="Patient",
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/patient/me/photos")
+def get_my_photos(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """List wound photos for authenticated patient."""
+    from .photo_service import get_patient_photos
+    return get_patient_photos(user["patient_id"])
+
+
+@app.get("/staff/patients/{patient_id}/photos")
+def get_staff_patient_photos(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """List wound photos with side-by-side latest and previous comparisons for clinical review."""
+    from .photo_service import get_patient_photos
+    return get_patient_photos(patient_id)
+
+
+@app.get("/staff/photos/pending-overview")
+def get_pending_photos(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Retrieve unreviewed photos overview for nurse call list and doctor desk."""
+    from .photo_service import get_pending_photos_overview
+    return get_pending_photos_overview()
+
+
+@app.post("/staff/photos/{photo_id}/review")
+def review_photo_endpoint(
+    photo_id: int,
+    body: ReviewPhotoRequest,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Human-only clinical review of a wound photo.
+    Findings: 'No_Concern_Seen', 'Concern_Noted', 'Retake_Needed'.
+    Optionally escalates to doctor ('ask_doctor') or raises human flag ('raise_flag').
+    """
+    from .photo_service import review_wound_photo
+    try:
+        return review_wound_photo(
+            photo_id=photo_id,
+            staff_id=user["staff_id"],
+            staff_role=user["role"],
+            finding=body.finding,
+            review_note=body.review_note,
+            action=body.action,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/photos/{photo_id}/image")
+def get_photo_image(
+    photo_id: int,
+    token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Authenticated image endpoint with strict role checks and audit logging.
+    - Caregivers: strictly 403 Forbidden.
+    - Patient: can only access their own photos (403 if mismatch).
+    - Nurse / Doctor: authorized.
+    Every view writes PHOTO_VIEWED to audit_log.
+    """
+    auth_header = authorization
+    if not auth_header and token:
+        auth_header = f"Bearer {token}"
+    user = current_user(auth_header)
+
+    user_role = user.get("role")
+    if user_role == "Caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Caregivers are strictly not permitted to access patient wound photos under privacy rules.",
+        )
+
+    from .photo_service import get_photo_path, audit_photo_view
+    file_path, photo_pid = get_photo_path(photo_id, is_thumb=False)
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    if user_role == "Patient" and user.get("patient_id") != photo_pid:
+        raise HTTPException(status_code=403, detail="Forbidden: You may only view your own photographs.")
+
+    audit_photo_view(
+        photo_id=photo_id,
+        patient_id=photo_pid,
+        actor_id=user.get("staff_id") or user.get("account_id"),
+        actor_role=user_role,
+    )
+
+    return FileResponse(file_path, media_type="image/jpeg")
+
+
+@app.get("/photos/{photo_id}/thumb")
+def get_photo_thumbnail(
+    photo_id: int,
+    token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Authenticated thumbnail endpoint with strict role checks and audit logging.
+    - Caregivers: strictly 403 Forbidden.
+    - Patient: can only access their own photos (403 if mismatch).
+    - Nurse / Doctor: authorized.
+    Every view writes PHOTO_VIEWED to audit_log.
+    """
+    auth_header = authorization
+    if not auth_header and token:
+        auth_header = f"Bearer {token}"
+    user = current_user(auth_header)
+
+    user_role = user.get("role")
+    if user_role == "Caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Caregivers are strictly not permitted to access patient wound photos under privacy rules.",
+        )
+
+    from .photo_service import get_photo_path, audit_photo_view
+    file_path, photo_pid = get_photo_path(photo_id, is_thumb=True)
+    if not file_path or not os.path.exists(file_path):
+        file_path, photo_pid = get_photo_path(photo_id, is_thumb=False)
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Photo thumbnail not found")
+
+    if user_role == "Patient" and user.get("patient_id") != photo_pid:
+        raise HTTPException(status_code=403, detail="Forbidden: You may only view your own photographs.")
+
+    audit_photo_view(
+        photo_id=photo_id,
+        patient_id=photo_pid,
+        actor_id=user.get("staff_id") or user.get("account_id"),
+        actor_role=user_role,
+    )
+
+    return FileResponse(file_path, media_type="image/jpeg")
+
+
+@app.post("/staff/photos/cleanup-retention")
+def trigger_photo_retention_cleanup(
+    body: CleanupRetentionRequest = CleanupRetentionRequest(),
+    user: Dict[str, Any] = Depends(require_doctor),
+):
+    """Audited purge of wound photos exceeding retention threshold."""
+    from .photo_service import cleanup_retention_photos
+    return cleanup_retention_photos(retention_days=body.retention_days, staff_id=user["staff_id"])
+
 
 
 

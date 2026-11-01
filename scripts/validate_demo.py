@@ -252,6 +252,33 @@ def validate():
         else:
             print(f"  ✓ Two-Way SMS messages verified: {sms_row['total_sms']} messages ({sms_row['out_sms']} outbound, {sms_row['in_sms']} inbound)")
 
+        # Check 19: Wound Photos Integrity & Storage (Phase 3 Feature F4)
+        cur.execute(
+            """SELECT COUNT(*) AS total_photos,
+                      SUM(review_status = 'Pending') AS pending_photos,
+                      SUM(review_status = 'Reviewed') AS reviewed_photos
+               FROM wound_photos"""
+        )
+        photo_row = cur.fetchone()
+        if not photo_row or photo_row["total_photos"] != 3:
+            failures.append(f"❌ wound_photos count mismatch: {photo_row.get('total_photos') if photo_row else 0} (expected exactly 3)")
+        elif photo_row["pending_photos"] != 1 or photo_row["reviewed_photos"] != 2:
+            failures.append(f"❌ wound_photos status mismatch: {photo_row['pending_photos']} pending, {photo_row['reviewed_photos']} reviewed (expected 1 pending, 2 reviewed)")
+        else:
+            # Check disk file existence
+            cur.execute("SELECT file_path, thumb_path FROM wound_photos")
+            missing_files = []
+            for r in cur.fetchall():
+                for p in (r["file_path"], r["thumb_path"]):
+                    if p:
+                        full_p = os.path.join(os.path.dirname(__file__), "..", p)
+                        if not os.path.exists(full_p):
+                            missing_files.append(p)
+            if missing_files:
+                failures.append(f"❌ Missing wound photo files on disk: {missing_files}")
+            else:
+                print(f"  ✓ Wound photos verified: {photo_row['total_photos']} photos (1 pending review, 2 reviewed, all files intact on disk)")
+
     conn.close()
 
     if failures:
@@ -260,7 +287,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 18 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 19 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 

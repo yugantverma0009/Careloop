@@ -29,6 +29,8 @@ chroma/
 backend/chroma/
 chroma_db/
 *.sqlite3
+data/
+
 
 # Operating System & IDE
 .DS_Store

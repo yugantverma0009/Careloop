@@ -84,6 +84,15 @@ const post = (path, body) =>
     body: JSON.stringify(body || {}),
   }).then(handleResponse);
 
+const postFormData = (path, formData) => {
+  const token = getToken();
+  return fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  }).then(handleResponse);
+};
+
 // ─── Auth Endpoints ─────────────────────────────────────────────────────────
 
 export const login = async (email, password) => {
@@ -537,6 +546,34 @@ export const simulateInboundSms = (fromPhone, body) =>
 
 export const getPatientSmsMessages = (patientId) =>
   get(`/staff/patients/${patientId}/messages`);
+
+// ─── Feature F4: Wound Photo Check API ────────────────────────────────────────
+
+export const checkPhotoQuality = (formData) =>
+  postFormData('/patient/me/photos/quality-check', formData);
+
+export const uploadPatientPhoto = (formData) =>
+  postFormData('/patient/me/photos', formData);
+
+export const getMyPhotos = () =>
+  get('/patient/me/photos');
+
+export const getStaffPatientPhotos = (patientId) =>
+  get(`/staff/patients/${patientId}/photos`);
+
+export const getPendingPhotosOverview = () =>
+  get('/staff/photos/pending-overview');
+
+export const reviewWoundPhoto = (photoId, data) =>
+  post(`/staff/photos/${photoId}/review`, data);
+
+export const cleanupRetentionPhotos = (retentionDays = 30) =>
+  post('/staff/photos/cleanup-retention', { retention_days: retentionDays });
+
+export const getPhotoUrl = (photoId, isThumb = false) => {
+  const token = getToken();
+  return `${API_BASE}/photos/${photoId}/${isThumb ? 'thumb' : 'image'}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+};
 
 
 

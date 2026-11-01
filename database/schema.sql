@@ -695,6 +695,41 @@ CREATE TABLE `sms_messages` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `wound_photos`
+--
+
+DROP TABLE IF EXISTS `wound_photos`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `wound_photos` (
+  `photo_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `session_id` bigint DEFAULT NULL,
+  `taken_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `file_path` varchar(255) NOT NULL,
+  `thumb_path` varchar(255) DEFAULT NULL,
+  `sha256` char(64) NOT NULL,
+  `quality_status` enum('Usable','Too_Dark','Blurry','Too_Small','Used_Anyway') NOT NULL,
+  `quality_details` json DEFAULT NULL,
+  `patient_note` varchar(255) DEFAULT NULL,
+  `review_status` enum('Pending','Reviewed','Needs_Doctor') NOT NULL DEFAULT 'Pending',
+  `finding` enum('No_Concern_Seen','Concern_Noted','Retake_Needed') DEFAULT NULL,
+  `review_note` varchar(500) DEFAULT NULL,
+  `reviewed_by_staff_id` int DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `flag_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`photo_id`),
+  KEY `fk_photo_patient` (`patient_id`),
+  KEY `fk_photo_staff` (`reviewed_by_staff_id`),
+  KEY `fk_photo_flag` (`flag_id`),
+  KEY `idx_photo_review` (`review_status`,`taken_at`),
+  CONSTRAINT `fk_photo_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_photo_staff` FOREIGN KEY (`reviewed_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_photo_flag` FOREIGN KEY (`flag_id`) REFERENCES `flags` (`flag_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `medication_logs`
 --
 

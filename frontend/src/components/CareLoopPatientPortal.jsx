@@ -21,6 +21,7 @@ import {
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import CheckinGuide from './CheckinGuide';
+import WoundPhotoUpload from './WoundPhotoUpload';
 import {
   IconLogo,
   IconPill,
@@ -3813,25 +3814,33 @@ export default function CareLoopPatientPortal({ user }) {
                     </div>
                   </div>
                 ) : checkinMode === 'guided' ? (
-                  <CheckinGuide
-                    lang={lang}
-                    onComplete={(res) => {
-                      setCheckinSuccessData({
-                        res,
-                        payload: {
-                          pain_level: res.pain_level ?? 0,
-                          trend: 'Completed via Guide',
-                          chips: [],
-                          sites: [],
-                          text: res.message || 'Check-in completed',
-                        },
-                      });
-                      getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
-                    }}
-                    onEmergency={() => {
-                      getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
-                    }}
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    <CheckinGuide
+                      lang={lang}
+                      onComplete={(res) => {
+                        setCheckinSuccessData({
+                          res,
+                          payload: {
+                            pain_level: res.pain_level ?? 0,
+                            trend: 'Completed via Guide',
+                            chips: [],
+                            sites: [],
+                            text: res.message || 'Check-in completed',
+                          },
+                        });
+                        getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
+                      }}
+                      onEmergency={() => {
+                        getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
+                      }}
+                    />
+
+                    {/* Phase 3 Feature F4: Wound Photo Check-in */}
+                    <WoundPhotoUpload
+                      lang={lang}
+                      onOpenDischargePapers={() => setActiveNav('chat')}
+                    />
+                  </div>
                 ) : (
                   /* ACTIVE CHECK-IN FORM */
                   <form onSubmit={handleCheckinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '22px', marginTop: '18px' }}>
