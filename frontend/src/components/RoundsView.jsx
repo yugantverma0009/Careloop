@@ -4,6 +4,7 @@ import {
   pauseRounds,
   resumeRounds,
   runRoundsNow,
+  sendDeviceEvent,
 } from '../services/api';
 import {
   IconClock,
@@ -23,6 +24,30 @@ export default function RoundsView({ currentUser }) {
   const [loading, setLoading] = useState(true);
   const [runningNow, setRunningNow] = useState(false);
   const [runMessage, setRunMessage] = useState('');
+  const [simulatingFall, setSimulatingFall] = useState(false);
+
+  const handleSimulateFall = async () => {
+    try {
+      setSimulatingFall(true);
+      const res = await sendDeviceEvent({
+        device_id: 'DEV-ESP32-005',
+        event_type: 'Possible_Fall',
+        occurred_at: Math.floor(Date.now() / 1000),
+        details: {
+          peak_movement: 4.1,
+          stillness_seconds: 18,
+          battery_pct: 78,
+        },
+      });
+      setRunMessage(`Simulated possible fall for Sunita (DEV-ESP32-005): ${res.message || 'Prompt dispatched'}`);
+      await loadData();
+      setTimeout(() => setRunMessage(''), 8000);
+    } catch (err) {
+      setRunMessage(`Simulation failed: ${err.message || 'Error'}`);
+    } finally {
+      setSimulatingFall(false);
+    }
+  };
 
   // Pause Modal state
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
@@ -162,29 +187,53 @@ export default function RoundsView({ currentUser }) {
         {/* Demo Tools Button */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {isDemoTools && (
-            <button
-              type="button"
-              onClick={handleRunNow}
-              disabled={runningNow}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                background: 'var(--navy-deep, #0b1528)',
-                color: '#ffffff',
-                border: 'none',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: runningNow ? 'not-allowed' : 'pointer',
-                opacity: runningNow ? 0.7 : 1,
-                boxShadow: 'var(--shadow-card)',
-              }}
-            >
-              <IconRefresh width={14} height={14} className={runningNow ? 'spin' : ''} />
-              <span>{runningNow ? 'Running...' : 'Run due actions now'}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleSimulateFall}
+                disabled={simulatingFall}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  background: 'var(--alert-red, #dc2626)',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: simulatingFall ? 'not-allowed' : 'pointer',
+                  opacity: simulatingFall ? 0.7 : 1,
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <span>{simulatingFall ? 'Simulating...' : 'Simulate Possible Fall (Sunita)'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRunNow}
+                disabled={runningNow}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  background: 'var(--navy-deep, #0b1528)',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: runningNow ? 'not-allowed' : 'pointer',
+                  opacity: runningNow ? 0.7 : 1,
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <IconRefresh width={14} height={14} className={runningNow ? 'spin' : ''} />
+                <span>{runningNow ? 'Running...' : 'Run due actions now'}</span>
+              </button>
+            </>
           )}
 
           <button

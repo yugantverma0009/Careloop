@@ -8,6 +8,7 @@ All patient endpoints strictly extract patient_id from the authenticated JWT tok
 import os
 import calendar
 import re
+import logging
 from datetime import datetime, timedelta, date, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List
@@ -20,6 +21,8 @@ import pymysql
 import json
 import urllib.parse
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger(__name__)
 from .db import get_conn
 from .auth import verify_login, make_token, require_role, current_user
 from .permissions import (
@@ -362,6 +365,79 @@ def ingest_reading(r: ReadingIn, x_device_key: str = Header(...)):
     return {"status": "stored"}
 
 
+# ─── Watch Events & Possible Fall Ingestion (Phase 5 Feature F7) ──────────────
+
+class DeviceEventIn(BaseModel):
+    device_id: str
+    event_type: str = Field(default="Possible_Fall", pattern="^(Possible_Fall|Low_Battery|Reconnected)$")
+    occurred_at: Optional[int] = None
+    details: Optional[Dict[str, Any]] = None
+
+
+class FallResponseIn(BaseModel):
+    event_id: int
+    response: str = Field(pattern="^(Ok|Need_Help|ok|need_help)$")
+
+
+@app.post("/device/events")
+def ingest_device_event(ev: DeviceEventIn, x_device_key: str = Header(...)):
+    """
+    Idempotent IoT device event endpoint (Phase 5 Feature F7).
+    - Authenticates device via X-Device-Key header.
+    - If Possible_Fall rule is active, triggers prompt countdown.
+    - If Possible_Fall rule is inactive, records in audit log only.
+    """
+    configured_key = os.getenv("DEVICE_API_KEY", "demo-device-key-change-me")
+    if x_device_key != configured_key:
+        raise HTTPException(status_code=401, detail="Bad device key")
+
+    when = (
+        datetime.fromtimestamp(ev.occurred_at, tz=IST).replace(tzinfo=None)
+        if ev.occurred_at
+        else datetime.now()
+    )
+
+    from .device_event_service import record_device_event
+
+    try:
+        return record_device_event(
+            device_id=ev.device_id,
+            event_type=ev.event_type,
+            occurred_at=when,
+            details=ev.details,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error ingesting device event: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error recording device event")
+
+
+@app.get("/patient/me/fall-prompt")
+def get_my_fall_prompt(user: Dict[str, Any] = Depends(require_patient)):
+    """Returns active possible fall prompt awaiting patient response."""
+    pid = get_effective_patient_id(user)
+    from .device_event_service import get_active_fall_prompt
+    prompt = get_active_fall_prompt(pid)
+    return {"prompt": prompt}
+
+
+@app.post("/patient/me/fall-response")
+def submit_my_fall_response(
+    body: FallResponseIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Records patient response to possible fall prompt (I'm OK or I need help).
+    """
+    pid = get_effective_patient_id(user)
+    from .device_event_service import handle_patient_fall_response
+    try:
+        return handle_patient_fall_response(pid, body.event_id, body.response)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ─── Patient Medication Doses (Milestone M3 / Phase 1 Upgrade) ────────────────
 
 class DoseConfirmIn(BaseModel):
@@ -691,6 +767,10 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_patient)):
             "day_after_discharge": day_after_discharge,
         }
 
+    from .device_event_service import get_active_fall_prompt, get_device_health
+    fall_prompt = get_active_fall_prompt(pid)
+    device_health = get_device_health(pid)
+
     return {
         "date": today_ist.strftime("%Y-%m-%d"),
         "formatted_date": now_ist.strftime("%A, %d %B %Y"),
@@ -702,6 +782,8 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_patient)):
             "raised_at": banner_raised_at,
         },
         "needs_a_look": needs_a_look,
+        "fall_prompt": fall_prompt,
+        "device_health": device_health,
         "counts": {
             "planned": planned,
             "taken": taken,
@@ -2980,6 +3062,10 @@ def get_patient_detail(
         )
         draft_sum = cur.fetchone()
 
+    from .device_event_service import get_device_health, get_rule_prompt_counts
+    dev_health = get_device_health(pid)
+    prompt_counts = get_rule_prompt_counts(pid)
+
     return {
         "patient": p,
         "is_assigned": is_assigned,
@@ -2992,6 +3078,8 @@ def get_patient_detail(
         "adherence_grid": adherence_grid,
         "pain_trend": pain_trend,
         "device": device,
+        "device_health": dev_health,
+        "fall_prompt_counts": prompt_counts,
         "next_appointment": next_apt,
         "draft_summary": draft_sum,
     }
@@ -3107,7 +3195,10 @@ def get_patient_rules(
                       r.window_hours, r.severity, r.approved_at, r.is_active,
                       cs.full_name AS approved_by_name,
                       (SELECT COUNT(*) FROM flags f WHERE f.rule_id = r.rule_id AND f.created_at >= NOW() - INTERVAL 30 DAY) AS fired_count_30d,
-                      (SELECT COUNT(*) FROM flags f WHERE f.rule_id = r.rule_id AND f.status = 'Dismissed' AND f.resolution_code = 'False_Alarm') AS dismissed_false_count
+                      (SELECT COUNT(*) FROM flags f WHERE f.rule_id = r.rule_id AND f.status = 'Dismissed' AND f.resolution_code = 'False_Alarm') AS dismissed_false_count,
+                      (SELECT COUNT(*) FROM device_events de WHERE de.patient_id = r.patient_id AND de.event_type = 'Possible_Fall' AND de.prompt_sent_at IS NOT NULL) AS prompts_sent,
+                      (SELECT COUNT(*) FROM device_events de WHERE de.patient_id = r.patient_id AND de.event_type = 'Possible_Fall' AND de.patient_response = 'Ok') AS prompts_ok,
+                      (SELECT COUNT(*) FROM device_events de WHERE de.patient_id = r.patient_id AND de.event_type = 'Possible_Fall' AND (de.patient_response = 'No_Response' OR (de.patient_response IS NULL AND de.flag_id IS NOT NULL))) AS prompts_unanswered
                FROM alert_rules r
                LEFT JOIN care_staff cs ON cs.staff_id = r.approved_by_staff_id
                WHERE r.patient_id = %s
@@ -6269,7 +6360,10 @@ def get_all_approved_rules(
                           dr.condition_summary,
                           r.rule_type, r.measurement_type, r.threshold_value,
                           r.window_hours, r.severity, r.approved_at, r.is_active,
-                          cs.full_name AS approved_by_name
+                          cs.full_name AS approved_by_name,
+                          (SELECT COUNT(*) FROM device_events de WHERE de.patient_id = r.patient_id AND de.event_type = 'Possible_Fall' AND de.prompt_sent_at IS NOT NULL) AS prompts_sent,
+                          (SELECT COUNT(*) FROM device_events de WHERE de.patient_id = r.patient_id AND de.event_type = 'Possible_Fall' AND de.patient_response = 'Ok') AS prompts_ok,
+                          (SELECT COUNT(*) FROM device_events de WHERE de.patient_id = r.patient_id AND de.event_type = 'Possible_Fall' AND (de.patient_response = 'No_Response' OR (de.patient_response IS NULL AND de.flag_id IS NOT NULL))) AS prompts_unanswered
                    FROM alert_rules r
                    JOIN patients p ON r.patient_id = p.patient_id
                    LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id

@@ -16,6 +16,7 @@ import {
   submitChatFeedback,
   getFamilySharingStatus,
   toggleFamilySharing,
+  submitFallResponse,
   logout,
 } from '../services/api';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
@@ -203,6 +204,10 @@ export default function CareLoopPatientPortal({ user }) {
 
   const chatEndRef = useRef(null);
 
+  const [lastUpdatedTime, setLastUpdatedTime] = useState(() => new Date().toLocaleTimeString());
+  const [fallSubmitting, setFallSubmitting] = useState(false);
+  const [fallFeedback, setFallFeedback] = useState(null);
+
   // 1. Single Network Request for Patient Overview (Brief Sec 6.1, 8.1)
   const loadTodayData = async (silent = false) => {
     try {
@@ -215,6 +220,7 @@ export default function CareLoopPatientPortal({ user }) {
         getChatHistory().catch(() => []),
       ]);
       setTodayData(todayRes);
+      setLastUpdatedTime(new Date().toLocaleTimeString());
       if (Array.isArray(chatRes)) {
         setChatMessages(chatRes);
         const initialFeedback = {};
@@ -236,6 +242,34 @@ export default function CareLoopPatientPortal({ user }) {
       );
     } finally {
       if (!silent) setLoading(false);
+    }
+  };
+
+  const handleFallResponse = async (eventId, responseType) => {
+    try {
+      setFallSubmitting(true);
+      await submitFallResponse(eventId, responseType);
+      if (responseType === 'Ok') {
+        setFallFeedback({
+          type: 'ok',
+          text: lang === 'hi'
+            ? 'पुष्टि करने के लिए धन्यवाद। आपकी देखभाल टीम को सूचित कर दिया गया है कि आप ठीक हैं।'
+            : 'Thanks for confirming. Your care team has been notified that you are OK.',
+        });
+      } else {
+        setFallFeedback({
+          type: 'help',
+          text: lang === 'hi'
+            ? 'चेतावनी जारी की गई। डॉ. शर्मा और नर्स प्रिया को तुरंत सूचित कर दिया गया है।'
+            : 'Alert raised. Dr. Sharma and Nurse Priya have been alerted immediately.',
+        });
+      }
+      setTimeout(() => setFallFeedback(null), 10000);
+      await loadTodayData(true);
+    } catch (err) {
+      console.error('Failed to submit fall response', err);
+    } finally {
+      setFallSubmitting(false);
     }
   };
 
@@ -893,13 +927,16 @@ export default function CareLoopPatientPortal({ user }) {
     setChatMessages([]);
   };
 
-  // Derived telemetry metrics
-  const hrReading = todayData?.readings?.find((r) => r.type?.toLowerCase().includes('heart') || r.type?.toLowerCase().includes('pulse'));
+  // Derived telemetry metrics (filtered so invalid noise never becomes the headline)
+  const validReadings = (todayData?.readings || []).filter(
+    (r) => r.quality !== 'Invalid' && r.quality !== 'Noise' && r.is_valid !== false && r.is_valid !== 0
+  );
+  const hrReading = validReadings.find((r) => r.type?.toLowerCase().includes('heart') || r.type?.toLowerCase().includes('pulse')) || todayData?.readings?.find((r) => r.type?.toLowerCase().includes('heart') || r.type?.toLowerCase().includes('pulse'));
   const heartRateValue = hrReading?.value ?? 72;
   const hrQuality = hrReading?.quality ?? 'Valid';
   const hrTime = hrReading?.measured_time ?? '09:15 AM';
 
-  const spo2Reading = todayData?.readings?.find((r) => r.type?.toLowerCase().includes('spo2') || r.type?.toLowerCase().includes('oxygen'));
+  const spo2Reading = validReadings.find((r) => r.type?.toLowerCase().includes('spo2') || r.type?.toLowerCase().includes('oxygen')) || todayData?.readings?.find((r) => r.type?.toLowerCase().includes('spo2') || r.type?.toLowerCase().includes('oxygen'));
   const spo2Value = spo2Reading?.value ?? 98;
   const spo2Quality = spo2Reading?.quality ?? 'Valid';
   const spo2Time = spo2Reading?.measured_time ?? '09:15 AM';
@@ -1495,6 +1532,111 @@ export default function CareLoopPatientPortal({ user }) {
             </div>
           </div>
 
+          {/* ─── Active Fall Prompt Banner (Phase 5) ─── */}
+          {todayData?.fall_prompt && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              style={{
+                background: 'var(--bg-surface, #ffffff)',
+                border: '2px solid var(--alert-red, #dc2626)',
+                borderRadius: '12px',
+                padding: '16px 20px',
+                marginBottom: '20px',
+                boxShadow: '0 4px 14px rgba(220, 38, 38, 0.15)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '50%',
+                      background: 'var(--alert-red-soft, #fef2f2)',
+                      color: 'var(--alert-red, #dc2626)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '18px',
+                      fontWeight: 800,
+                    }}
+                  >
+                    !
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-primary, #0f172a)' }}>
+                      {lang === 'hi'
+                        ? 'केयरलूप जांच: आपकी घड़ी से अचानक हलचल दर्ज की गई।'
+                        : 'CareLoop check: We noticed sudden movement from your watch.'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                      {lang === 'hi'
+                        ? `क्या आप ठीक हैं? (प्रतीक्षा समय: ${todayData.fall_prompt.wait_minutes || 2} मिनट)`
+                        : `Are you OK? (Waiting ${todayData.fall_prompt.wait_minutes || 2} minutes before alerting staff)`}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleFallResponse(todayData.fall_prompt.event_id, 'Ok')}
+                    disabled={fallSubmitting}
+                    style={{
+                      background: 'var(--success-green, #059669)',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '9px 18px',
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'hi' ? '✓ मैं ठीक हूँ' : "✓ I'm OK"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFallResponse(todayData.fall_prompt.event_id, 'Need_Help')}
+                    disabled={fallSubmitting}
+                    style={{
+                      background: 'var(--alert-red, #dc2626)',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '9px 18px',
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'hi' ? '🚨 मुझे मदद चाहिए' : '🚨 I need help'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Fall Response Feedback Banner */}
+          {fallFeedback && (
+            <div
+              style={{
+                background: fallFeedback.type === 'ok' ? 'var(--success-green-soft, #f0fdf4)' : 'var(--alert-red-soft, #fef2f2)',
+                border: `1px solid ${fallFeedback.type === 'ok' ? 'var(--success-green, #059669)' : 'var(--alert-red, #dc2626)'}`,
+                borderRadius: '12px',
+                padding: '14px 18px',
+                marginBottom: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+              }}
+            >
+              <div style={{ fontWeight: 600, fontSize: '13px', color: fallFeedback.type === 'ok' ? 'var(--success-green, #059669)' : 'var(--alert-red, #dc2626)' }}>
+                {fallFeedback.text}
+              </div>
+            </div>
+          )}
+
           {/* ─── 4. STATUS BANNER (Driven by Real Flag States - Brief Sec 6.5) ─── */}
           {todayData?.banner?.state === 'urgent' && (
             <div
@@ -1925,6 +2067,40 @@ export default function CareLoopPatientPortal({ user }) {
                   <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '14px' }}>
                     ● {lang === 'hi' ? 'हरा = ली गई, पीला = छूटी हुई, खाली = आने वाली' : 'Green = taken, Amber = skipped, Hollow = pending'}
                   </div>
+                </div>
+              </div>
+
+              {/* Telemetry Live Bar & Watch Status (Phase 5) */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '14px',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {lang === 'hi' ? 'स्मार्टवॉच स्थिति' : 'Watch Telemetry'}
+                  </span>
+                  {todayData?.device_health?.has_device ? (
+                    <span className="status-pill status-pill-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '3px 8px' }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#059669', display: 'inline-block' }} />
+                      Watch: {todayData.device_health.connectivity_status === 'Online' ? 'Online' : 'Standby'} · {todayData.device_health.battery_pct}% Battery
+                    </span>
+                  ) : (
+                    <span className="status-pill status-pill-neutral" style={{ fontSize: '11px', padding: '3px 8px' }}>
+                      Watch: Standby
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#0284c7', display: 'inline-block' }} />
+                  <span style={{ fontWeight: 700, color: '#0284c7' }}>Live</span>
+                  <span>·</span>
+                  <span>Updated {lastUpdatedTime}</span>
                 </div>
               </div>
 

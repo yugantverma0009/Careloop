@@ -18,9 +18,40 @@ def main():
     parser.add_argument("--device", default="DEV-ESP32-001", help="Registered device ID (default: DEV-ESP32-001)")
     parser.add_argument("--key", default="demo-device-key-change-me", help="Device API authentication key")
     parser.add_argument("--interval", type=int, default=10, help="Seconds between reading cycles")
-    parser.add_argument("--low-spo2", action="store_true", help="Simulate SpO2 below clinician-approved limit (e.g. 89-91%)")
+    parser.add_argument("--low-spo2", action="store_true", help="Simulate SpO2 below clinician-approved limit (e.g. 89-91%%)")
+    parser.add_argument("--fall", action="store_true", help="Simulate sudden motion spike followed by stillness (Possible_Fall)")
     parser.add_argument("--once", action="store_true", help="Send a single cycle and exit (useful for testing)")
     args = parser.parse_args()
+
+    if args.fall:
+        print("=" * 60)
+        print(" CareLoop Watch Event Simulator: Possible Fall")
+        print(f" Target API: {args.api}/device/events")
+        print(f" Device ID:  {args.device}")
+        print(" Motion:     Peak spike 3.8g followed by 15s stillness")
+        print("=" * 60)
+        now = int(time.time())
+        payload = {
+            "device_id": args.device,
+            "event_type": "Possible_Fall",
+            "occurred_at": now,
+            "details": {
+                "peak_movement": 3.8,
+                "stillness_seconds": 15,
+                "battery_pct": 82,
+            },
+        }
+        try:
+            res = requests.post(
+                f"{args.api}/device/events",
+                json=payload,
+                headers={"X-Device-Key": args.key},
+                timeout=5,
+            )
+            print(f"  -> Possible_Fall Event | HTTP {res.status_code} | {res.json()}")
+        except requests.exceptions.RequestException as e:
+            print(f"  -> Possible_Fall Event | Connection Error: {e}")
+        return
 
     print("=" * 60)
     print(" CareLoop Sensor Simulator Active")

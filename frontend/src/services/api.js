@@ -612,6 +612,24 @@ export const rejectRecoveryPlan = (planId, reason = '') =>
 export const admitPatient = (payload) =>
   post('/staff/admit', payload);
 
+// ─── Watch Events & Possible Fall Endpoints ─────────────────────────────────
+
+export const getFallPrompt = () => get('/patient/me/fall-prompt');
+
+export const submitFallResponse = (eventId, response) =>
+  post('/patient/me/fall-response', { event_id: eventId, response });
+
+export const sendDeviceEvent = (payload) =>
+  fetch(`${API_BASE}/device/events`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Key': 'demo-device-key-change-me',
+    },
+    body: JSON.stringify(payload),
+  }).then(handleResponse);
+
+
 
 
 

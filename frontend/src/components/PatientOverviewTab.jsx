@@ -139,17 +139,19 @@ export default function PatientOverviewTab({
   const [selectedPathway, setSelectedPathway] = useState(null);
   const [pathwayFormValues, setPathwayFormValues] = useState({});
   const [pathwaySubmitting, setPathwaySubmitting] = useState(false);
+  const [overviewUpdatedTime, setOverviewUpdatedTime] = useState(() => new Date().toLocaleTimeString());
 
-  const fetchOverview = async () => {
-    setLoading(true);
+  const fetchOverview = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const data = await getPatientDetail(patientId);
       setDetailData(data);
+      setOverviewUpdatedTime(new Date().toLocaleTimeString());
       getPatientLace(patientId).then(setLaceData).catch((e) => console.error(e));
     } catch (err) {
       console.error('Failed to load patient detail:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -488,6 +490,22 @@ export default function PatientOverviewTab({
     fetchOverview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
+
+  // 10-second live refresh polling on overview tab
+  useEffect(() => {
+    if (!patientId || detailData?.requires_break_glass) return;
+    if (subTab === 'overview') {
+      const interval = setInterval(() => {
+        getPatientDetail(patientId)
+          .then((data) => {
+            setDetailData(data);
+            setOverviewUpdatedTime(new Date().toLocaleTimeString());
+          })
+          .catch((err) => console.error('Silent refresh error', err));
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [patientId, subTab, detailData?.requires_break_glass]);
 
   useEffect(() => {
     if (detailData && !detailData.requires_break_glass) {
@@ -856,8 +874,14 @@ export default function PatientOverviewTab({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                    Latest Vitals Telemetry
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      Latest Vitals Telemetry
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#0284c7', background: 'var(--accent-blue-soft, #eff6ff)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#0284c7' }} />
+                      Live · Updated {overviewUpdatedTime}
+                    </span>
                   </div>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>ESP32 Watch</span>
                 </div>
@@ -934,6 +958,50 @@ export default function PatientOverviewTab({
                   )}
                 </div>
               </div>
+
+              {/* Card 1B: Watch Device Health (Phase 5) */}
+              {detailData.device_health && (
+                <div
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '18px 20px',
+                    boxShadow: 'var(--shadow-card)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      Device Health & Connectivity
+                    </div>
+                    <span className={`status-pill status-pill-${detailData.device_health.connectivity_status === 'Online' ? 'success' : 'neutral'}`}>
+                      {detailData.device_health.connectivity_status || 'Online'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div style={{ padding: '10px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>Device ID</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', fontFamily: "var(--font-mono, monospace)", marginTop: '2px' }}>
+                        {detailData.device_health.device_id || 'DEV-ESP32'}
+                      </div>
+                    </div>
+                    <div style={{ padding: '10px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>Battery</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginTop: '2px' }}>
+                        🔋 {detailData.device_health.battery_pct ?? 85}%
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--text-secondary, #475569)', lineHeight: 1.5 }}>
+                    <div>Last seen: <strong>{detailData.device_health.last_seen_at ? new Date(detailData.device_health.last_seen_at).toLocaleTimeString() : 'Recent'}</strong> ({detailData.device_health.minutes_since_last_seen ?? 0}m ago)</div>
+                    <div style={{ marginTop: '4px', color: 'var(--text-muted, #64748b)' }}>
+                      Monitored by Rounds silence check (expected every {detailData.device_health.expected_interval_minutes || 60}m)
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Card 2: 7-Day Dose Adherence Grid */}
               <div
@@ -1867,9 +1935,16 @@ export default function PatientOverviewTab({
                       <tr key={r.rule_id} style={{ borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
                         <td style={{ padding: '12px', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
                           {r.rule_type.replace(/_/g, ' ')}
+                          {r.rule_type === 'Possible_Fall' && detailData?.fall_prompt_counts && (
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', fontWeight: 500, marginTop: '3px' }}>
+                              Prompts: {detailData.fall_prompt_counts.prompts_sent} sent · {detailData.fall_prompt_counts.prompts_ok} OK · {detailData.fall_prompt_counts.prompts_unanswered} unanswered
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '12px', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                          {r.threshold_value} {r.measurement_type || ''} {r.window_hours ? `(${r.window_hours}h)` : ''}
+                          {r.rule_type === 'Possible_Fall'
+                            ? `Wait ${r.threshold_value || 2} min prompt`
+                            : `${r.threshold_value} ${r.measurement_type || ''} ${r.window_hours ? `(${r.window_hours}h)` : ''}`}
                         </td>
                         <td style={{ padding: '12px' }}>
                           <span

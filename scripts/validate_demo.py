@@ -307,6 +307,30 @@ def validate():
             else:
                 print(f"  ✓ Recovery plans verified: 4 plans (2 approved, 2 draft), {item_row['total_items']} items, {item_row['mismatches']} reconciliation mismatch example")
 
+        # Check 21: Watch Events & Possible Fall Rules (Phase 5 Feature F7)
+        cur.execute(
+            """SELECT
+                 COUNT(*) AS total_rules,
+                 SUM(patient_id = 5 AND is_active = 1) AS sunita_active,
+                 SUM(patient_id != 5 AND is_active = 0) AS others_inactive
+               FROM alert_rules
+               WHERE rule_type = 'Possible_Fall'"""
+        )
+        fall_rules = cur.fetchone()
+        if not fall_rules or fall_rules["total_rules"] != 5:
+            failures.append(f"❌ Possible_Fall rules count mismatch: {fall_rules.get('total_rules') if fall_rules else 0} (expected 5)")
+        elif fall_rules["sunita_active"] != 1:
+            failures.append("❌ Sunita Rao does not have Possible_Fall rule enabled (expected is_active=1)")
+        elif fall_rules["others_inactive"] != 4:
+            failures.append("❌ Non-Sunita patients must have Possible_Fall rule disabled by default (expected 4 inactive)")
+        else:
+            cur.execute("SELECT COUNT(*) AS total_events, SUM(event_type = 'Possible_Fall') AS fall_events FROM device_events")
+            dev_ev = cur.fetchone()
+            if not dev_ev or dev_ev["total_events"] < 2:
+                failures.append(f"❌ device_events count too low: {dev_ev.get('total_events') if dev_ev else 0}")
+            else:
+                print(f"  ✓ Watch events and Possible Fall rules verified: Sunita enabled, cohort disabled by default, {dev_ev['total_events']} baseline device events")
+
     conn.close()
 
     if failures:
@@ -315,7 +339,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 20 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 21 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 

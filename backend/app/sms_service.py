@@ -222,6 +222,31 @@ def handle_inbound_sms(from_phone: str, body_text: str) -> Dict[str, Any]:
         send_sms(clean_phone, reply_text, patient_id=pat_id, caregiver_id=cg_id, is_automated=False)
         return {"action": "opt_in", "reply": reply_text}
 
+    # 4b. ACTIVE POSSIBLE FALL PROMPT CHECK (Feature F7)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT event_id FROM device_events
+               WHERE patient_id = %s AND event_type = 'Possible_Fall'
+                 AND prompt_sent_at IS NOT NULL AND patient_response IS NULL
+                 AND prompt_sent_at >= NOW() - INTERVAL 10 MINUTE
+               ORDER BY event_id DESC LIMIT 1""",
+            (pat_id,)
+        )
+        active_fall = cur.fetchone()
+
+    if active_fall:
+        from .device_event_service import handle_patient_fall_response
+        if cmd in ["1", "TAKEN", "HAAN", "YES", "OK", "SAFE"]:
+            res = handle_patient_fall_response(pat_id, active_fall["event_id"], "Ok")
+            reply_text = res["message"]
+            send_sms(clean_phone, reply_text, patient_id=pat_id, caregiver_id=cg_id, is_automated=False)
+            return {"action": "fall_prompt_answered_ok", "event_id": active_fall["event_id"], "reply": reply_text}
+        elif cmd in ["3", "HELP", "MADAD", "CALL", "NEED HELP"]:
+            res = handle_patient_fall_response(pat_id, active_fall["event_id"], "Need_Help")
+            reply_text = res["message"]
+            send_sms(clean_phone, reply_text, patient_id=pat_id, caregiver_id=cg_id, is_automated=False)
+            return {"action": "fall_prompt_need_help", "event_id": active_fall["event_id"], "flag_id": res.get("flag_id"), "reply": reply_text}
+
     # 5. COMMAND 1 or TAKEN (Confirm dose)
     if cmd in ["1", "TAKEN", "HAAN", "YES"]:
         with get_conn() as conn, conn.cursor() as cur:

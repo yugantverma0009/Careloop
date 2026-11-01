@@ -86,7 +86,7 @@ export default function DoctorLimitsView({ user = {} }) {
       return `≥ ${val} missed check-ins`;
     }
     if (r.rule_type === 'Possible_Fall') {
-      return `Motion shock trigger`;
+      return `Wait ${val || 2} min prompt`;
     }
     return `${val}`;
   };
@@ -237,6 +237,11 @@ export default function DoctorLimitsView({ user = {} }) {
                     {r.measurement_type && (
                       <div style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>
                         {r.measurement_type.replace(/_/g, ' ')}
+                      </div>
+                    )}
+                    {r.rule_type === 'Possible_Fall' && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', marginTop: '3px' }}>
+                        Prompts: {r.prompts_sent || 0} sent · {r.prompts_ok || 0} OK · {r.prompts_unanswered || 0} unanswered
                       </div>
                     )}
                   </td>

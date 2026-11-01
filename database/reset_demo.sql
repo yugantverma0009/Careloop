@@ -12,6 +12,7 @@ TRUNCATE TABLE checkin_answers;
 TRUNCATE TABLE checkin_sessions;
 TRUNCATE TABLE checkin_questions;
 TRUNCATE TABLE checkin_templates;
+TRUNCATE TABLE device_events;
 TRUNCATE TABLE sms_messages;
 TRUNCATE TABLE wound_photos;
 TRUNCATE TABLE plan_understanding_checks;
@@ -163,10 +164,16 @@ INSERT INTO alert_rules (rule_id, patient_id, rule_type, measurement_type, thres
 (12, 4, 'Pain_At_Least', NULL,          7.00, NULL, 'Review_Soon',   1, NOW() - INTERVAL 8 DAY, 1),
 (13, 4, 'No_Data_Hours', NULL,         12.00, NULL, 'Review_Soon',   1, NOW() - INTERVAL 8 DAY, 1),
 
--- Sunita Rao (Patient 5: Missed Doses threshold 2 in 48 hours)
+-- Sunita Rao (Patient 5: Missed Doses threshold 2 in 48 hours, Possible Fall prompt ENABLED)
 (14, 5, 'Missed_Doses',  NULL,          2.00, 48,   'Review_Soon',   1, NOW() - INTERVAL 3 DAY, 1),
 (15, 5, 'Reading_Above', 'Heart_Rate', 110.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 3 DAY, 1),
-(16, 5, 'Reading_Below', 'SpO2',       93.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 3 DAY, 1);
+(16, 5, 'Reading_Below', 'SpO2',       93.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 3 DAY, 1),
+(18, 5, 'Possible_Fall', NULL,          2.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 3 DAY, 1),
+-- Possible Fall rule disabled by default for Patients 1-4
+(19, 1, 'Possible_Fall', NULL,          2.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 2 DAY, 0),
+(20, 2, 'Possible_Fall', NULL,          2.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 5 DAY, 0),
+(21, 3, 'Possible_Fall', NULL,          2.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 4 DAY, 0),
+(22, 4, 'Possible_Fall', NULL,          2.00, NULL, 'Urgent_Review', 1, NOW() - INTERVAL 8 DAY, 0);
 
 -- 12. Upcoming Appointments (1 per patient with Dr. Sharma)
 INSERT INTO appointments (appointment_id, patient_id, staff_id, appointment_date, appointment_type, status, notes) VALUES

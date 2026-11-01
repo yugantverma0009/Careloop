@@ -815,6 +815,33 @@ CREATE TABLE `plan_understanding_checks` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `device_events` (Phase 5)
+--
+
+DROP TABLE IF EXISTS `device_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `device_events` (
+  `event_id` bigint NOT NULL AUTO_INCREMENT,
+  `device_id` varchar(60) NOT NULL,
+  `patient_id` int NOT NULL,
+  `event_type` enum('Possible_Fall','Low_Battery','Reconnected') NOT NULL,
+  `occurred_at` datetime NOT NULL,
+  `details` json DEFAULT NULL,
+  `prompt_sent_at` datetime DEFAULT NULL,
+  `patient_response` enum('Ok','Need_Help','No_Response') DEFAULT NULL,
+  `responded_at` datetime DEFAULT NULL,
+  `flag_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`event_id`),
+  KEY `fk_devev_device` (`device_id`,`patient_id`),
+  KEY `fk_devev_flag` (`flag_id`),
+  UNIQUE KEY `uq_devev` (`device_id`,`event_type`,`occurred_at`),
+  CONSTRAINT `fk_devev_device` FOREIGN KEY (`device_id`, `patient_id`) REFERENCES `devices` (`device_id`, `patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_devev_flag` FOREIGN KEY (`flag_id`) REFERENCES `flags` (`flag_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `medication_logs`
 --
 

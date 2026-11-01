@@ -307,6 +307,13 @@ def tick_rounds(now: Optional[datetime] = None) -> Dict[str, Any]:
                         ),
                     )
 
+                elif action_type in ("Fall_Prompt", "Fall_Prompt_Timeout"):
+                    # Delegate timeout processing to device_event_service
+                    ev_id = payload.get("event_id")
+                    if ev_id:
+                        from .device_event_service import process_fall_timeout
+                        process_fall_timeout(ev_id, current_time=current_time)
+
                 # Mark Done
                 cur.execute(
                     """UPDATE scheduled_actions

@@ -716,6 +716,34 @@ def main():
                    VALUES (12, 4, 'Warning_Sign', 'Adherence & Fluid Warning Signs', 'Missed doses or sudden weight gain requires immediate clinical review.', 'Immediate', 13, 'Not_Applicable', NULL, NULL, 2)"""
             )
 
+            # Step 18: Seed Watch Events & Possible Fall Baseline Data (Phase 5 Feature F7)
+            print("  18. Seeding Watch Events and Possible Fall prompt counters...")
+            cur.execute("TRUNCATE TABLE device_events")
+
+            # Aarav Patel (Patient 1, DEV-ESP32-001): 1 answered prompt yesterday (Answered OK)
+            cur.execute(
+                """INSERT INTO device_events
+                   (event_id, device_id, patient_id, event_type, occurred_at, details, prompt_sent_at, patient_response, responded_at)
+                   VALUES (1, 'DEV-ESP32-001', 1, 'Possible_Fall', %s, %s, %s, 'Ok', %s)""",
+                (
+                    now - timedelta(days=1, hours=2),
+                    json.dumps({"peak_movement": 3.4, "stillness_seconds": 12, "battery_pct": 86}),
+                    now - timedelta(days=1, hours=2),
+                    now - timedelta(days=1, hours=1, minutes=59),
+                )
+            )
+
+            # Meera Sharma (Patient 2, DEV-ESP32-002): 1 low battery event
+            cur.execute(
+                """INSERT INTO device_events
+                   (event_id, device_id, patient_id, event_type, occurred_at, details)
+                   VALUES (2, 'DEV-ESP32-002', 2, 'Low_Battery', %s, %s)""",
+                (
+                    now - timedelta(days=2),
+                    json.dumps({"battery_pct": 14}),
+                )
+            )
+
 
         conn.commit()
         duration = (datetime.now() - start_time).total_seconds()
