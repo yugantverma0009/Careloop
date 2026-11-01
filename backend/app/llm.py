@@ -10,6 +10,7 @@ CORE RULE:
 
 import os
 import logging
+import concurrent.futures
 from google import genai
 from dotenv import load_dotenv
 
@@ -28,13 +29,13 @@ def get_client():
     return _client
 
 
-def generate(system: str, user: str) -> str:
-    """Generate text using the configured LLM.
+def generate(system: str, user: str, timeout: int = 12) -> str:
+    """Generate text using the configured LLM with strict 12s timeout.
     
     System prompt and user prompt are combined.
     Returns plain string output.
     """
-    try:
+    def _call():
         client = get_client()
         model_name = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
         resp = client.models.generate_content(
@@ -42,6 +43,14 @@ def generate(system: str, user: str) -> str:
             contents=f"{system}\n\n{user}",
         )
         return resp.text or ""
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_call)
+            return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.error(f"LLM generation timed out after {timeout}s")
+        return "TIMEOUT"
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
         return "NOT_IN_DOCUMENTS"

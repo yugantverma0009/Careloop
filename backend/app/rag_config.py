@@ -43,6 +43,29 @@ VALID_INTENTS = {
     INTENT_PLAN_ITEMS,
 }
 
+# Allowlist for patient-confirmed action cards (Brief Sec 7.6 & 7.12)
+ALLOWLIST_ACTIONS = {
+    "Start_Checkin",
+    "Add_Photo",
+    "Request_Call",
+    "Ask_Care_Team",
+    "Open_Plan_Item",
+    "Open_Medicines",
+    "Add_Appointment_To_Calendar",
+    "Open_SOS",
+    "Call_112",
+}
+
+NOT_FOUND_MSG = {
+    "en": "That is not in your discharge papers, so I will not guess.",
+    "hi": "यह आपके डिस्चार्ज पेपर्स में नहीं है, इसलिए मैं अनुमान नहीं लगाऊँगा।",
+}
+
+UNAVAILABLE_MSG = {
+    "en": "The assistant is unavailable right now. If this is an emergency, please call 112 or contact your care team.",
+    "hi": "सहायक इस समय उपलब्ध नहीं है। यदि यह आपातकालीन स्थिति है, तो कृपया 112 पर कॉल करें या अपनी देखभाल टीम से संपर्क करें।",
+}
+
 # Brief Sec 7.6 System Prompt
 RAG_SYSTEM_PROMPT = """You are CareLoop's discharge assistant. You help ONE patient understand THEIR OWN discharge papers and care plan.
 

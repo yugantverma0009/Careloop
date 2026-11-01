@@ -122,6 +122,7 @@ export default function CareLoopPatientPortal({ user }) {
     typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`
   );
   const [selectedSource, setSelectedSource] = useState(null);
+  const [expandedPassageId, setExpandedPassageId] = useState(null);
   const [feedbackState, setFeedbackState] = useState({});
   const [activeFeedbackPromptId, setActiveFeedbackPromptId] = useState(null);
   const [careTeamContactState, setCareTeamContactState] = useState({});
@@ -5021,33 +5022,78 @@ export default function CareLoopPatientPortal({ user }) {
                                 : `Discharge summary - ${src.section_title || 'General'}${src.page_no ? ` - p.${src.page_no}` : ''}`);
 
                               return (
-                                <button
-                                  key={srcIdx}
-                                  type="button"
-                                  onClick={() => setSelectedSource(src)}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    padding: '3px 8px',
-                                    borderRadius: '12px',
-                                    border: '1px solid var(--border-subtle, #cbd5e1)',
-                                    background: 'var(--bg-surface, #ffffff)',
-                                    color: 'var(--text-primary, #0f172a)',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    transition: 'border-color 0.15s ease',
-                                  }}
-                                  title={lang === 'hi' ? 'स्रोत विवरण देखने के लिए क्लिक करें' : 'Click to inspect source passage'}
-                                >
-                                  <span>{label}</span>
-                                  <span style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '10px' }}>↗</span>
-                                </button>
+                                <div key={srcIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedSource(src)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      padding: '3px 8px',
+                                      borderRadius: '12px',
+                                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                                      background: 'var(--bg-surface, #ffffff)',
+                                      color: 'var(--text-primary, #0f172a)',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      transition: 'border-color 0.15s ease',
+                                    }}
+                                    title={lang === 'hi' ? 'स्रोत विवरण देखने के लिए क्लिक करें' : 'Click to inspect source passage in drawer'}
+                                  >
+                                    <span>{label}</span>
+                                    <span style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '10px' }}>↗</span>
+                                  </button>
+                                  {src.text && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedPassageId(expandedPassageId === `${msgId}-${srcIdx}` ? null : `${msgId}-${srcIdx}`)}
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--accent-blue, #0284c7)',
+                                        fontSize: '11px',
+                                        cursor: 'pointer',
+                                        padding: '2px 4px',
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      {expandedPassageId === `${msgId}-${srcIdx}`
+                                        ? (lang === 'hi' ? 'अंश छिपाएं' : 'Hide passage')
+                                        : (lang === 'hi' ? 'अंश देखें' : 'Show passage')}
+                                    </button>
+                                  )}
+                                </div>
                               );
                             })}
                           </div>
                         )}
+
+                        {/* Inline Expanded Passage Display */}
+                        {sources && sources.length > 0 && sources.map((src, srcIdx) => {
+                          if (expandedPassageId !== `${msgId}-${srcIdx}` || !src.text) return null;
+                          return (
+                            <div
+                              key={`inline-passage-${srcIdx}`}
+                              style={{
+                                margin: '4px 0 8px 6px',
+                                padding: '8px 12px',
+                                background: 'var(--bg-subtle, #f8fafc)',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                lineHeight: '1.45',
+                                color: 'var(--text-secondary, #334155)',
+                                borderLeft: '3px solid var(--accent-blue, #0284c7)',
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, fontSize: '11px', marginBottom: '3px', color: 'var(--text-muted, #64748b)' }}>
+                                {src.label || (src.section_title ? `Discharge summary - ${src.section_title}` : 'Source passage')}
+                              </div>
+                              <div>{src.text}</div>
+                            </div>
+                          );
+                        })}
 
                         {/* Assistant Actions Bar: Feedback Thumbs + Timestamp */}
                         {!isUser && !msg.isError && (

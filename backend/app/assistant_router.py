@@ -312,3 +312,4 @@ def route_intent_v2(question: str) -> str:
         return INTENT_WOUND_CARE
 
     return INTENT_GENERAL_DOCS
+
