@@ -187,7 +187,7 @@ export default function LandingPage() {
             }}
           >
             <IconShieldCheck width={14} height={14} />
-            <span>POST-DISCHARGE CARE SYSTEM</span>
+            <span>POST-DISCHARGE RECOVERY SYSTEM</span>
           </div>
 
           <h1
@@ -200,7 +200,7 @@ export default function LandingPage() {
               marginBottom: '18px',
             }}
           >
-            After discharge, nothing should go quiet.
+            Four people. Four jobs. One connected recovery loop.
           </h1>
 
           <p
@@ -211,7 +211,7 @@ export default function LandingPage() {
               marginBottom: '28px',
             }}
           >
-            CareLoop turns each patient's own discharge papers into a daily companion. Every alert it raises shows its reason, has an owner, and ends in a recorded decision.
+            CareLoop makes each role genuinely different: patients act and check in, family helpers support with consent, nurses work the prioritized queue, and doctors decide and approve.
           </p>
 
           {/* Action Buttons */}
@@ -261,9 +261,9 @@ export default function LandingPage() {
           {/* 3 Checkpoints */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
             {[
-              "Assistant cites patient's own papers",
-              'Alerts carry doctor-approved reasons',
-              'People close every loop',
+              '4 genuinely different roles',
+              'Rules create flags; LLM drafts only',
+              'Synthetic sample cohort',
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span
@@ -426,7 +426,7 @@ export default function LandingPage() {
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-                <span>Simulated watch sensor readings (rules decide; LLM does not diagnose)</span>
+                <span>Simulated watch telemetry readings (rules decide; LLM does not diagnose)</span>
               </div>
             </div>
           </div>
@@ -467,7 +467,7 @@ export default function LandingPage() {
                 Quality guard
               </div>
               <div style={{ fontSize: '11px', fontWeight: 800, color: '#0f172a' }}>
-                Spurious 450 bpm filtered out; latest valid shown
+                Invalid 450 bpm filtered out from headline
               </div>
             </div>
           </div>
@@ -522,7 +522,7 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#c084fc' }}>All</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#c084fc' }}>100%</div>
               <div style={{ fontSize: '11px', color: '#94a3b8' }}>Doctor-approved limits</div>
             </div>
 
@@ -579,32 +579,32 @@ export default function LandingPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
           {[
             {
-              title: 'Papers-First Answers (RAG)',
-              desc: 'The assistant reads only the patient’s own discharge papers, shows the exact passage used, and never advises on doses.',
-              tag: 'Grounded RAG',
-              color: '#7c3aed',
-              bg: '#f5f3ff',
-            },
-            {
-              title: 'A Reason on Every Alert',
-              desc: 'Only limits approved by the doctor can raise an alert, and each alert shows the value, time, data quality, and who approved it.',
+              title: 'Rules Engine Safety',
+              desc: 'Threshold breaches (SpO₂ < 94%, HR > 100) are evaluated purely in SQL triggers. The LLM has zero authority to flag.',
               tag: 'Deterministic',
               color: '#0284c7',
               bg: '#f0f9ff',
             },
             {
-              title: 'A Loop That Closes',
-              desc: 'Patient, family (only with consent), nurse, then doctor, on timers, with a named owner at every step.',
-              tag: 'Closed Loop',
-              color: '#059669',
-              bg: '#ecfdf5',
+              title: 'Emergency Keyword Path',
+              desc: 'Critical words (English and Hindi) are caught instantly by plain code and never wait for the LLM to complete.',
+              tag: 'Zero Latency',
+              color: '#dc2626',
+              bg: '#fef2f2',
             },
             {
-              title: 'Quiet When Nothing Is Wrong',
-              desc: 'Alerts are grouped per patient, impossible readings are filtered out, and patients with nothing open stay out of the way.',
-              tag: 'Zero Noise',
-              color: '#d97706',
-              bg: '#fffbeb',
+              title: 'Cited Assistant Papers',
+              desc: 'Answers patient questions strictly from discharge documents, displaying clickable source chips and refusing dose changes.',
+              tag: 'Grounded RAG',
+              color: '#7c3aed',
+              bg: '#f5f3ff',
+            },
+            {
+              title: 'Tamper-Evident Audit',
+              desc: 'Every dose confirmation, rule breach, SMS dispatch, nurse call, doctor approval and consent toggle is logged.',
+              tag: 'Full Trace',
+              color: '#059669',
+              bg: '#ecfdf5',
             },
           ].map((item, idx) => (
             <div
@@ -690,7 +690,6 @@ export default function LandingPage() {
               role: 'Doctor',
               name: 'Dr. Ananya Sharma',
               pitch: 'The doctor decides, approves and exports.',
-              desc: "See only what needs a decision. Approve what the AI drafts, set each patient's limits, read the full trail.",
               firstScreen: 'Needs my decision',
               email: 'ananya.demo@example.test',
               accent: '#7c3aed',
@@ -703,7 +702,6 @@ export default function LandingPage() {
               role: 'Nurse',
               name: 'Priya Nair',
               pitch: 'The nurse calls, logs, rechecks and escalates.',
-              desc: 'Work the call list. Every alert shows why it was raised, how long it has waited and what to do next.',
               firstScreen: 'My call list',
               email: 'priya.demo@example.test',
               accent: '#0d9488',
@@ -716,7 +714,6 @@ export default function LandingPage() {
               role: 'Patient',
               name: 'Aarav Patel',
               pitch: 'The patient acts, checks in and asks their papers.',
-              desc: 'Take your medicines, say how you feel, and ask questions answered from your own discharge papers.',
               firstScreen: 'Home',
               email: 'aarav.demo@example.test',
               accent: '#2563eb',
@@ -729,7 +726,6 @@ export default function LandingPage() {
               role: 'Family Helper',
               name: 'Neha Patel',
               pitch: 'The family helper supports, is informed with consent, and calls 112 if needed.',
-              desc: 'Know when you are needed. See what the patient chose to share, and mark a dose you helped with.',
               firstScreen: 'Today',
               email: 'caregiver1.demo@example.test',
               accent: '#ea580c',
@@ -805,23 +801,12 @@ export default function LandingPage() {
                       fontWeight: 800,
                       color: '#0f172a',
                       lineHeight: 1.4,
-                      marginBottom: '8px',
+                      marginBottom: '16px',
+                      minHeight: '44px',
                     }}
                   >
                     "{card.pitch}"
                   </div>
-
-                  <p
-                    style={{
-                      fontSize: '12px',
-                      color: '#64748b',
-                      lineHeight: 1.5,
-                      marginBottom: '16px',
-                      minHeight: '36px',
-                    }}
-                  >
-                    {card.desc}
-                  </p>
 
                   {/* Sign-in Details Box (Visible for Judges) */}
                   <div
@@ -928,43 +913,43 @@ export default function LandingPage() {
           {[
             {
               step: 'Step 1',
-              title: 'Notice',
-              who: 'Patient, Sensor, or Check-in',
-              desc: 'A sensor reading, a missed dose, or a symptom check-in arrives.',
+              title: 'Patient Morning Action',
+              who: 'Aarav Patel (Patient)',
+              desc: 'Taps Taken on morning medicines, sends pain check-in, and asks his discharge notes when his follow-up is.',
               color: '#2563eb',
               bg: '#eff6ff',
             },
             {
               step: 'Step 2',
-              title: 'Check',
-              who: 'Filter & Limit Guard',
-              desc: 'Impossible values are filtered out; doctor-approved limits decide what becomes an alert.',
+              title: 'Continuous Telemetry',
+              who: 'Wearable Watch (DEV-ESP32-001)',
+              desc: 'Streams heart rate & oxygen. Rule engine filters out impossible values (450 bpm) and evaluates valid readings.',
               color: '#0284c7',
               bg: '#f0f9ff',
             },
             {
               step: 'Step 3',
-              title: 'Explain',
-              who: 'Alert Detail with Reason',
-              desc: 'The alert carries its reason, evidence, and the approving doctor.',
-              color: '#7c3aed',
-              bg: '#f5f3ff',
-            },
-            {
-              step: 'Step 4',
-              title: 'Reach',
-              who: 'Timed Escalation',
-              desc: 'Patient, family helper (only with consent), nurse, doctor, on a timer.',
+              title: 'Prompt & Caregiver Alert',
+              who: 'Neha Patel (Family)',
+              desc: 'SpO₂ drops to 91% (< 94% limit). Aarav sees a calm 112 guidance banner. Neha gets SMS notification with Aarav’s consent.',
               color: '#ea580c',
               bg: '#fff7ed',
             },
             {
-              step: 'Step 5',
-              title: 'Close',
-              who: 'Named Clinician',
-              desc: 'A named person decides, and the record keeps the whole story.',
+              step: 'Step 4',
+              title: 'Nurse Queue & Escalation',
+              who: 'Priya Nair (Lead Nurse)',
+              desc: 'Aarav appears at top of My Call List with reason. Priya calls him, logs notes, and escalates to Dr. Sharma.',
               color: '#0d9488',
               bg: '#f0fdfa',
+            },
+            {
+              step: 'Step 5',
+              title: 'Physician Review & Sign-Off',
+              who: 'Dr. Ananya Sharma (Attending)',
+              desc: 'Aarav appears in Needs My Decision. Dr. Sharma inspects escalation evidence, resolves flag, and approves AI summaries.',
+              color: '#7c3aed',
+              bg: '#f5f3ff',
             },
           ].map((item, idx) => (
             <div
@@ -1055,40 +1040,31 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
           <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
             <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              Cites or stays quiet
+              Sample Data & Demo Scope
             </h4>
             <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              The assistant shows its source passage or says the papers are silent. It never hallucinates or guesses beyond the written text.
+              All 5 patients, discharge notes and vitals are synthetic sample records. CareLoop is an academic prototype for clinical handoffs and not a cleared medical device.
             </p>
           </div>
 
           <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
             <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              Rules, not guesses
+              Patient Consent Gating
             </h4>
             <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              Only limits approved by the doctor can raise an alert. Each alert shows the value, time, limit, and approving physician.
+              The family helper sees only what the patient explicitly allowed. If the patient turns sharing off, family access is revoked immediately with a clear message.
             </p>
           </div>
 
           <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
             <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              Consent you can switch off
+              Doctor-Approved Rules
             </h4>
             <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              The patient controls what the family sees. Turning sharing off revokes family access immediately with a clear message.
-            </p>
-          </div>
-
-          <div style={{ padding: '24px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#ffffff' }}>
-            <h4 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              A record of every action
-            </h4>
-            <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
-              Every dose confirmation, rule breach, SMS dispatch, nurse note, and doctor decision is permanently recorded in the audit log.
+              Every safety threshold (SpO₂ limit, HR bounds) is approved by Dr. Sharma. Proposed changes require physician sign-off before becoming active.
             </p>
           </div>
         </div>

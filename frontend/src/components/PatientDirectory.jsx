@@ -7,7 +7,7 @@ import { IconSearch, IconAlertTriangle } from './Icons';
  * PatientDirectory Component (D-05)
  *
  * Provides a searchable, filterable directory of all post-discharge patients.
- * Enforces BhoomiSetu design tokens and 2-identifier clinical safety policy.
+ * Enforces BhoomiSetu design tokens and 2-identifier clinical safety governance.
  */
 export default function PatientDirectory({ onSelectPatient }) {
   const [patients, setPatients] = useState([]);
@@ -57,7 +57,7 @@ export default function PatientDirectory({ onSelectPatient }) {
             Patient Directory
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-            Master post-discharge patient registry with sensor readings, adherence rates, and attending staff.
+            Master post-discharge patient registry with device telemetry, adherence rates, and attending staff.
           </p>
         </div>
 
@@ -167,7 +167,7 @@ export default function PatientDirectory({ onSelectPatient }) {
                   Open Flags
                 </th>
                 <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
-                  Sensor Readings
+                  Device Telemetry
                 </th>
                 <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
                   Last Check-in

@@ -498,9 +498,9 @@ def answer_patient_query(
     # Step 2: Dose-change Request Check (Instant Refusal, Creates Follow-up Task)
     if is_dose_change_question(clean_q):
         refusal_msg = (
-            "I cannot advise on changing or doubling your dose. Your discharge papers say to take medicines exactly as prescribed. I have alerted your care team."
+            "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team."
             if lang == "en"
-            else "मैं आपकी खुराक बदलने या दोगुनी करने की सलाह नहीं दे सकता। आपके डिस्चार्ज कागज़ात में दवा ठीक वैसे ही लेने को कहा गया है जैसी लिखी गई है। मैंने आपकी केयर टीम को सूचित कर दिया है।"
+            else "मैं दवा की खुराक बदलने, रोकने या बदलने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से बात करें।"
         )
         # Create staff follow-up task
         with get_conn() as conn, conn.cursor() as cur:
@@ -604,9 +604,9 @@ def answer_patient_query(
     # If no tool result and no document chunks passed threshold -> Not Found
     if not tool_result and not context_chunks:
         not_found_ans = (
-            "That is not in your discharge papers, so I will not guess. You can ask your care team directly."
+            "I couldn't find this information in your discharge papers. You can ask your care team directly."
             if lang == "en"
-            else "यह आपके डिस्चार्ज कागज़ात में नहीं है, इसलिए मैं अंदाज़ा नहीं लगाऊँगा। आप अपनी केयर टीम से सीधे पूछ सकते हैं।"
+            else "मुझे आपके डिस्चार्ज पेपर्स में यह जानकारी नहीं मिली। आप अपनी केयर टीम से सीधे पूछ सकते हैं।"
         )
         return {
             "answer_type": "not_found",

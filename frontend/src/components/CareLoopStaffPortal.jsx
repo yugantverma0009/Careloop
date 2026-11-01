@@ -63,7 +63,7 @@ function RestrictedNurseView({ pageName }) {
         Access Restricted to Attending Physicians
       </h2>
       <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', lineHeight: '1.5', margin: '0 auto 18px auto' }}>
-        Clinical Role Boundary: {pageName} is reserved exclusively for Dr. Ananya Sharma. Nurses may propose limit adjustments via the call list or patient chart.
+        Clinical Governance Policy: {pageName} is reserved exclusively for Dr. Ananya Sharma. Nurses may propose limit adjustments via the call list or patient chart.
       </p>
       <button
         type="button"
@@ -861,7 +861,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       Needs my decision
                     </h1>
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-                      Review escalated alerts, sign drafted summaries, and manage patient limits.
+                      High-priority clinical items awaiting physician review, sign-off, or protocol decisions.
                     </p>
                   </div>
 
@@ -1103,14 +1103,14 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                           Decision Items Awaiting Physician Action ({doctorDecisions.items?.length || 0})
                         </h3>
                         <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                          Routine sensor checks and call tasks are handled by Nurse Priya. Only items requiring physician authority appear here.
+                          Routine telemetry and task checklists are handled by Nurse Priya. Only items requiring physician authority appear here.
                         </p>
                       </div>
                     </div>
 
                     {(!doctorDecisions.items || doctorDecisions.items.length === 0) ? (
                       <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
-                        No open alerts for your patients.
+                        ✓ All decision items cleared. No open flags or unsigned summaries requiring doctor action.
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1244,7 +1244,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: '#ecfdf5', color: '#059669' }}>
-                      Sensor Readings On Track
+                      Telemetry On Track
                     </span>
                   </div>
                 </div>
@@ -1298,8 +1298,8 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 }}
               >
                 <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0' }}>Patient Vitals & Event Timeline</h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Select a post-discharge patient to inspect chronological readings, symptoms, and self-reported doses</p>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0' }}>Patient Telemetry & Event Timeline</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Select a post-discharge patient to inspect chronological telemetry, symptoms, and self-reported doses</p>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: '680px' }}>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((pid) => (

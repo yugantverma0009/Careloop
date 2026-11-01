@@ -35,7 +35,7 @@ unsigned long lastSend = 0;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nCareLoop ESP32 Wearable Sensor Initializing...");
+  Serial.println("\nCareLoop ESP32 Wearable Telemetry Initializing...");
 
   Wire.begin(21, 22);
   if (!sensor.begin(Wire, I2C_SPEED_FAST)) {
@@ -102,7 +102,7 @@ void loop() {
     }
   }
 
-  // Transmit sensor readings every 60 seconds
+  // Transmit telemetry every 60 seconds
   if (millis() - lastSend > 60000) {
     lastSend = millis();
     if (fingerDetected && beats >= 5) {

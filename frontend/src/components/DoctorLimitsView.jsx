@@ -130,14 +130,14 @@ export default function DoctorLimitsView({ user = {} }) {
                 letterSpacing: '0.04em',
               }}
             >
-              DOCTOR CLINICAL AUTHORITY
+              DOCTOR CLINICAL GOVERNANCE
             </span>
           </div>
           <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
             Patient Approved Limits
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            All alert limits require Dr. Sharma&rsquo;s signature. The system alerts only when readings cross these approved limits.
+            All telemetry rules require Dr. Sharma&rsquo;s signature. The system alerts only when readings cross these approved limits.
           </p>
         </div>
 
@@ -317,7 +317,7 @@ export default function DoctorLimitsView({ user = {} }) {
               Adjust Doctor-Approved Limit
             </h3>
             <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 16px 0' }}>
-              Modify alert limit for <strong>{editingRule.full_name}</strong> ({editingRule.rule_type}). Changes require a clinical justification and will be signed under Dr. Ananya Sharma.
+              Modify telemetry boundary for <strong>{editingRule.full_name}</strong> ({editingRule.rule_type}). Changes require a clinical justification and will be signed under Dr. Ananya Sharma.
             </p>
 
             <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

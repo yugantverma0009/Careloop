@@ -117,8 +117,8 @@ def main():
                 (now,)
             )
 
-            # Step 3: Insert Sensor Readings
-            print("  3. Inserting sensor readings...")
+            # Step 3: Insert Telemetry Readings
+            print("  3. Inserting telemetry readings...")
             # Aarav: 12 valid readings over 3 days
             aarav_readings = [
                 # Day -2
@@ -247,7 +247,7 @@ def main():
                    (3, (SELECT flag_id FROM flags WHERE patient_id=3 AND status='Open' LIMIT 1), 2,
                     'Immediate clinical follow-up: emergency symptom report (severe chest pain in Hindi check-in)', 'Urgent_Review', 'Pending', NOW() + INTERVAL 15 MINUTE, NOW() - INTERVAL 20 MINUTE),
                    (2, (SELECT flag_id FROM flags WHERE patient_id=2 AND status='Open' LIMIT 1), 2,
-                    'Contact patient regarding silent wearable device (>6h no sensor readings received)', 'Review_Soon', 'Pending', NOW() + INTERVAL 2 HOUR, NOW() - INTERVAL 60 MINUTE),
+                    'Contact patient regarding silent wearable device (>6h no telemetry received)', 'Review_Soon', 'Pending', NOW() + INTERVAL 2 HOUR, NOW() - INTERVAL 60 MINUTE),
                    (5, (SELECT flag_id FROM flags WHERE patient_id=5 AND status='Open' LIMIT 1), 2,
                     'Medication adherence review: 2 unconfirmed cardiac doses in 48h', 'Review_Soon', 'Pending', NOW() + INTERVAL 1 HOUR, NOW() - INTERVAL 2 HOUR),
                    (5, NULL, 2,
@@ -285,9 +285,9 @@ def main():
             cur.execute(
                 """INSERT INTO ai_summaries (patient_id, period_start, period_end, summary_text, model_name, status, reviewed_by_staff_id, reviewed_at, edited_text, source_snapshot)
                    VALUES (4, NOW() - INTERVAL 8 DAY, NOW() - INTERVAL 1 DAY,
-                           'Post-discharge Days 1 to 7 recovery note. Patient recovering from uncomplicated appendectomy. Adherence to GastroShield-D confirmed. Incision pain resolved. Wearable sensor readings within limits.',
+                           'Post-discharge Days 1 to 7 recovery note. Patient recovering from uncomplicated appendectomy. Adherence to GastroShield-D confirmed. Incision pain resolved. Wearable telemetry within limits.',
                            'gemini-1.5-flash', 'Approved', 1, NOW() - INTERVAL 1 DAY,
-                           'Post-discharge Days 1 to 7 recovery note for Kabir Mehta. Patient recovering from uncomplicated appendectomy. Adherence to GastroShield-D confirmed at 95%. Incision pain resolved. Wearable sensor readings within limits. Approved for standard recovery progression.',
+                           'Post-discharge Days 1 to 7 recovery note for Kabir Mehta. Patient recovering from uncomplicated appendectomy. Adherence to GastroShield-D confirmed at 95%. Incision pain resolved. Wearable telemetry within limits. Approved for standard recovery progression.',
                            JSON_OBJECT('adherence', '95%', 'vitals_count', 42, 'open_flags', 0))"""
             )
 

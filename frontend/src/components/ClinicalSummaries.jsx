@@ -285,7 +285,7 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
                 Nurse-Proposed Rule Limit Adjustments ({proposals.length})
               </h3>
               <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                Nurses may propose sensor limit adjustments based on clinical observation. Changes require attending physician approval to take effect.
+                Nurses may propose telemetry boundary changes based on clinical observation. Changes require attending physician approval to take effect.
               </p>
             </div>
 

@@ -37,7 +37,7 @@ import {
  * 4. Caregiver consent indicators & Silent device tracking
  * 5. Medicines tab with strict "Self-reported" labeling & dose exception notes
  * 6. Alert rules tab with clinician approval tracking & false alarm dismissal counts
- * 7. Upgraded timeline with day grouping, filter chips, event collapse, and vital chart
+ * 7. Upgraded timeline with day grouping, filter chips, event collapse, and telemetry chart
  */
 export default function PatientOverviewTab({
   patientId,
@@ -74,7 +74,7 @@ export default function PatientOverviewTab({
   const [timelineType, setTimelineType] = useState('All');
   const [timelineRange, setTimelineRange] = useState('all');
 
-  // Phase 5: Authority & Interoperability states
+  // Phase 5: Governance & Interoperability states
   const [fhirExporting, setFhirExporting] = useState(false);
   const [laceData, setLaceData] = useState(null);
   const [laceModalOpen, setLaceModalOpen] = useState(false);
@@ -556,7 +556,7 @@ export default function PatientOverviewTab({
             Break-Glass Access Required
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', lineHeight: 1.5, margin: '0 0 20px 0' }}>
-            This patient is assigned to another clinician's care roster. To view their chart, discharge records, and sensor readings, you must declare a valid clinical reason under clinical audit guidelines.
+            This patient is assigned to another clinician's care roster. To view their chart, discharge records, and sensor telemetry, you must declare a valid clinical reason under clinical audit guidelines.
           </p>
 
           <form onSubmit={handleBreakGlassSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
@@ -646,7 +646,7 @@ export default function PatientOverviewTab({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                    Latest Vital Readings
+                    Latest Vitals Telemetry
                   </div>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>ESP32 Watch</span>
                 </div>
@@ -1357,7 +1357,7 @@ export default function PatientOverviewTab({
                 </div>
               </div>
 
-              {/* Vital Trend Chart with Approved Limit Dashed Lines (D-06) */}
+              {/* Telemetry Chart with Approved Limit Dashed Lines (D-06) */}
               {timelineData?.chart_readings && timelineData.chart_readings.length > 0 && (
                 <div
                   style={{
@@ -1370,7 +1370,7 @@ export default function PatientOverviewTab({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
-                      Heart Rate & Oxygen Trend with Approved Rule Limits
+                      Heart Rate & Telemetry Trend with Approved Rule Limits
                     </h3>
                     <div style={{ display: 'flex', gap: '14px', fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1457,7 +1457,7 @@ export default function PatientOverviewTab({
                               HOSPITAL DISCHARGE TRANSITION (DAYS 1–3 INPATIENT → DAY 4+ HOME RECOVERY)
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
-                              Inpatient post-operative course completed. Remote sensor monitoring and physician-approved protocol activated at discharge.
+                              Inpatient post-operative course completed. Remote telemetry monitoring and physician-approved protocol activated at discharge.
                             </div>
                           </div>
                         </div>
@@ -2179,7 +2179,7 @@ export default function PatientOverviewTab({
                     marginBottom: '16px',
                   }}
                 >
-                  <strong>Strict Clinical Rule:</strong> Templates ship with <strong>blank thresholds</strong>. You must enter clinical values appropriate for this patient's condition. Defaults are never assumed.
+                  <strong>Strict Governance Rule:</strong> Templates ship with <strong>blank thresholds</strong>. You must enter clinical values appropriate for this patient's condition. Defaults are never assumed.
                 </div>
 
                 <div style={{ marginBottom: '16px' }}>

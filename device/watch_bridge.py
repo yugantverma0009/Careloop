@@ -2,7 +2,7 @@
 Hardware/watch.py — AI Nurse Watch Bluetooth Bridge for CareLoop
 
 Connects to the Bluetooth Serial port of the watch and forwards
-heart rate sensor readings to the CareLoop /device/readings endpoint.
+heart rate telemetry to the CareLoop /device/readings endpoint.
 """
 
 import serial
@@ -68,7 +68,7 @@ try:
                             headers={"X-Device-Key": DEVICE_KEY},
                             timeout=1.0,
                         )
-                        print(f" -> Reading POST status: {res.status_code} ({res.json().get('status')})")
+                        print(f" -> Telemetry POST status: {res.status_code} ({res.json().get('status')})")
                     except requests.exceptions.RequestException as e:
                         print(f" ⚠️ Backend offline: {e}")
             

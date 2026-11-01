@@ -85,7 +85,7 @@ INSERT INTO care_assignments (assignment_id, patient_id, staff_id, assignment_ro
 
 -- 7. Discharge Records (Relative discharge dates: CURDATE() - INTERVAL (N-1) DAY)
 INSERT INTO discharge_records (discharge_id, patient_id, attending_staff_id, discharge_date, condition_summary, instructions, follow_up_due) VALUES
-(1, 1, 1, CURDATE() - INTERVAL 2 DAY, 'Post-CABG Recovery', 'Rest, daily sensor monitoring, take antiplatelets as directed.', CURDATE() + INTERVAL 5 DAY),
+(1, 1, 1, CURDATE() - INTERVAL 2 DAY, 'Post-CABG Recovery', 'Rest, daily telemetry monitoring, take antiplatelets as directed.', CURDATE() + INTERVAL 5 DAY),
 (2, 2, 1, CURDATE() - INTERVAL 5 DAY, 'Total Knee Arthroplasty', 'Physical therapy, elevate limb, monitor wearable connectivity.', CURDATE() + INTERVAL 7 DAY),
 (3, 3, 1, CURDATE() - INTERVAL 4 DAY, 'Community Pneumonia', 'Complete antibiotic regimen, monitor SpO2, report acute chest pain immediately.', CURDATE() + INTERVAL 3 DAY),
 (4, 4, 1, CURDATE() - INTERVAL 8 DAY, 'Appendectomy Convalescence', 'Incision site care, light walking, maintain fluid intake.', CURDATE() + INTERVAL 6 DAY),

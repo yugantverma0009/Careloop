@@ -75,7 +75,7 @@ export default function NurseCallListView({ onSelectPatient }) {
 
   const handleOpenResolve = (item) => {
     if (item.needs_doctor_to_resolve) {
-      alert('Clinical Role Boundary: Immediate and Urgent alerts require Attending Physician Dr. Sharma to resolve. Please use "Ask doctor" to escalate.');
+      alert('Clinical Governance Restriction: Immediate & Urgent flags require Attending Physician Dr. Sharma to resolve. Please use "Ask doctor" to escalate.');
       return;
     }
     setResolvePromptFlag(item);
@@ -164,7 +164,7 @@ export default function NurseCallListView({ onSelectPatient }) {
             My call list
           </h1>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-            Work the call list. Every alert shows why it was raised, how long it has waited and what to do next.
+            Priya Nair, Lead Nurse · St. Jude Medical Center · Prioritized call queue by clinical urgency
           </p>
         </div>
       </div>
@@ -304,8 +304,8 @@ export default function NurseCallListView({ onSelectPatient }) {
             Loading prioritized call list...
           </div>
         ) : callItems.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontWeight: 600 }}>
-            No open alerts for your patients.
+          <div style={{ padding: '40px', textAlign: 'center', color: '#059669', fontWeight: 600 }}>
+            ✓ All alert calls have been cleared! Shift queue is empty.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -378,7 +378,7 @@ export default function NurseCallListView({ onSelectPatient }) {
                     </div>
                   </div>
 
-                  {/* Reason & Physician Approval State */}
+                  {/* Reason & Clinical Governance State */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
@@ -726,7 +726,7 @@ export default function NurseCallListView({ onSelectPatient }) {
           </div>
         </div>
         <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: '#ecfdf5', color: '#059669' }}>
-          Quiet: No Open Alerts
+          Telemetry Calm
         </span>
       </div>
 

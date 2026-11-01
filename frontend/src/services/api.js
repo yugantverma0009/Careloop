@@ -380,7 +380,7 @@ export const submitPatientReply = () => Promise.resolve({ ok: true });
 export const markTaskComplete = (pid, taskId) =>
   post(`/patient/me/doses/${taskId}/confirm`, { status: 'Taken_Confirmed' }).catch(() => ({}));
 
-// ─── Phase 5: Authority & Interoperability ──────────────────────────────────
+// ─── Phase 5: Governance & Interoperability ──────────────────────────────────
 
 export const getPathwayTemplates = () =>
   get('/staff/pathway-templates');

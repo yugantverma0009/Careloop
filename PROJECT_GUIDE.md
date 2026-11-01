@@ -12,7 +12,7 @@
 9. [Roles, Permissions & Escalation Chain](#9-roles-permissions--escalation-chain)
 10. [Safety Principles & Honesty Boundaries](#10-safety-principles--honesty-boundaries)
 11. [Synthetic Demo Cast & Walkthrough Script](#11-synthetic-demo-cast--walkthrough-script)
-12. [Device Sensor Ingestion, ESP32 Firmware & Simulator](#12-device-sensor-ingestion-esp32-firmware--simulator)
+12. [Device Telemetry, ESP32 Firmware & Simulator](#12-device-telemetry-esp32-firmware--simulator)
 13. [Testing Strategy & Kept Test Suites](#13-testing-strategy--kept-test-suites)
 14. [Troubleshooting & Verification](#14-troubleshooting--verification)
 15. [Limitations & Honest Future Scope](#15-limitations--honest-future-scope)
@@ -21,33 +21,8 @@
 
 ## 1. Overview and Goals
 
-**Positioning:** CareLoop keeps the days after discharge from going quiet: an assistant that only speaks from the patient's own papers, alerts that always carry their reason, and people who close every loop.
+CareLoop is an engineering demonstration platform designed to support post-discharge recovery through remote telemetry, deterministic safety rules, and grounded assistant responses. The primary governing philosophy across all subsystems is:
 
-**Tagline:** *"After discharge, nothing should go quiet."*
-
-### What Makes CareLoop Different (The Four Pillars)
-1. **Papers-first answers (RAG):** The assistant reads only the patient's own discharge papers, shows the exact passage it used, checks every number against that source, says *"That is not in your discharge papers, so I will not guess"* instead of hallucinating, and never advises on doses.
-2. **A reason on every alert:** Only limits approved by the doctor can raise an alert, and each alert shows the value, time, data quality, the limit, and who approved it. The AI explains; deterministic rules decide.
-3. **A loop that closes:** Patient, then family (only with consent), then nurse, then doctor, on timers, with a named owner at every step and every action permanently recorded.
-4. **Quiet when nothing is wrong:** Alerts are grouped per patient, impossible readings are filtered out, and patients with nothing open stay out of the way.
-
-*Supporting safeguard:* **Consent you can switch off** — The patient controls what the family sees at all times; turning sharing off stops family access immediately.
-
-### CareLoop Standard Glossary
-| Term | Meaning | Where Used |
-| :--- | :--- | :--- |
-| **Discharge papers** | The patient's actual hospital discharge summary and written care instructions. | Patient portal, Family portal, Landing page, Assistant prompt |
-| **Reason** | The exact rule trigger, measured value, timestamp, and limit that caused an alert to exist. | Doctor desk, Nurse desk, Flag drawer, Landing page |
-| **Limit** | A doctor-approved numeric threshold (e.g. SpO₂ < 94%) in `alert_rules`. | Doctor desk, Nurse desk, Rule drawer |
-| **Alert** | An active clinical flag (`flags` table) requiring named human attention. | Doctor desk, Nurse call list, Audit trail |
-| **Escalation ladder** | The timed 4-tier communication progression: Patient Prompt $\rightarrow$ Family SMS $\rightarrow$ Nurse Queue $\rightarrow$ Doctor Review. | Nurse desk, Doctor desk, Landing page |
-| **Owner** | The specific named clinician responsible for an alert at the current step (`Dr. Ananya Sharma`, `Priya Nair`). | Doctor desk, Nurse desk, Landing page |
-| **Passage** | The exact quoted sentence or section cited from discharge papers as evidence for an answer. | Assistant responses, Patient chat |
-| **Sensor reading** | A single measured heart rate or blood oxygen value with unit and time received from the device. | All portals, Simulator, API |
-| **Dose helped** | A medication dose marked by a family helper on behalf of the patient. | Family portal, Patient portal, Audit log |
-| **Sharing** | Patient-governed consent permission for family helper access (`consent_status`). | Patient settings, Family portal, SMS dispatches |
-
-### Primary Governing Philosophy
 > **"The LLM talks. Rules decide. Humans act."**
 
 * **The LLM is text-only:** Generates draft summaries and answers patient questions strictly from discharge records. It never creates, alters, or resolves clinical flags, limits, or prescriptions.
@@ -60,7 +35,7 @@
 
 ```mermaid
 flowchart TD
-    subgraph EdgeDevice["1. Sensor Reading Ingestion"]
+    subgraph EdgeDevice["1. Telemetry Ingestion"]
         ESP32["ESP32 Wearable / Simulator"] -->|POST /device/readings| DevIngest["Device Endpoint"]
         DevIngest -->|Plausibility Check| PlausTrigger["trg_sensor_plausibility"]
         PlausTrigger -->|Valid Readings| SensorDB[("sensor_readings")]
@@ -206,7 +181,7 @@ CareLoop/
 ## 5. Frontend Workstations & Design Tokens
 
 ### Role Color Accents (BhoomiSetu Standard)
-* **Doctor (`/doctor`):** Navy / Slate (`#0284c7`, CSS `--accent-doc`) — Symbolizes clinical authority and medical oversight.
+* **Doctor (`/doctor`):** Navy / Slate (`#0284c7`, CSS `--accent-doc`) — Symbolizes governance, clinical authority, and medical oversight.
 * **Nurse (`/nurse`):** Amber / Orange (`#d97706`, CSS `--accent-nurse`) — Symbolizes active execution, triage urgency, and care coordination.
 * **Patient (`/patient`):** Emerald / Teal (`#059669`, CSS `--accent-patient`) — Symbolizes personal recovery, calm assurance, and daily actions.
 * **Family Helper (`/family`):** Violet / Purple (`#7c3aed`, CSS `--accent-family`) — Symbolizes supportive care, loved-one context, and consent-bound assistance.
@@ -233,7 +208,7 @@ CareLoop/
 ### Escalation State Machine
 ```mermaid
 stateDiagram-v2
-    [*] --> RuleBreach: Sensor Reading or Symptom breach
+    [*] --> RuleBreach: Telemetry or Symptom breach
     RuleBreach --> FlagOpen: Stored procedure creates Flag
     FlagOpen --> Step1_PatientPrompt: Instant in-app calm banner
     Step1_PatientPrompt --> Step2_CaregiverSMS: If Consent = 1 (dispatched via SMS)
@@ -252,13 +227,13 @@ stateDiagram-v2
 ### Relational Entities (32 Tables)
 1. **Core Identity:** `patients`, `care_staff`, `caregivers`, `user_accounts`, `care_assignments`.
 2. **Clinical Records:** `discharge_records`, `discharge_documents`, `document_chunks`, `prescriptions`, `prescription_times`, `medicines`.
-3. **Sensor Readings & Devices:** `devices`, `sensor_readings`.
+3. **Telemetry & Sensoring:** `devices`, `sensor_readings`.
 4. **Safety & Rules:** `alert_rules`, `alert_rules_history`, `flags`, `flag_events`, `escalations`.
 5. **Execution & Tasks:** `medication_logs`, `symptom_reports`, `symptom_report_tags`, `follow_up_tasks`, `contact_log`, `clinician_notes`, `appointments`.
 6. **AI & Audit:** `ai_summaries`, `chat_messages`, `chat_message_sources`, `chat_feedback`, `risk_context`, `risk_snapshots`, `audit_log`.
 
 ### Views (8)
-* `v_device_status`: Real-time connectivity and last-seen reading times.
+* `v_device_status`: Real-time connectivity and last-seen telemetry times.
 * `v_latest_risk`: Cached composite clinical risk score per patient.
 * `v_latest_sensor_readings`: Latest valid physiological readings per metric.
 * `v_medication_adherence`: 7-day adherence percentages across confirmed doses.
@@ -279,7 +254,7 @@ stateDiagram-v2
 * `sp_daily_report(patient_id, report_date)`: Generates deterministic fact-sheet metrics.
 * `sp_compute_risk_snapshot(patient_id)` / `sp_compute_all_risk_snapshots()`: Calculates LACE-influenced risk index.
 * `sp_evaluate_missed_dose_rules()`: Checks for consecutive missed dose breaches.
-* `sp_evaluate_no_data_rules()`: Detects missing sensor transmissions exceeding rule thresholds.
+* `sp_evaluate_no_data_rules()`: Detects missing telemetry transmissions exceeding rule thresholds.
 
 ### Triggers (3)
 * `trg_sensor_plausibility`: (BEFORE INSERT on `sensor_readings`) Marks values outside physiological bounds (e.g., HR > 300 bpm or SpO2 > 100%) as `Invalid`.
@@ -326,12 +301,12 @@ Patient Question
 | Feature / Action | Doctor (Dr. Ananya Sharma) | Nurse (Priya Nair) | Patient (Aarav Patel) | Family Helper (Neha Patel) |
 | :--- | :---: | :---: | :---: | :---: |
 | **Landing Workspace** | `/staff/doctor/decisions` | `/staff/nurse/call-list` | `/patient` | `/family` |
-| **Primary Responsibility** | Clinical decisions & oversight | Care coordination & calls | Self-care regimen & check-in | Consent-gated daily support |
+| **Primary Responsibility** | Clinical governance & decisions | Care coordination & calls | Self-care regimen & check-in | Consent-gated daily support |
 | **Acknowledge / Call Patient** | Yes | Yes | N/A | N/A |
 | **Resolve Routine Flags** | Yes | Yes | N/A | N/A |
 | **Resolve Urgent / Emergency Flags**| **Yes** | No (Escalates to Doctor) | N/A | N/A |
 | **Approve / Reject AI Summaries** | **Yes** | No (HTTP 403) | N/A | N/A |
-| **Approve Sensor Limits** | **Yes** | No (Can Propose only) | N/A | N/A |
+| **Approve Telemetry Limits** | **Yes** | No (Can Propose only) | N/A | N/A |
 | **Audit Log Inspection** | **Yes** | No (HTTP 403) | N/A | N/A |
 | **HL7 FHIR R4 Bundle Export** | **Yes** | No (HTTP 403) | N/A | N/A |
 | **Mark Dose Taken / Undo** | No | No | **Yes (1-Tap & 5-min Undo)** | Yes (I helped Aarav) |
@@ -345,7 +320,7 @@ Patient Question
 ## 10. Safety Principles & Honesty Boundaries
 
 1. **No Medical Thresholds in Code:** Alert limits come only from doctor-approved records in `alert_rules`.
-2. **Valid Readings as Headline:** The headline reading in the patient and staff portals is always the latest `Valid` reading. Spurious readings (e.g. 450 bpm) are tagged `Invalid` and surfaced as a clean data check note (`"1 reading ignored: impossible value"`).
+2. **Valid Readings as Headline:** The headline reading in the patient and staff portals is always the latest `Valid` reading. Spurious telemetry (e.g. 450 bpm) is tagged `Invalid` and surfaced as a clean data check note (`"1 reading ignored: impossible value"`).
 3. **Emergency Bypass:** Detection of life-threatening symptoms never waits for LLM responses. Plain regex pattern matching routes patients directly to emergency guidance.
 4. **Immediate Consent Cutoff:** When a patient toggles family sharing off, caregiver access is revoked immediately across all queries.
 5. **No Unprovable Claims:** Interface and documentation completely prohibit unprovable marketing claims (*"prevents readmissions"*, *"100% accurate"*, *"hardware-verified"*, *"AI detected"*).
@@ -359,7 +334,7 @@ Patient Question
 | Patient | Diagnosis | Day Post-Discharge | Baseline Scenario & Flag State |
 | :--- | :--- | :--- | :--- |
 | **Aarav Patel** | Post-CABG recovery | **Day 3** | Baseline candidate: valid headline vitals (74 bpm, 98% SpO₂), invalid 450 bpm spike ignored, family sharing active. Target of live SpO₂ event simulation. |
-| **Meera Joshi** | Heart Failure | **Day 6** | Open `Review_Soon` flag: silent wearable device (>24h without data). Family consent revoked by patient. |
+| **Meera Joshi** | Heart Failure | **Day 6** | Open `Review_Soon` flag: silent telemetry device (>24h without data). Family consent revoked by patient. |
 | **Rajesh Kumar** | Acute MI | **Day 5** | Open `Urgent_Review` flag: acute emergency symptom check-in (chest pressure) with nurse call task. |
 | **Kabir Mehta** | Valve Replacement | **Day 9** | Historical candidate: resolved flag with full audit history, approved summary ready. |
 | **Sunita Rao** | Post-PCI Stenting | **Day 4** | Open `Review_Soon` flag: two consecutive missed medication doses with pending nurse call task. |
@@ -370,7 +345,7 @@ Patient Question
 | :--- | :--- | :--- | :--- |
 | **0:00** | **Landing Page** | Point to the 4 role cards with their Section 2.1 pitches and distinct accent colors. | CareLoop is built around 4 distinct roles with separated scopes. |
 | **0:30** | **Patient (Aarav)** | Home shows next medicine $\rightarrow$ tap **Taken** $\rightarrow$ opens Check-in (pain 2) $\rightarrow$ asks *"When is my next appointment?"* (answers with cited source chip) $\rightarrow$ asks *"Can I double my dose?"* (safe refusal). | Patient acts; assistant is strictly grounded and refuses dose changes. |
-| **2:00** | **Presenter** | Click **"Send test reading"** (SpO₂ 91% for Aarav). | Wearable sensor reading streams into the clinical rules engine. |
+| **2:00** | **Presenter** | Click **"Send test reading"** (SpO₂ 91% for Aarav). | Wearable telemetry streams into the clinical rules engine. |
 | **2:15** | **Patient** | Banner updates: *"Your care team has been told. Call 112 if you have chest pain."* | Patient receives immediate, calm, actionable guidance. |
 | **2:30** | **Family (Neha)** | Refresh family view: sees action item *"The care team is checking on Aarav. Please contact him."* Taps **"I helped Aarav take it"** on evening dose. | Family helper is informed without seeing private medical notes. |
 | **3:15** | **Nurse (Priya)** | My Call List shows Aarav at top with timer and reason (*"SpO₂ reading 91% is below approved limit of 94%"*). Clicks **Call**, logs note, clicks **Ask Doctor**. | Nurse works the queue and escalates explainable flags. |
@@ -381,7 +356,7 @@ Patient Question
 
 ---
 
-## 12. Device Sensor Ingestion, ESP32 Firmware & Simulator
+## 12. Device Telemetry, ESP32 Firmware & Simulator
 
 ### Hardware Specifications
 * **Microcontroller:** ESP32 DevKit V1 (30-pin / 36-pin).
@@ -390,8 +365,8 @@ Patient Question
   - MPU6050 Accelerometer/Gyroscope for fall detection ($\sqrt{x^2+y^2+z^2} > 2.8g$).
 * **Local Display:** SSD1306 0.96" OLED ($I^2C$ address `0x3C`).
 
-### Software Sensor Simulator
-The Python simulator (`device/simulator.py`) generates physiological sensor readings without requiring physical hardware:
+### Software Telemetry Simulator
+The Python simulator (`device/simulator.py`) generates physiological telemetry without requiring physical hardware:
 ```bash
 # Continuous streaming every 10 seconds
 python3 device/simulator.py --interval 10
@@ -427,7 +402,7 @@ PYTHONPATH=. ./backend/env/bin/pytest \
 
 ## 14. Troubleshooting & Verification
 
-| Problem | Root Cause | Fix |
+| Problem | Root Cause | Solution |
 | :--- | :--- | :--- |
 | Database connection error (`1045 Access Denied`) | Credentials mismatch in `.env` | Ensure `.env` has `DB_USER=careloop_api` and `DB_PASSWORD=careloop_dev_pass`. |
 | Flag count mismatch after testing | Transactional tests modified flags | Run `python3 scripts/reset_demo.py` (< 0.25s) to restore baseline. |

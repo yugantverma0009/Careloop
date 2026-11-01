@@ -321,7 +321,7 @@ def generate_fallback_summary(fact_sheet: Dict[str, Any]) -> Dict[str, Any]:
                 f"{mtype} recorded {val} {unit} at {time_str} ({q})."
             )
     else:
-        assessment_facts.append("No sensor readings recorded for this date.")
+        assessment_facts.append("No telemetry readings recorded for this date.")
 
     checkin = fact_sheet.get("checkin")
     if checkin:

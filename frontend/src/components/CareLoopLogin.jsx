@@ -200,7 +200,7 @@ export default function CareLoopLogin({ onLoginSuccess }) {
               marginBottom: '18px',
             }}
           >
-            After discharge, nothing should go quiet.
+            From discharge day to full recovery, in one place.
           </h1>
 
           {/* Hero Paragraph */}
@@ -213,15 +213,15 @@ export default function CareLoopLogin({ onLoginSuccess }) {
               marginBottom: '36px',
             }}
           >
-            CareLoop keeps the days after discharge from going quiet: an assistant that only speaks from the patient's own papers, alerts that always carry their reason, and people who close every loop.
+            Separate views for doctors, triage nurses, recovering patients, and family helpers.
           </p>
 
           {/* 3 Checkmark Items matching BhoomiSetu */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '480px' }}>
             {[
-              'Answers taken only from your own discharge papers',
-              'Alerts raised only from limits a doctor approved',
-              'A loop with timers, where a named person closes every step',
+              'Wearable readings, checked for impossible values',
+              'Answers taken from your own discharge papers',
+              'A 3-step escalation ladder with timers; people stay in charge',
             ].map((text, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span
