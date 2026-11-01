@@ -354,7 +354,6 @@ export const getAllPatients = () =>
 
 export const seedDemoPatient = () => Promise.resolve({ ok: true });
 
-export const admitPatient = () => Promise.resolve({ ok: true });
 
 export const getPatientPipelineStatus = () => Promise.resolve({ status: 'active' });
 
@@ -574,6 +573,45 @@ export const getPhotoUrl = (photoId, isThumb = false) => {
   const token = getToken();
   return `${API_BASE}/photos/${photoId}/${isThumb ? 'thumb' : 'image'}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 };
+
+// ─── Feature F5 & F6: Recovery Plan & Patient Admission API ──────────────────
+
+export const getMyPlan = () =>
+  get('/patient/me/plan');
+
+export const getPatientUnderstandingCheck = () =>
+  get('/patient/me/plan/understanding-check');
+
+export const submitUnderstandingAnswer = (checkId, selectedIndex) =>
+  post('/patient/me/plan/understanding-check/answer', {
+    check_id: checkId,
+    selected_option_index: selectedIndex,
+  });
+
+export const draftRecoveryPlan = (patientId, sourceDocumentId = null) =>
+  post('/staff/plans/draft', {
+    patient_id: patientId,
+    source_document_id: sourceDocumentId,
+  });
+
+export const getPendingRecoveryPlans = () =>
+  get('/staff/plans/pending');
+
+export const getStaffPatientPlans = (patientId) =>
+  get(`/staff/patients/${patientId}/plans`);
+
+export const verifyPlanItem = (itemId) =>
+  post(`/staff/plans/items/${itemId}/verify`);
+
+export const approveRecoveryPlan = (planId) =>
+  post(`/staff/plans/${planId}/approve`);
+
+export const rejectRecoveryPlan = (planId, reason = '') =>
+  post(`/staff/plans/${planId}/reject`, { reason });
+
+export const admitPatient = (payload) =>
+  post('/staff/admit', payload);
+
 
 
 

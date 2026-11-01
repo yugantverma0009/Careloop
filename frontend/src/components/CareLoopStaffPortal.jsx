@@ -29,6 +29,7 @@ import DoctorLimitsView from './DoctorLimitsView';
 import DoctorFhirExportView from './DoctorFhirExportView';
 import NurseCallListView from './NurseCallListView';
 import RoundsView from './RoundsView';
+import AdmitPatientWizard from './AdmitPatientWizard';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -492,8 +493,9 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 ? [
                     { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
+                    { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
-                    { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: (doctorDecisions.cards?.summaries_to_approve || 0) + (doctorDecisions.cards?.limit_change_requests || 0) },
+                    { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: (doctorDecisions.cards?.summaries_to_approve || 0) + (doctorDecisions.cards?.limit_change_requests || 0) + (doctorDecisions.cards?.plans_to_approve || 0) },
                     { id: 'limits', label: 'Patient limits', Icon: IconShieldCheck },
                     { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
                     { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
@@ -502,6 +504,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
+                    { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
                     { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
                   ]
@@ -1319,6 +1322,19 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 setActiveNav('patient_chart');
               }}
               currentStaffId={user?.staff_id}
+            />
+          )}
+
+          {/* TAB: ADMIT PATIENT (Phase 4 Feature F6) */}
+          {activeNav === 'admit' && (
+            <AdmitPatientWizard
+              onComplete={(res) => {
+                setActionMsg(`Patient ${res.full_name} (${res.patient_code}) admitted successfully.`);
+                setTimeout(() => setActionMsg(''), 4000);
+                setSelectedPatientId(res.patient_id);
+                setActiveNav('patient_chart');
+              }}
+              onCancel={() => setActiveNav('triage')}
             />
           )}
 

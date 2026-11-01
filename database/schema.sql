@@ -730,6 +730,91 @@ CREATE TABLE `wound_photos` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `recovery_plans` (Phase 4)
+--
+
+DROP TABLE IF EXISTS `recovery_plans`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `recovery_plans` (
+  `plan_id` int NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `version` smallint NOT NULL,
+  `status` enum('Draft','Approved','Rejected','Superseded') NOT NULL DEFAULT 'Draft',
+  `source_document_id` int DEFAULT NULL,
+  `drafted_by` enum('Agent','Staff') NOT NULL,
+  `drafted_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `approved_by_staff_id` int DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`plan_id`),
+  UNIQUE KEY `uq_plan_version` (`patient_id`, `version`),
+  KEY `fk_plan_patient` (`patient_id`),
+  KEY `fk_plan_doc` (`source_document_id`),
+  KEY `fk_plan_staff` (`approved_by_staff_id`),
+  CONSTRAINT `fk_plan_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_plan_doc` FOREIGN KEY (`source_document_id`) REFERENCES `discharge_documents` (`document_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_plan_staff` FOREIGN KEY (`approved_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `recovery_plan_items` (Phase 4)
+--
+
+DROP TABLE IF EXISTS `recovery_plan_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `recovery_plan_items` (
+  `item_id` bigint NOT NULL AUTO_INCREMENT,
+  `plan_id` int NOT NULL,
+  `item_type` enum('Medicine','Appointment','Activity','Wound_Care','Warning_Sign','Diet','Other') NOT NULL,
+  `title` varchar(120) NOT NULL,
+  `detail` varchar(500) NOT NULL,
+  `schedule_text` varchar(120) DEFAULT NULL,
+  `source_chunk_id` bigint DEFAULT NULL,
+  `reconcile_status` enum('Matches','Mismatch','Not_Applicable') NOT NULL DEFAULT 'Not_Applicable',
+  `verified_by_staff_id` int DEFAULT NULL,
+  `verified_at` datetime DEFAULT NULL,
+  `display_order` smallint NOT NULL DEFAULT 0,
+  PRIMARY KEY (`item_id`),
+  KEY `fk_item_plan` (`plan_id`),
+  KEY `fk_item_chunk` (`source_chunk_id`),
+  KEY `fk_item_staff` (`verified_by_staff_id`),
+  CONSTRAINT `fk_item_plan` FOREIGN KEY (`plan_id`) REFERENCES `recovery_plans` (`plan_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_item_chunk` FOREIGN KEY (`source_chunk_id`) REFERENCES `document_chunks` (`chunk_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_item_staff` FOREIGN KEY (`verified_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `plan_understanding_checks` (Phase 4)
+--
+
+DROP TABLE IF EXISTS `plan_understanding_checks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `plan_understanding_checks` (
+  `check_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `plan_id` int NOT NULL,
+  `question_text` varchar(255) NOT NULL,
+  `options` json NOT NULL,
+  `correct_option_index` tinyint NOT NULL,
+  `selected_option_index` tinyint DEFAULT NULL,
+  `is_correct` tinyint(1) DEFAULT NULL,
+  `answered_at` datetime DEFAULT NULL,
+  `proposal_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`check_id`),
+  KEY `fk_puc_patient` (`patient_id`),
+  KEY `fk_puc_plan` (`plan_id`),
+  KEY `fk_puc_prop` (`proposal_id`),
+  CONSTRAINT `fk_puc_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_puc_plan` FOREIGN KEY (`plan_id`) REFERENCES `recovery_plans` (`plan_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_puc_prop` FOREIGN KEY (`proposal_id`) REFERENCES `agent_proposals` (`proposal_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `medication_logs`
 --
 

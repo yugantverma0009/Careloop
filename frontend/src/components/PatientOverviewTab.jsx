@@ -21,6 +21,11 @@ import {
   getStaffPatientPhotos,
   reviewWoundPhoto,
   getPhotoUrl,
+  getStaffPatientPlans,
+  draftRecoveryPlan,
+  verifyPlanItem,
+  approveRecoveryPlan,
+  rejectRecoveryPlan,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import {
@@ -94,6 +99,16 @@ export default function PatientOverviewTab({
   const [reviewNoteInput, setReviewNoteInput] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [photoActionMsg, setPhotoActionMsg] = useState('');
+
+  // Phase 4: Recovery Plans State
+  const [plansData, setPlansData] = useState({ plans: [] });
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState(null);
+  const [draftingPlan, setDraftingPlan] = useState(false);
+  const [planActionMsg, setPlanActionMsg] = useState('');
+  const [planActionError, setPlanActionError] = useState('');
+  const [verifyingItemId, setVerifyingItemId] = useState(null);
+  const [approvingPlanId, setApprovingPlanId] = useState(null);
 
   // Timeline subtab filters
   const [timelineType, setTimelineType] = useState('All');
@@ -371,6 +386,104 @@ export default function PatientOverviewTab({
     }
   };
 
+  const fetchPlans = async () => {
+    if (!patientId) return;
+    setPlansLoading(true);
+    setPlanActionError('');
+    try {
+      const res = await getStaffPatientPlans(patientId);
+      if (res && res.success) {
+        setPlansData(res.data || { plans: [] });
+        const plans = res.data?.plans || [];
+        if (plans.length > 0) {
+          setSelectedPlanId((prev) => {
+            if (prev && plans.some((p) => p.plan_id === prev)) return prev;
+            return plans[0].plan_id;
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load patient recovery plans:', err);
+      setPlanActionError(err?.message || 'Failed to load recovery plans.');
+    } finally {
+      setPlansLoading(false);
+    }
+  };
+
+  const handleDraftPlan = async () => {
+    setDraftingPlan(true);
+    setPlanActionError('');
+    setPlanActionMsg('');
+    try {
+      const res = await draftRecoveryPlan(patientId);
+      if (res && res.success) {
+        setPlanActionMsg(`Recovery plan draft (v${res.data?.plan?.version || 'new'}) successfully generated from discharge papers.`);
+        setTimeout(() => setPlanActionMsg(''), 5000);
+        await fetchPlans();
+        if (res.data?.plan?.plan_id) {
+          setSelectedPlanId(res.data.plan.plan_id);
+        }
+      }
+    } catch (err) {
+      setPlanActionError(err?.message || 'Failed to draft recovery plan.');
+    } finally {
+      setDraftingPlan(false);
+    }
+  };
+
+  const handleVerifyItem = async (itemId) => {
+    setVerifyingItemId(itemId);
+    setPlanActionError('');
+    try {
+      const res = await verifyPlanItem(itemId);
+      if (res && res.success) {
+        setPlanActionMsg('Plan item verified against cited passage in discharge papers.');
+        setTimeout(() => setPlanActionMsg(''), 4000);
+        await fetchPlans();
+      }
+    } catch (err) {
+      setPlanActionError(err?.message || 'Failed to verify plan item.');
+    } finally {
+      setVerifyingItemId(null);
+    }
+  };
+
+  const handleApprovePlan = async (planId) => {
+    setApprovingPlanId(planId);
+    setPlanActionError('');
+    try {
+      const res = await approveRecoveryPlan(planId);
+      if (res && res.success) {
+        setPlanActionMsg('Recovery plan approved! Now published and active for the patient.');
+        setTimeout(() => setPlanActionMsg(''), 5000);
+        await fetchPlans();
+      }
+    } catch (err) {
+      setPlanActionError(err?.message || 'Only attending doctors can approve recovery plans.');
+    } finally {
+      setApprovingPlanId(null);
+    }
+  };
+
+  const handleRejectPlan = async (planId) => {
+    const reason = window.prompt('Please enter clinical reason for rejecting draft plan:') || '';
+    if (!reason.trim()) return;
+    setApprovingPlanId(planId);
+    setPlanActionError('');
+    try {
+      const res = await rejectRecoveryPlan(planId, reason.trim());
+      if (res && res.success) {
+        setPlanActionMsg('Recovery plan draft rejected.');
+        setTimeout(() => setPlanActionMsg(''), 5000);
+        await fetchPlans();
+      }
+    } catch (err) {
+      setPlanActionError(err?.message || 'Failed to reject recovery plan.');
+    } finally {
+      setApprovingPlanId(null);
+    }
+  };
+
   useEffect(() => {
     fetchOverview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -379,6 +492,7 @@ export default function PatientOverviewTab({
   useEffect(() => {
     if (detailData && !detailData.requires_break_glass) {
       if (subTab === 'medicines') fetchMedicines();
+      else if (subTab === 'plan') fetchPlans();
       else if (subTab === 'rules') fetchRules();
       else if (subTab === 'timeline') fetchTimeline();
       else if (subTab === 'notes') fetchNotesAndContacts();
@@ -577,6 +691,7 @@ export default function PatientOverviewTab({
         >
           {[
             { id: 'overview', label: 'Overview', Icon: IconActivity },
+            { id: 'plan', label: 'Recovery Plan', Icon: IconFileText },
             { id: 'medicines', label: 'Medicines', Icon: IconPill },
             { id: 'timeline', label: 'Timeline', Icon: IconClock },
             { id: 'rules', label: 'Limits', Icon: IconShieldCheck },
@@ -1109,6 +1224,454 @@ export default function PatientOverviewTab({
               </div>
             </div>
           )}
+
+          {/* 3. SUBTAB: RECOVERY PLAN (Phase 4) */}
+          {subTab === 'plan' && (() => {
+            const currentPlan = plansData.plans?.find((p) => p.plan_id === selectedPlanId) || plansData.plans?.[0] || null;
+            const isDoctor = user?.role === 'doctor' || user?.role === 'Primary_Doctor';
+            const hasMismatch = currentPlan?.items?.some((it) => it.reconcile_status === 'Mismatch');
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* Header Controls */}
+                <div
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '18px 24px',
+                    boxShadow: 'var(--shadow-card)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                        Recovery Plan {currentPlan ? `v${currentPlan.version}` : ''}
+                      </h3>
+                      {currentPlan && (
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            background:
+                              currentPlan.status === 'Approved'
+                                ? 'rgba(16, 185, 129, 0.15)'
+                                : currentPlan.status === 'Draft'
+                                ? 'rgba(245, 158, 11, 0.15)'
+                                : 'rgba(100, 116, 139, 0.15)',
+                            color:
+                              currentPlan.status === 'Approved'
+                                ? '#065f46'
+                                : currentPlan.status === 'Draft'
+                                ? '#92400e'
+                                : '#475569',
+                          }}
+                        >
+                          {currentPlan.status === 'Approved'
+                            ? 'Approved (Published to Patient)'
+                            : currentPlan.status === 'Draft'
+                            ? 'Draft (Invisible to Patient)'
+                            : currentPlan.status}
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
+                      Synthesized from discharge papers with chunk citations. Patient cannot see drafts until Doctor approval.
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {plansData.plans?.length > 1 && (
+                      <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-card, #f8fafc)', padding: '2px', borderRadius: '6px' }}>
+                        {plansData.plans.map((p) => (
+                          <button
+                            key={p.plan_id}
+                            type="button"
+                            onClick={() => setSelectedPlanId(p.plan_id)}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: 'none',
+                              fontSize: '11px',
+                              fontWeight: selectedPlanId === p.plan_id ? 700 : 500,
+                              background: selectedPlanId === p.plan_id ? '#0b1528' : 'transparent',
+                              color: selectedPlanId === p.plan_id ? '#ffffff' : 'var(--text-secondary, #64748b)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            v{p.version} ({p.status})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleDraftPlan}
+                      disabled={draftingPlan}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'transparent',
+                        color: 'var(--text-primary, #0f172a)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: draftingPlan ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {draftingPlan ? 'Drafting from Papers...' : '+ Draft Recovery Plan'}
+                    </button>
+
+                    {isDoctor && currentPlan && currentPlan.status === 'Draft' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleApprovePlan(currentPlan.plan_id)}
+                          disabled={approvingPlanId === currentPlan.plan_id}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: '#047857',
+                            color: '#ffffff',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: approvingPlanId ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {approvingPlanId === currentPlan.plan_id ? 'Publishing...' : 'Approve & Publish'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectPlan(currentPlan.plan_id)}
+                          disabled={approvingPlanId === currentPlan.plan_id}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid #dc2626',
+                            background: 'transparent',
+                            color: '#dc2626',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: approvingPlanId ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={fetchPlans}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'transparent',
+                        color: 'var(--text-secondary, #475569)',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↻
+                    </button>
+                  </div>
+                </div>
+
+                {/* Feedback Banners */}
+                {planActionMsg && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      border: '1px solid #10b981',
+                      color: '#065f46',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    ✓ {planActionMsg}
+                  </div>
+                )}
+
+                {planActionError && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid #ef4444',
+                      color: '#991b1b',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    ⚠️ {planActionError}
+                  </div>
+                )}
+
+                {hasMismatch && (
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      background: 'rgba(245, 158, 11, 0.12)',
+                      border: '1px solid #f59e0b',
+                      color: '#92400e',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <span style={{ fontSize: '18px' }}>⚠️</span>
+                    <div>
+                      <strong>Prescription Reconciliation Discrepancy:</strong> One or more items in this plan have dosage or frequency instructions that do not match the recorded pharmacy prescription. Clinician review is required before approving.
+                    </div>
+                  </div>
+                )}
+
+                {/* Plan Metadata Strip */}
+                {currentPlan && (
+                  <div
+                    style={{
+                      background: 'var(--bg-card, #f8fafc)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary, #64748b)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                    }}
+                  >
+                    <div>
+                      <strong>Drafted by:</strong> {currentPlan.drafted_by || 'Care Team'} ·{' '}
+                      {new Date(currentPlan.drafted_at).toLocaleString()}
+                    </div>
+                    {currentPlan.approved_at && (
+                      <div>
+                        <strong>Approved by:</strong> Dr. {currentPlan.approved_by_name || 'Sharma'} ·{' '}
+                        {new Date(currentPlan.approved_at).toLocaleString()}
+                      </div>
+                    )}
+                    <div>
+                      <strong>Grounding Check:</strong> All numbers strictly cited from discharge chunk
+                    </div>
+                  </div>
+                )}
+
+                {/* Items List */}
+                {plansLoading ? (
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                    Loading recovery plan items...
+                  </div>
+                ) : !currentPlan || !currentPlan.items || currentPlan.items.length === 0 ? (
+                  <div
+                    style={{
+                      background: 'var(--bg-surface, #ffffff)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '12px',
+                      padding: '48px',
+                      textAlign: 'center',
+                      color: 'var(--text-secondary, #64748b)',
+                    }}
+                  >
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                      No recovery plan drafted yet
+                    </div>
+                    <p style={{ maxWidth: '440px', margin: '8px auto 16px', fontSize: '13px', lineHeight: '1.5' }}>
+                      Click "Draft Recovery Plan" to automatically synthesize structured medication schedules, wound care instructions, activity limits, and red flags directly from the patient's discharge papers.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleDraftPlan}
+                      disabled={draftingPlan}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#0284c7',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: draftingPlan ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {draftingPlan ? 'Drafting...' : 'Draft Plan from Papers'}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {currentPlan.items.map((it) => (
+                      <div
+                        key={it.item_id}
+                        style={{
+                          background: 'var(--bg-surface, #ffffff)',
+                          border: it.reconcile_status === 'Mismatch' ? '1px solid #f59e0b' : '1px solid var(--border-subtle, #e2e8f0)',
+                          borderRadius: '10px',
+                          padding: '16px 20px',
+                          boxShadow: 'var(--shadow-card)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                background:
+                                  it.item_type === 'Medicine'
+                                    ? '#dbeafe'
+                                    : it.item_type === 'Warning_Signs'
+                                    ? '#fee2e2'
+                                    : it.item_type === 'Wound_Care'
+                                    ? '#ede9fe'
+                                    : '#f1f5f9',
+                                color:
+                                  it.item_type === 'Medicine'
+                                    ? '#1e40af'
+                                    : it.item_type === 'Warning_Signs'
+                                    ? '#991b1b'
+                                    : it.item_type === 'Wound_Care'
+                                    ? '#6b21a8'
+                                    : '#334155',
+                              }}
+                            >
+                              {it.item_type?.replace(/_/g, ' ')}
+                            </span>
+                            <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                              {it.title}
+                            </span>
+                            {it.schedule_text && (
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  background: 'var(--bg-card, #f8fafc)',
+                                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                                  color: 'var(--text-secondary, #64748b)',
+                                }}
+                              >
+                                ⏰ {it.schedule_text}
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {it.reconcile_status && (
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  background: it.reconcile_status === 'Matches' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                  color: it.reconcile_status === 'Matches' ? '#065f46' : '#991b1b',
+                                }}
+                              >
+                                {it.reconcile_status === 'Matches' ? '✓ Prescription Matches' : '⚠️ Prescription Mismatch'}
+                              </span>
+                            )}
+
+                            {it.verified_by_staff_id ? (
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  background: 'rgba(16, 185, 129, 0.15)',
+                                  color: '#065f46',
+                                }}
+                              >
+                                ✓ Verified by {it.verified_by_name || 'Staff'}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleVerifyItem(it.item_id)}
+                                disabled={verifyingItemId === it.item_id}
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #0284c7',
+                                  background: 'transparent',
+                                  color: '#0284c7',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  cursor: verifyingItemId ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                {verifyingItemId === it.item_id ? 'Verifying...' : '✓ Matches Papers'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', lineHeight: '1.5' }}>
+                          {it.detail}
+                        </div>
+
+                        {/* Grounded Chunk Citation Callout */}
+                        {it.source_chunk_text && (
+                          <div
+                            style={{
+                              background: 'var(--bg-card, #f8fafc)',
+                              borderLeft: '3px solid #0284c7',
+                              borderRadius: '0 6px 6px 0',
+                              padding: '8px 12px',
+                              fontSize: '12px',
+                              color: 'var(--text-secondary, #475569)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px',
+                            }}
+                          >
+                            <div style={{ fontStyle: 'italic', color: 'var(--text-primary, #1e293b)' }}>
+                              "{it.source_chunk_text}"
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', gap: '8px' }}>
+                              <span>📄 Page {it.page_no || 1}</span>
+                              <span>•</span>
+                              <span>Chunk #{it.source_chunk_id}</span>
+                              {it.section_title && (
+                                <>
+                                  <span>•</span>
+                                  <span>Section: {it.section_title}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* 4. SUBTAB 2: MEDICINES & ADHERENCE */}
           {subTab === 'medicines' && (

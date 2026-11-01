@@ -5874,6 +5874,20 @@ def get_doctor_decisions(
                 "priority_weight": 70,
             })
 
+        # 7. Recovery Plans Awaiting Approval (Phase 4 Feature F5 - tracked in Approvals -> Recovery plans)
+        cur.execute(
+            """SELECT rp.plan_id, rp.patient_id, p.full_name, p.patient_code,
+                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+                      dr.condition_summary, rp.version, rp.drafted_at,
+                      ROUND(TIMESTAMPDIFF(MINUTE, rp.drafted_at, NOW())) AS waited_mins
+               FROM recovery_plans rp
+               JOIN patients p ON rp.patient_id = p.patient_id
+               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
+               WHERE rp.status = 'Draft'
+               ORDER BY rp.drafted_at ASC"""
+        )
+        plan_rows = cur.fetchall()
+
         # Sort all decision items by priority weight descending, then id
         decision_items.sort(key=lambda x: x["priority_weight"], reverse=True)
 
@@ -5883,6 +5897,7 @@ def get_doctor_decisions(
                 "summaries_to_approve": len(summary_rows),
                 "limit_change_requests": len(proposal_rows),
                 "photo_reviews_waiting": len(photo_doctor_rows),
+                "plans_to_approve": len(plan_rows),
                 "patients_in_followup": total_patients,
             },
             "items": decision_items,
@@ -6853,6 +6868,174 @@ def trigger_photo_retention_cleanup(
     """Audited purge of wound photos exceeding retention threshold."""
     from .photo_service import cleanup_retention_photos
     return cleanup_retention_photos(retention_days=body.retention_days, staff_id=user["staff_id"])
+
+
+# ─── Feature F5 & F6: Recovery Plan & Patient Admission Endpoints ─────────────
+
+class DraftPlanIn(BaseModel):
+    patient_id: int
+    source_document_id: Optional[int] = None
+
+
+class RejectPlanIn(BaseModel):
+    reason: Optional[str] = ""
+
+
+class UnderstandingAnswerIn(BaseModel):
+    check_id: int
+    selected_option_index: int
+
+
+class AdmitPatientIn(BaseModel):
+    patient: Dict[str, Any]
+    discharge: Dict[str, Any]
+    prescriptions: List[Dict[str, Any]] = []
+    proposed_limits: List[Dict[str, Any]] = []
+    device: Optional[Dict[str, Any]] = None
+    caregiver: Optional[Dict[str, Any]] = None
+
+
+@app.post("/staff/plans/draft")
+def draft_plan_endpoint(
+    body: DraftPlanIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Draft a recovery plan from patient discharge papers with number guards and reconciliation."""
+    from .plan_service import draft_recovery_plan
+    try:
+        return draft_recovery_plan(
+            patient_id=body.patient_id,
+            staff_id=user["staff_id"],
+            staff_role=user["role"],
+            source_document_id=body.source_document_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/staff/plans/pending")
+def get_pending_plans_endpoint(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """List recovery plans awaiting doctor approval."""
+    from .plan_service import get_pending_plans_for_doctor
+    return {"pending_plans": get_pending_plans_for_doctor()}
+
+
+@app.get("/staff/patients/{patient_id}/plans")
+def get_patient_plans_endpoint(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """List all recovery plans for a patient (Draft, Approved, Superseded)."""
+    from .plan_service import get_staff_patient_plans
+    return get_staff_patient_plans(patient_id)
+
+
+@app.post("/staff/plans/items/{item_id}/verify")
+def verify_plan_item_endpoint(
+    item_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Nurse or Doctor marks a recovery plan item as verified against discharge papers."""
+    from .plan_service import verify_plan_item
+    try:
+        return verify_plan_item(item_id, user["staff_id"], user["role"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/staff/plans/{plan_id}/approve")
+def approve_plan_endpoint(
+    plan_id: int,
+    user: Dict[str, Any] = Depends(require_doctor),
+):
+    """Doctor-only approval of a drafted recovery plan."""
+    from .plan_service import approve_recovery_plan
+    try:
+        return approve_recovery_plan(plan_id, user["staff_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/staff/plans/{plan_id}/reject")
+def reject_plan_endpoint(
+    plan_id: int,
+    body: RejectPlanIn = RejectPlanIn(),
+    user: Dict[str, Any] = Depends(require_doctor),
+):
+    """Doctor-only rejection of a drafted recovery plan."""
+    from .plan_service import reject_recovery_plan
+    try:
+        return reject_recovery_plan(plan_id, user["staff_id"], body.reason or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/patient/me/plan")
+def get_patient_plan_endpoint(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Retrieve approved recovery plan for authenticated patient.
+    If only draft plans exist, returns 404 (draft plans are strictly invisible to patients).
+    """
+    from .plan_service import get_patient_active_plan
+    plan = get_patient_active_plan(user["patient_id"])
+    if not plan:
+        raise HTTPException(
+            status_code=404,
+            detail="Your care team has not yet published an approved recovery plan. Please check back shortly.",
+        )
+    return plan
+
+
+@app.get("/patient/me/plan/understanding-check")
+def get_patient_understanding_check_endpoint(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Retrieve understanding check questions for the patient's active approved plan."""
+    from .plan_service import get_patient_understanding_check
+    return {"questions": get_patient_understanding_check(user["patient_id"])}
+
+
+@app.post("/patient/me/plan/understanding-check/answer")
+def submit_understanding_check_answer_endpoint(
+    body: UnderstandingAnswerIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Submit answer to understanding check question. Creates nurse proposal if incorrect."""
+    from .plan_service import submit_understanding_answer
+    try:
+        return submit_understanding_answer(user["patient_id"], body.check_id, body.selected_option_index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/staff/admit")
+def admit_patient_endpoint(
+    body: AdmitPatientIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Nurse onboarding wizard: start follow-up for newly discharged patient.
+    Creates patient, discharge document, chunks, draft plan, alert limits (status: Pending_Approval),
+    and a welcome call task due within 48 hours.
+    """
+    from .plan_service import admit_patient_wizard
+    try:
+        return admit_patient_wizard(
+            nurse_id=user["staff_id"],
+            patient_data=body.patient,
+            discharge_data=body.discharge,
+            prescriptions_data=body.prescriptions,
+            proposed_limits=body.proposed_limits,
+            device_data=body.device,
+            caregiver_data=body.caregiver,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 

@@ -22,6 +22,7 @@ import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import CheckinGuide from './CheckinGuide';
 import WoundPhotoUpload from './WoundPhotoUpload';
+import PatientMyPlanView from './PatientMyPlanView';
 import {
   IconLogo,
   IconPill,
@@ -986,6 +987,7 @@ export default function CareLoopPatientPortal({ user }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '22px' }}>
               {[
                 { id: 'recovery', label: lang === 'hi' ? 'होम' : 'Home', Icon: IconActivity },
+                { id: 'plan', label: lang === 'hi' ? 'मेरी योजना' : 'My plan', Icon: IconFileText },
                 {
                   id: 'prescriptions',
                   label: lang === 'hi' ? 'दवाइयाँ' : 'Medicines',
@@ -1460,6 +1462,7 @@ export default function CareLoopPatientPortal({ user }) {
                 <IconShieldCheck width={14} height={14} />
                 <span>
                   {activeNav === 'recovery' && (lang === 'hi' ? 'मेरी रिकवरी' : 'MY RECOVERY')}
+                  {activeNav === 'plan' && (lang === 'hi' ? 'मेरी योजना' : 'MY PLAN')}
                   {activeNav === 'prescriptions' && (lang === 'hi' ? 'दवाइयाँ और शेड्यूल' : 'MY MEDICINES')}
                   {activeNav === 'checkin' && (lang === 'hi' ? 'दैनिक चेक-इन' : 'MY CHECK-IN')}
                   {activeNav === 'chat' && (lang === 'hi' ? 'मेरे कागज़ात' : 'MY PAPERS')} ·{' '}
@@ -1478,6 +1481,7 @@ export default function CareLoopPatientPortal({ user }) {
                 }}
               >
                 {activeNav === 'recovery' && (lang === 'hi' ? `नमस्ते ${todayData?.name || 'आरव'}` : `Hi ${todayData?.name || 'Aarav'}`)}
+                {activeNav === 'plan' && (lang === 'hi' ? 'मेरी रिकवरी योजना' : 'My Personal Recovery Plan')}
                 {activeNav === 'prescriptions' && (lang === 'hi' ? 'दवाइयाँ और कैलेंडर' : 'Medicines & Calendar')}
                 {activeNav === 'checkin' && (lang === 'hi' ? 'दैनिक स्वास्थ्य चेक-इन' : 'Daily health check-in')}
                 {activeNav === 'chat' && (lang === 'hi' ? 'डिस्चार्ज रिकवरी सहायक' : 'Ask my papers')}
@@ -2565,6 +2569,17 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
             </>
+          )}
+
+          {/* ─── TAB: MY PLAN (Phase 4 Feature F5) ─── */}
+          {activeNav === 'plan' && (
+            <PatientMyPlanView
+              lang={lang}
+              onAskAssistant={(query) => {
+                setChatInput(query);
+                setActiveNav('chat');
+              }}
+            />
           )}
 
           {/* ─── 7. TAB: MEDICINES (GROUPED DOSES & CALENDAR) ─── */}

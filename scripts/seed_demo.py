@@ -428,8 +428,13 @@ def main():
 
             # Step 13: Seed Scheduled Actions for Feature F1 Rounds (~15 upcoming, ~20 history)
             print("  13. Seeding Rounds scheduled actions...")
+            cur.execute("SET FOREIGN_KEY_CHECKS = 0")
+            cur.execute("TRUNCATE TABLE plan_understanding_checks")
+            cur.execute("TRUNCATE TABLE recovery_plan_items")
+            cur.execute("TRUNCATE TABLE recovery_plans")
             cur.execute("TRUNCATE TABLE scheduled_actions")
             cur.execute("TRUNCATE TABLE agent_proposals")
+            cur.execute("SET FOREIGN_KEY_CHECKS = 1")
 
             # 15 Upcoming Scheduled Actions (next 24 hours)
             upcoming_actions = [
@@ -607,6 +612,110 @@ def main():
                    VALUES (%s, %s, %s, %s, 'Usable', %s, %s, 'Reviewed', 'No_Concern_Seen', %s, 2, %s, %s)""",
                 (2, p3_main, p3_thumb, p3_sha, json.dumps({"width": 800, "height": 800, "sharpness": 1310.0, "brightness": 130.4}), "Portal dressing removed as instructed, light walking started.", "Arthroscopy portal healing normally, minimal expected post-op effusion, no signs of infection.", now - timedelta(days=1), now - timedelta(days=1, hours=2))
             )
+
+            # 17. Seed Recovery Plans & Understanding Checks (Phase 4 Feature F5)
+            print("  17. Seeding recovery plans and understanding checks for cohort...")
+
+            # 17.1 Aarav Patel (Patient 1) — Plan v1 (Approved by Dr. Ananya Sharma)
+            cur.execute(
+                """INSERT INTO recovery_plans (plan_id, patient_id, version, status, source_document_id, drafted_by, drafted_at, approved_by_staff_id, approved_at)
+                   VALUES (1, 1, 1, 'Approved', 1, 'Agent', %s, 1, %s)""",
+                (now - timedelta(days=2, hours=2), now - timedelta(days=2))
+            )
+            aarav_items = [
+                (1, 1, 'Medicine', 'CardioPulse-XR', '1 tablet morning (08:00) and evening (20:00).', '08:00 and 20:00', 1, 'Matches', 2, now - timedelta(days=2, hours=1), 1),
+                (2, 1, 'Medicine', 'VasculoNorm-5', '1 tablet afternoon (13:00) with water. Do not modify or double doses without doctor review.', '13:00 with water', 1, 'Matches', 2, now - timedelta(days=2, hours=1), 2),
+                (3, 1, 'Appointment', 'Cardiology OPD Follow-up', 'Your next scheduled cardiology appointment is on post-discharge day 7 at 10:30 AM with Dr. Ananya Sharma at OPD Clinic Room 302.', 'Day 7 at 10:30 AM', 2, 'Not_Applicable', 2, now - timedelta(days=2, hours=1), 3),
+                (4, 1, 'Warning_Sign', 'Emergency Red Flag Signs', 'Watch for severe chest tightness, sudden shortness of breath, SpO2 dropping below 94%, or heart rate above 100 bpm. Call 112 immediately if chest pain is severe or radiating.', 'Immediate — 112', 3, 'Not_Applicable', 2, now - timedelta(days=2, hours=1), 4),
+                (5, 1, 'Activity', 'Physical Mobility Guidelines', 'Walk indoors for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg. Sleep on your back with upper torso elevated.', 'Twice daily', 4, 'Not_Applicable', 2, now - timedelta(days=2, hours=1), 5),
+                (6, 1, 'Wound_Care', 'Daily Sternal Incision Care', 'Keep sternal incision dry and clean. Do not apply unauthorized ointments. Check daily for redness, warmth, or unusual drainage.', 'Daily at morning check-in', 5, 'Not_Applicable', 2, now - timedelta(days=2, hours=1), 6),
+            ]
+            for it in aarav_items:
+                cur.execute(
+                    """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    it
+                )
+
+            # Aarav Understanding Check (3 questions, 2 answered correctly, 1 pending)
+            cur.execute(
+                """INSERT INTO plan_understanding_checks (check_id, patient_id, plan_id, question_text, options, correct_option_index, selected_option_index, is_correct, answered_at)
+                   VALUES (1, 1, 1, 'According to your recovery papers, when should you take CardioPulse-XR?',
+                           %s, 0, 0, 1, %s)""",
+                (json.dumps(["08:00 and 20:00 as instructed in your discharge plan", "Only when feeling acute pain", "Once every three days"]), now - timedelta(days=1))
+            )
+            cur.execute(
+                """INSERT INTO plan_understanding_checks (check_id, patient_id, plan_id, question_text, options, correct_option_index, selected_option_index, is_correct, answered_at)
+                   VALUES (2, 1, 1, 'If you experience severe chest pain, sudden breathlessness, or heavy bleeding, what is the correct action?',
+                           %s, 0, 0, 1, %s)""",
+                (json.dumps(["Call 112 or emergency services immediately and press SOS", "Wait 24 hours to see if symptoms resolve", "Take an extra sleeping pill"]), now - timedelta(days=1))
+            )
+            cur.execute(
+                """INSERT INTO plan_understanding_checks (check_id, patient_id, plan_id, question_text, options, correct_option_index, selected_option_index, is_correct, answered_at)
+                   VALUES (3, 1, 1, 'What is your recommended physical activity guidance?',
+                           %s, 0, NULL, NULL, NULL)""",
+                (json.dumps(["Walk indoors for 10-15 minutes twice daily; avoid lifting over 5 kg", "Heavy weightlifting and intense exercise daily", "Complete bed rest without moving"]), )
+            )
+
+            # 17.2 Kabir Mehta (Patient 4) — Plan v1 (Approved, 3 of 3 understanding check correct)
+            cur.execute(
+                """INSERT INTO recovery_plans (plan_id, patient_id, version, status, source_document_id, drafted_by, drafted_at, approved_by_staff_id, approved_at)
+                   VALUES (2, 4, 1, 'Approved', 4, 'Agent', %s, 1, %s)""",
+                (now - timedelta(days=6), now - timedelta(days=5))
+            )
+            cur.execute(
+                """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                   VALUES (7, 2, 'Medicine', 'GastroShield-D', '1 capsule morning before meals.', 'Morning before meals', 10, 'Matches', 2, %s, 1)""",
+                (now - timedelta(days=5),)
+            )
+            cur.execute(
+                """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                   VALUES (8, 2, 'Appointment', 'Incision Clearance Visit', 'Follow-up visit scheduled in 6 days for incision clearance.', 'In 6 days', 11, 'Not_Applicable', 2, %s, 2)""",
+                (now - timedelta(days=5),)
+            )
+
+            for c_id, q_text in enumerate([
+                "When should you take GastroShield-D?",
+                "What is the scheduled timeline for your incision clearance appointment?",
+                "What should you do if sudden severe stomach distress occurs?"
+            ], start=4):
+                cur.execute(
+                    """INSERT INTO plan_understanding_checks (check_id, patient_id, plan_id, question_text, options, correct_option_index, selected_option_index, is_correct, answered_at)
+                       VALUES (%s, 4, 2, %s, %s, 0, 0, 1, %s)""",
+                    (c_id, q_text, json.dumps(["Correct clinical recommendation per discharge papers", "Incorrect option A", "Incorrect option B"]), now - timedelta(days=4))
+                )
+
+            # 17.3 Meera Sharma (Patient 2) — Plan v1 (Draft waiting for doctor, contains Mismatch example)
+            cur.execute(
+                """INSERT INTO recovery_plans (plan_id, patient_id, version, status, source_document_id, drafted_by, drafted_at)
+                   VALUES (3, 2, 1, 'Draft', 2, 'Agent', %s)""",
+                (now - timedelta(hours=6),)
+            )
+            cur.execute(
+                """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                   VALUES (9, 3, 'Medicine', 'JointEase-XR', '1 tablet twice daily with water.', 'Twice daily', 6, 'Mismatch', NULL, NULL, 1)"""
+            )
+            cur.execute(
+                """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                   VALUES (10, 3, 'Appointment', 'Range of Motion Evaluation', 'Follow up with Dr. Ananya Sharma in 7 days for range-of-motion evaluation.', 'In 7 days', 7, 'Not_Applicable', 2, %s, 2)""",
+                (now - timedelta(hours=5),)
+            )
+
+            # 17.4 Sunita Rao (Patient 5) — Plan v1 (Draft waiting for doctor)
+            cur.execute(
+                """INSERT INTO recovery_plans (plan_id, patient_id, version, status, source_document_id, drafted_by, drafted_at)
+                   VALUES (4, 5, 1, 'Draft', 5, 'Agent', %s)""",
+                (now - timedelta(hours=4),)
+            )
+            cur.execute(
+                """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                   VALUES (11, 4, 'Medicine', 'CardioPulse-XR', '1 tablet twice daily with water.', 'Twice daily', 12, 'Matches', NULL, NULL, 1)"""
+            )
+            cur.execute(
+                """INSERT INTO recovery_plan_items (item_id, plan_id, item_type, title, detail, schedule_text, source_chunk_id, reconcile_status, verified_by_staff_id, verified_at, display_order)
+                   VALUES (12, 4, 'Warning_Sign', 'Adherence & Fluid Warning Signs', 'Missed doses or sudden weight gain requires immediate clinical review.', 'Immediate', 13, 'Not_Applicable', NULL, NULL, 2)"""
+            )
+
 
         conn.commit()
         duration = (datetime.now() - start_time).total_seconds()

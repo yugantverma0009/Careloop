@@ -11,6 +11,9 @@ import {
   rejectRuleProposal,
   getDoctorCheckinTemplates,
   approveDoctorCheckinTemplate,
+  getPendingRecoveryPlans,
+  approveRecoveryPlan,
+  rejectRecoveryPlan,
 } from '../services/api';
 
 export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
@@ -68,6 +71,46 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
     }
   };
 
+  // Recovery Plans State (Phase 4 Feature F5)
+  const [pendingPlans, setPendingPlans] = useState([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+
+  const fetchPendingPlans = async () => {
+    setPlansLoading(true);
+    try {
+      const data = await getPendingRecoveryPlans();
+      setPendingPlans(data.pending_plans || []);
+    } catch (err) {
+      console.error('Failed to load pending recovery plans:', err);
+    } finally {
+      setPlansLoading(false);
+    }
+  };
+
+  const handleApprovePlan = async (planId) => {
+    try {
+      await approveRecoveryPlan(planId);
+      setActionMsg(`Recovery plan #${planId} approved successfully and published to patient portal.`);
+      setTimeout(() => setActionMsg(''), 4000);
+      await fetchPendingPlans();
+    } catch (err) {
+      alert(`Approval failed: ${err.message || 'Error'}`);
+    }
+  };
+
+  const handleRejectPlan = async (planId) => {
+    const reason = prompt('Please enter the clinical reason for rejecting this plan draft:');
+    if (reason === null) return;
+    try {
+      await rejectRecoveryPlan(planId, reason);
+      setActionMsg(`Recovery plan #${planId} marked as rejected.`);
+      setTimeout(() => setActionMsg(''), 4000);
+      await fetchPendingPlans();
+    } catch (err) {
+      alert(`Rejection failed: ${err.message || 'Error'}`);
+    }
+  };
+
   const fetchProposals = async () => {
     setProposalsLoading(true);
     try {
@@ -108,10 +151,17 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
   };
 
   useEffect(() => {
+    fetchPendingPlans();
+    fetchCheckinTemplates();
+  }, []);
+
+  useEffect(() => {
     if (approvalTab === 'limits') {
       fetchProposals();
     } else if (approvalTab === 'checkin_templates') {
       fetchCheckinTemplates();
+    } else if (approvalTab === 'plans') {
+      fetchPendingPlans();
     }
   }, [approvalTab]);
 
@@ -327,6 +377,38 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
             }}
           >
             {checkinTemplates.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setApprovalTab('plans')}
+          style={{
+            padding: '8px 18px',
+            borderRadius: '8px',
+            border: 'none',
+            background: approvalTab === 'plans' ? 'var(--role-doctor, #7c3aed)' : 'transparent',
+            color: approvalTab === 'plans' ? '#ffffff' : 'var(--text-secondary, #475569)',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>📑 Recovery Plans</span>
+          <span
+            style={{
+              fontSize: '11px',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: approvalTab === 'plans' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+              color: approvalTab === 'plans' ? '#ffffff' : '#475569',
+              fontWeight: 800,
+            }}
+          >
+            {pendingPlans.length} draft
           </span>
         </button>
       </div>
@@ -667,6 +749,220 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* SECTION D: RECOVERY PLANS (Phase 4 Feature F5) */}
+      {approvalTab === 'plans' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '16px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                Recovery Plans Waiting for Physician Approval ({pendingPlans.length})
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
+                Drafted from discharge summaries. Doctor approval is strictly required before plans become visible to patients.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchPendingPlans}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-subtle, #cbd5e1)',
+                background: 'transparent',
+                color: 'var(--text-secondary, #475569)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              ↻ Refresh
+            </button>
+          </div>
+
+          {plansLoading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+              Loading recovery plans...
+            </div>
+          ) : pendingPlans.length === 0 ? (
+            <div
+              style={{
+                background: 'var(--bg-surface, #ffffff)',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+                borderRadius: '12px',
+                padding: '48px',
+                textAlign: 'center',
+                color: 'var(--text-secondary, #64748b)',
+                fontSize: '14px',
+              }}
+            >
+              ✓ No draft recovery plans awaiting doctor approval.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {pendingPlans.map((plan) => (
+                <div
+                  key={plan.plan_id}
+                  style={{
+                    background: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '20px 24px',
+                    boxShadow: 'var(--shadow-card)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '14px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                          {plan.patient_name}
+                        </span>
+                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+                          ({plan.patient_code})
+                        </span>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
+                          Draft v{plan.version}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #64748b)', marginTop: '2px' }}>
+                        Drafted from discharge papers · {plan.items?.length || 0} recovery guidelines
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleRejectPlan(plan.plan_id)}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: '6px',
+                          border: '1px solid #ef4444',
+                          background: 'transparent',
+                          color: '#dc2626',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ✕ Reject Draft
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApprovePlan(plan.plan_id)}
+                        style={{
+                          padding: '7px 16px',
+                          borderRadius: '6px',
+                          background: 'var(--role-doctor, #7c3aed)',
+                          border: 'none',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ✓ Approve Plan (Publish)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mismatch Warning Alert if applicable */}
+                  {plan.has_mismatch && (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        background: '#fef2f2',
+                        border: '1px solid #f87171',
+                        color: '#991b1b',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <span>⚠️</span>
+                      <strong>Medication Reconciliation Mismatch detected:</strong> One or more items contradict active prescriptions. Clinician check required before approval.
+                    </div>
+                  )}
+
+                  {/* Items List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {plan.items?.map((it, idx) => (
+                      <div
+                        key={it.item_id || idx}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: it.reconcile_status === 'Mismatch' ? '1px solid #fca5a5' : '1px solid #e2e8f0',
+                          background: it.reconcile_status === 'Mismatch' ? '#fff5f5' : '#f8fafc',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '12px',
+                          fontSize: '13px',
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                              {it.title}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                              ({it.item_type})
+                            </span>
+                            {it.reconcile_status === 'Mismatch' && (
+                              <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#dc2626', color: '#ffffff' }}>
+                                Mismatch
+                              </span>
+                            )}
+                            {it.reconcile_status === 'Matches' && (
+                              <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#10b981', color: '#ffffff' }}>
+                                ✓ Matches Rx
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
+                            {it.detail} {it.schedule_text ? ` · 🕒 ${it.schedule_text}` : ''}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                            📄 Source: {it.section_title || 'General'}{it.page_no ? ` · p.${it.page_no}` : ''}
+                          </div>
+                        </div>
+
+                        <div>
+                          {it.verified_at ? (
+                            <span style={{ fontSize: '11px', color: '#059669', fontWeight: 700 }}>
+                              ✓ Verified
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                              Pending Nurse Check
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

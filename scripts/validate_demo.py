@@ -279,6 +279,34 @@ def validate():
             else:
                 print(f"  ✓ Wound photos verified: {photo_row['total_photos']} photos (1 pending review, 2 reviewed, all files intact on disk)")
 
+        # Check 20: Recovery Plans & Items Integrity (Phase 4 Feature F5)
+        cur.execute(
+            """SELECT COUNT(*) AS total_plans,
+                      SUM(status = 'Approved') AS approved_plans,
+                      SUM(status = 'Draft') AS draft_plans
+               FROM recovery_plans"""
+        )
+        plan_row = cur.fetchone()
+        if not plan_row or plan_row["total_plans"] != 4:
+            failures.append(f"❌ recovery_plans count mismatch: {plan_row.get('total_plans') if plan_row else 0} (expected 4)")
+        elif plan_row["approved_plans"] != 2 or plan_row["draft_plans"] != 2:
+            failures.append(f"❌ recovery_plans status mismatch: {plan_row['approved_plans']} approved, {plan_row['draft_plans']} draft (expected 2 approved, 2 draft)")
+        else:
+            # Check items
+            cur.execute(
+                """SELECT COUNT(*) AS total_items,
+                          SUM(reconcile_status = 'Mismatch') AS mismatches,
+                          SUM(source_chunk_id IS NULL) AS orphan_items
+                   FROM recovery_plan_items"""
+            )
+            item_row = cur.fetchone()
+            if item_row["orphan_items"] > 0:
+                failures.append(f"❌ recovery_plan_items has {item_row['orphan_items']} items without source chunk citations!")
+            elif item_row["mismatches"] < 1:
+                failures.append("❌ Expected at least 1 medication reconciliation Mismatch (Meera), found 0")
+            else:
+                print(f"  ✓ Recovery plans verified: 4 plans (2 approved, 2 draft), {item_row['total_items']} items, {item_row['mismatches']} reconciliation mismatch example")
+
     conn.close()
 
     if failures:
@@ -287,7 +315,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 19 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 20 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 
