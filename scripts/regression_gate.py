@@ -19,8 +19,9 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 os.environ["CARELOOP_EVAL_MODE"] = "1"
 
-from backend.app.agents.eval_datasets import get_dev_dataset, get_held_out_dataset
+from backend.app.agents.eval_datasets import get_dev_dataset, get_held_out_dataset, DEV_COPILOT, HELDOUT_COPILOT
 from backend.app.agents.papers_agent import PapersAgent
+from backend.app.agents.copilot_service import classify_staff_question, ask_careloop
 from backend.app.db import get_conn
 from backend.app.agents.config import REGRESSION_GATE_MAX_QUALITY_DROP_POINTS
 
@@ -184,7 +185,48 @@ def main():
     dev_metrics = evaluate_split("DEV (80%)", get_dev_dataset())
     held_out_metrics = evaluate_split("HELD-OUT (20%)", get_held_out_dataset())
 
+    # Phase 3 Staff Copilot Evaluation
+    print("\n" + "=" * 70)
+    print("🤖 EVALUATING STAFF COPILOT: 'ASK CARELOOP' (PHASE 3)")
+    print("=" * 70)
+
+    def eval_copilot_split(split_name, items):
+        correct = 0
+        total = len(items)
+        param_valid = 0
+        for item in items:
+            res = classify_staff_question(item["q"])
+            tpl = res["template"]
+            params = res["parameters"]
+            match = (tpl == item["expected_template"])
+            if match:
+                if tpl == "find_patients" and "expected_filter" in item:
+                    match = (params.get("filter") == item["expected_filter"])
+                elif tpl == "explain_alert" and "expected_flag_id" in item:
+                    match = (params.get("flag_id") == item["expected_flag_id"])
+                elif tpl == "draft_message" and "expected_purpose" in item:
+                    match = (params.get("purpose") == item["expected_purpose"])
+            if match:
+                correct += 1
+            if res.get("confidence", 0) > 0 and "template" in res:
+                param_valid += 1
+        acc = (correct / total) * 100.0 if total else 100.0
+        val_acc = (param_valid / total) * 100.0 if total else 100.0
+        print(f"  [{split_name}] Copilot Template Mapping: {acc:.1f}% ({correct}/{total}) [Target: >= 90.0%]")
+        print(f"  [{split_name}] Parameter Schema Valid:   {val_acc:.1f}% ({param_valid}/{total}) [Target: 100.0%]")
+        return acc, val_acc
+
+    copilot_dev_acc, copilot_dev_val = eval_copilot_split("COPILOT DEV (80%)", DEV_COPILOT)
+    copilot_ho_acc, copilot_ho_val = eval_copilot_split("COPILOT HELD-OUT (20%)", HELDOUT_COPILOT)
+
     failures = []
+
+    if copilot_dev_acc < 90.0:
+        failures.append(f"COPILOT QUALITY FAILURE in DEV: Mapping accuracy is {copilot_dev_acc:.1f}% (target >= 90.0%)")
+    if copilot_ho_acc < 90.0:
+        failures.append(f"COPILOT QUALITY FAILURE in HELD-OUT: Mapping accuracy is {copilot_ho_acc:.1f}% (target >= 90.0%)")
+    if copilot_dev_val < 100.0 or copilot_ho_val < 100.0:
+        failures.append("COPILOT SAFETY FAILURE: Parameter validation schema violation detected (target: 100.0%)")
 
     # Enforce safety rules (Zero tolerance)
     for name, m in [("DEV", dev_metrics), ("HELD-OUT", held_out_metrics)]:
@@ -209,7 +251,7 @@ def main():
             print(f"  - {f}")
         sys.exit(1)
     else:
-        print("✅ REGRESSION GATE PASSED (All Phase 2 safety & quality gates met on DEV & HELD-OUT)")
+        print("✅ REGRESSION GATE PASSED (All Phase 1, 2 & 3 safety, quality & copilot gates met on DEV & HELD-OUT)")
         sys.exit(0)
 
 

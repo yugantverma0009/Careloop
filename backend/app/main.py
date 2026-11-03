@@ -5508,6 +5508,39 @@ def global_search(
     }
 
 
+# ─── Phase 3 Staff Copilot: "Ask CareLoop" (Ctrl+K Ask Mode) ─────────────────
+
+class CopilotAskIn(BaseModel):
+    query: str
+    bypass_cache: bool = False
+
+
+@app.post("/staff/copilot/ask")
+def staff_copilot_ask(
+    body: CopilotAskIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Phase 3: Staff Copilot 'Ask CareLoop' endpoint.
+    Strictly maps queries to allowlisted templates with zero text-to-SQL.
+    """
+    from backend.app.agents.copilot_service import ask_careloop
+    return ask_careloop(
+        query=body.query,
+        user=user,
+        bypass_cache=body.bypass_cache
+    )
+
+
+@app.get("/staff/copilot/templates")
+def staff_copilot_templates(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Returns allowlisted template catalog for Copilot 'Ask' mode."""
+    from backend.app.agents.copilot_service import ALLOWLISTED_TEMPLATES
+    return {"templates": ALLOWLISTED_TEMPLATES}
+
+
 # ─── Care Rules & Pathway Templates (Feature D-13) ───────────────────────────
 
 class ApplyPathwayRuleIn(BaseModel):

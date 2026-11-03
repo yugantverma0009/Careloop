@@ -169,6 +169,77 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [highlightedRowIndex, setHighlightedRowIndex] = useState(0);
 
+  // Phase 3 Copilot "Ask CareLoop" State
+  const [paletteMode, setPaletteMode] = useState('ask'); // 'ask' or 'search'
+  const [copilotLoading, setCopilotLoading] = useState(false);
+  const [copilotResult, setCopilotResult] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState('');
+  const [draftSendSuccess, setDraftSendSuccess] = useState(false);
+
+  // Push-to-Talk Web Speech API (zero external speech libraries)
+  const handleToggleVoice = () => {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      alert("Voice input is not supported in this browser. Please use Google Chrome or Edge.");
+      return;
+    }
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+    try {
+      const recognition = new SpeechRec();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        setCommandQuery(text);
+        setIsListening(false);
+        handleAskCopilot(text);
+      };
+      recognition.onerror = (err) => {
+        console.error("Speech recognition error:", err);
+        setIsListening(false);
+      };
+      recognition.onend = () => setIsListening(false);
+      recognition.start();
+    } catch (err) {
+      console.error("Failed to start speech recognition:", err);
+      setIsListening(false);
+    }
+  };
+
+  const handleAskCopilot = async (overrideQuery = null) => {
+    const q = (overrideQuery !== null ? overrideQuery : commandQuery || '').trim();
+    if (!q) return;
+    setCopilotLoading(true);
+    setCopilotResult(null);
+    setSelectedChannel('');
+    setDraftSendSuccess(false);
+
+    try {
+      const staffToken = localStorage.getItem('careloop_token') || '';
+      const res = await fetch(`${API_BASE}/staff/copilot/ask`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${staffToken}`
+        },
+        body: JSON.stringify({ query: q, bypass_cache: false })
+      });
+      const data = await res.json();
+      setCopilotResult(data);
+    } catch (err) {
+      setCopilotResult({ error: 'Failed to contact Ask CareLoop copilot service.' });
+    } finally {
+      setCopilotLoading(false);
+    }
+  };
+
   // Phase 2 Feature F3: SMS Patient Simulator State
   const [smsSimOpen, setSmsSimOpen] = useState(false);
   const [smsSimPhone, setSmsSimPhone] = useState('+91-98765-00001');
@@ -286,8 +357,10 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
 
   // Search execution for Command Palette (D-21)
   useEffect(() => {
-    if (!commandPaletteOpen || !commandQuery.trim() || commandQuery.trim().length < 2) {
-      setCommandResults({ patients: [], flags: [], tasks: [], notes: [] });
+    if (paletteMode !== 'search' || !commandPaletteOpen || !commandQuery.trim() || commandQuery.trim().length < 2) {
+      if (paletteMode === 'search') {
+        setCommandResults({ patients: [], flags: [], tasks: [], notes: [] });
+      }
       return;
     }
     const timer = setTimeout(async () => {
@@ -1632,203 +1705,698 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Search Input Bar */}
+            {/* Mode Switcher Tabs */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                padding: '14px 18px',
+                justifyContent: 'space-between',
+                padding: '8px 16px',
+                background: 'var(--bg-base, #f8fafc)',
                 borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
-                gap: '12px',
               }}
             >
-              <IconSearch width={18} height={18} style={{ color: 'var(--text-muted, #94a3b8)' }} />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setPaletteMode('ask')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: paletteMode === 'ask' ? '#0284c7' : 'transparent',
+                    color: paletteMode === 'ask' ? '#ffffff' : 'var(--text-muted, #64748b)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <span>✨</span> Ask CareLoop (Copilot)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaletteMode('search')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: paletteMode === 'search' ? '#0284c7' : 'transparent',
+                    color: paletteMode === 'search' ? '#ffffff' : 'var(--text-muted, #64748b)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <IconSearch width={13} height={13} /> Directory Search
+                </button>
+              </div>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
+                ESC to close
+              </span>
+            </div>
+
+            {/* Input Bar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                gap: '10px',
+              }}
+            >
+              {paletteMode === 'ask' ? (
+                <span style={{ fontSize: '16px' }}>✨</span>
+              ) : (
+                <IconSearch width={18} height={18} style={{ color: 'var(--text-muted, #94a3b8)' }} />
+              )}
               <input
                 autoFocus
                 type="text"
-                placeholder="Search patients, active flags, tasks, clinical notes... (Esc to close)"
+                placeholder={
+                  paletteMode === 'ask'
+                    ? "Ask CareLoop (e.g. 'who missed doses today', 'snapshot of Aarav', 'explain alert 1')..."
+                    : "Search patients, active flags, tasks, clinical notes..."
+                }
                 value={commandQuery}
                 onChange={(e) => setCommandQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && paletteMode === 'ask') {
+                    e.preventDefault();
+                    handleAskCopilot();
+                  }
+                }}
                 style={{
                   flex: 1,
                   border: 'none',
                   outline: 'none',
                   background: 'transparent',
-                  fontSize: '15px',
+                  fontSize: '14px',
                   color: 'var(--text-primary, #0f172a)',
                 }}
               />
-              <span style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
-                ESC
-              </span>
+
+              {paletteMode === 'ask' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Push-to-Talk Voice Button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleVoice}
+                    title="Push to talk (Web Speech API)"
+                    style={{
+                      background: isListening ? '#fee2e2' : 'var(--bg-base, #f1f5f9)',
+                      border: isListening ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      padding: '6px 10px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: isListening ? '#b91c1c' : 'var(--text-primary, #334155)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span>🎙️</span>
+                    {isListening ? 'Listening...' : 'Voice'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAskCopilot()}
+                    disabled={copilotLoading || !commandQuery.trim()}
+                    style={{
+                      background: '#0284c7',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: copilotLoading || !commandQuery.trim() ? 'not-allowed' : 'pointer',
+                      opacity: copilotLoading || !commandQuery.trim() ? 0.6 : 1,
+                    }}
+                  >
+                    {copilotLoading ? 'Asking...' : 'Ask'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Results Area */}
-            <div style={{ maxHeight: '420px', overflowY: 'auto', padding: '12px 16px' }}>
-              {commandLoading ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
-                  Searching clinical directory...
-                </div>
-              ) : !commandQuery.trim() || commandQuery.trim().length < 2 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
-                  Type at least 2 characters to search across patients, active flags, follow-up tasks, and notes.
+            <div style={{ maxHeight: '460px', overflowY: 'auto', padding: '14px 18px' }}>
+              {paletteMode === 'ask' ? (
+                /* Ask CareLoop (Copilot) Mode View */
+                <div>
+                  {copilotLoading ? (
+                    <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      <div style={{ marginBottom: '8px', fontSize: '20px' }}>⏳</div>
+                      Consulting clinical records via Ask CareLoop allowlisted template...
+                    </div>
+                  ) : copilotResult ? (
+                    <div>
+                      {/* Error State */}
+                      {copilotResult.error ? (
+                        <div style={{ padding: '14px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '13px' }}>
+                          <strong>Access Guard:</strong> {copilotResult.error}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {/* Metadata Bar */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#0284c7', background: '#e0f2fe', padding: '2px 8px', borderRadius: '4px' }}>
+                                Template: {copilotResult.template}
+                              </span>
+                              {copilotResult.from_cache && (
+                                <span style={{ fontSize: '11px', fontWeight: 600, color: '#16a34a', background: '#dcfce7', padding: '2px 8px', borderRadius: '4px' }}>
+                                  ⚡ 60s Fast Cache
+                                </span>
+                              )}
+                            </div>
+                            {copilotResult.opt_out_badge && (
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>
+                                ⚠️ AI Assistance Opted-Out
+                              </span>
+                            )}
+                          </div>
+
+                          {/* 1. find_patients Table */}
+                          {copilotResult.template === 'find_patients' && (
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                                Found {copilotResult.count} patient(s) matching filter &ldquo;{copilotResult.filter}&rdquo;
+                              </div>
+                              {copilotResult.count === 0 ? (
+                                <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '6px', textAlign: 'center', fontSize: '12px', color: '#64748b' }}>
+                                  No patients found matching this filter criteria.
+                                </div>
+                              ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                  <thead>
+                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#64748b' }}>
+                                      <th style={{ padding: '6px 8px' }}>Code</th>
+                                      <th style={{ padding: '6px 8px' }}>Patient Name</th>
+                                      <th style={{ padding: '6px 8px' }}>Age</th>
+                                      <th style={{ padding: '6px 8px' }}>Condition</th>
+                                      <th style={{ padding: '6px 8px' }}>Alerts</th>
+                                      <th style={{ padding: '6px 8px', textAlign: 'right' }}>Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {copilotResult.patients.map((pt) => (
+                                      <tr key={pt.patient_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '8px', fontWeight: 600, color: '#64748b' }}>{pt.patient_code}</td>
+                                        <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>{pt.full_name}</td>
+                                        <td style={{ padding: '8px' }}>{pt.age}</td>
+                                        <td style={{ padding: '8px' }}>{pt.condition}</td>
+                                        <td style={{ padding: '8px' }}>
+                                          <span style={{ color: pt.active_flags > 0 ? '#b91c1c' : '#16a34a', fontWeight: 600 }}>
+                                            {pt.active_flags} alert(s)
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '8px', textAlign: 'right' }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedPatientId(pt.patient_id);
+                                              setActiveNav('patient_chart');
+                                              setCommandPaletteOpen(false);
+                                            }}
+                                            style={{
+                                              background: 'transparent',
+                                              border: 'none',
+                                              color: '#0284c7',
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                              fontSize: '11px',
+                                            }}
+                                          >
+                                            Open Chart →
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          )}
+
+                          {/* 2. patient_snapshot Summary */}
+                          {copilotResult.template === 'patient_snapshot' && (
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                                📋 {copilotResult.two_identifiers}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: '#f8fafc', padding: '12px', borderRadius: '8px', fontSize: '13px' }}>
+                                {copilotResult.bullets.map((b, idx) => (
+                                  <div key={idx} style={{ lineHeight: '1.4' }}>
+                                    • <span dangerouslySetInnerHTML={{ __html: b.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                {copilotResult.links?.map((lnk, idx) => (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedPatientId(copilotResult.patient_id);
+                                      setActiveNav('patient_chart');
+                                      setCommandPaletteOpen(false);
+                                    }}
+                                    style={{
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      color: '#0284c7',
+                                      background: '#e0f2fe',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      padding: '4px 8px',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {lnk.label} →
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 3. explain_alert Case Prep Brief */}
+                          {copilotResult.template === 'explain_alert' && (
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
+                                🚨 Alert Flag #{copilotResult.flag_id}: {copilotResult.two_identifiers}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
+                                5-part Case Prep Brief • Case #{copilotResult.case_id}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#f8fafc', padding: '12px', borderRadius: '8px' }}>
+                                {copilotResult.brief_sections?.map((sec, idx) => (
+                                  <div key={idx} style={{ fontSize: '12px' }}>
+                                    <div style={{ fontWeight: 700, color: '#334155' }}>{sec.title}</div>
+                                    <div style={{ color: '#475569', marginTop: '2px' }}>{sec.content}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 600, color: '#0369a1' }}>
+                                  Next Step: {copilotResult.recommended_step}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveNav('agent_desk');
+                                    setCommandPaletteOpen(false);
+                                  }}
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    color: '#ffffff',
+                                    background: '#0284c7',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    padding: '5px 10px',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Open Case in Agent Desk →
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 4. draft_message with Channel Confirmation */}
+                          {copilotResult.template === 'draft_message' && (
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                                  ✉️ Draft Message for {copilotResult.two_identifiers}
+                                </div>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#d97706', background: '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>
+                                  Mode: Draft Only
+                                </span>
+                              </div>
+                              <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#1e293b', marginBottom: '12px', fontStyle: 'italic' }}>
+                                &ldquo;{copilotResult.draft_text}&rdquo;
+                              </div>
+
+                              {draftSendSuccess ? (
+                                <div style={{ padding: '10px 14px', borderRadius: '6px', background: '#dcfce7', border: '1px solid #bbf7d0', color: '#15803d', fontSize: '12px', fontWeight: 600 }}>
+                                  ✓ Message approved and transmitted via {selectedChannel}.
+                                </div>
+                              ) : (
+                                <div>
+                                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: '6px' }}>
+                                    Clinical Safety Rule 1: Confirm Delivery Channel
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '14px', marginBottom: '12px' }}>
+                                    {['SMS', 'WhatsApp', 'Patient_Portal'].map((ch) => (
+                                      <label key={ch} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                        <input
+                                          type="radio"
+                                          name="copilot_channel"
+                                          value={ch}
+                                          checked={selectedChannel === ch}
+                                          onChange={(e) => setSelectedChannel(e.target.value)}
+                                        />
+                                        <span>{ch.replace('_', ' ')}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '11px', color: selectedChannel ? '#16a34a' : '#b45309' }}>
+                                      {selectedChannel ? `Ready to send via ${selectedChannel}` : 'Select a channel to enable Send button'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={!selectedChannel}
+                                      onClick={() => setDraftSendSuccess(true)}
+                                      style={{
+                                        background: selectedChannel ? '#16a34a' : '#cbd5e1',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        padding: '6px 14px',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        cursor: selectedChannel ? 'pointer' : 'not-allowed',
+                                      }}
+                                    >
+                                      Send to Patient
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* 5. summarize_since Timeline */}
+                          {copilotResult.template === 'summarize_since' && (
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                                ⏱️ Timeline Updates: {copilotResult.two_identifiers} (Past {copilotResult.hours}h)
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: '#f8fafc', padding: '12px', borderRadius: '8px', fontSize: '12px' }}>
+                                {copilotResult.bullets.map((b, idx) => (
+                                  <div key={idx} style={{ lineHeight: '1.4' }}>
+                                    • <span dangerouslySetInnerHTML={{ __html: b.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 6. compare_vitals Table */}
+                          {copilotResult.template === 'compare_vitals' && (
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                                📊 Vitals Comparison: {copilotResult.two_identifiers} (Past {copilotResult.days} Days)
+                              </div>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                <thead>
+                                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#64748b' }}>
+                                    <th style={{ padding: '6px 8px' }}>Vital</th>
+                                    <th style={{ padding: '6px 8px' }}>Baseline</th>
+                                    <th style={{ padding: '6px 8px' }}>Recent</th>
+                                    <th style={{ padding: '6px 8px' }}>Delta</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {copilotResult.comparisons?.map((c, idx) => (
+                                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                      <td style={{ padding: '8px', fontWeight: 600 }}>{c.vital}</td>
+                                      <td style={{ padding: '8px' }}>{c.baseline}</td>
+                                      <td style={{ padding: '8px' }}>{c.recent}</td>
+                                      <td style={{ padding: '8px', fontWeight: 600, color: c.delta.startsWith('+') ? '#b91c1c' : '#16a34a' }}>
+                                        {c.delta}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* 7. allowlisted_menu Fallback */}
+                          {copilotResult.template === 'allowlisted_menu' && (
+                            <div>
+                              <div style={{ padding: '10px 14px', background: '#eff6ff', borderRadius: '6px', color: '#1e40af', fontSize: '12px', marginBottom: '12px' }}>
+                                Ask CareLoop strictly maps questions to approved clinical templates (zero text-to-SQL). Try clicking one of the supported examples:
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {copilotResult.templates?.map((t, idx) => (
+                                  <div
+                                    key={idx}
+                                    onClick={() => {
+                                      setCommandQuery(t.example);
+                                      handleAskCopilot(t.example);
+                                    }}
+                                    style={{
+                                      padding: '8px 12px',
+                                      background: '#f8fafc',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      border: '1px solid #e2e8f0',
+                                      fontSize: '12px',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                    }}
+                                  >
+                                    <div>
+                                      <span style={{ fontWeight: 600, color: '#0284c7' }}>{t.name}</span>
+                                      <span style={{ color: '#64748b', marginLeft: '8px' }}>&ldquo;{t.example}&rdquo;</span>
+                                    </div>
+                                    <span style={{ color: '#0284c7', fontWeight: 600 }}>Ask →</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Initial Ask State: Suggested Questions */
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px' }}>
+                        Suggested clinical queries (click to run):
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {[
+                          { text: "Who missed doses in 24 hours?", icon: "💊" },
+                          { text: "Patients without check-in today", icon: "📋" },
+                          { text: "Snapshot of Aarav Patel", icon: "👤" },
+                          { text: "Explain alert 1", icon: "🚨" },
+                          { text: "Draft missed dose reminder for Aarav", icon: "✉️" },
+                          { text: "Compare vitals for Kabir Mehta over 7 days", icon: "📈" },
+                        ].map((chip, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => {
+                              setCommandQuery(chip.text);
+                              handleAskCopilot(chip.text);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <span style={{ fontSize: '13px', color: '#0f172a' }}>
+                              <span style={{ marginRight: '8px' }}>{chip.icon}</span>
+                              {chip.text}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Run →</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {/* Patients */}
-                  {commandResults.patients?.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
-                        Patients ({commandResults.patients.length})
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {commandResults.patients.map((pt) => (
-                          <div
-                            key={pt.patient_id}
-                            onClick={() => {
-                              setSelectedPatientId(pt.patient_id);
-                              setActiveNav('patient_chart');
-                              setCommandPaletteOpen(false);
-                            }}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              background: 'var(--bg-base, #f8fafc)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div>
-                              <span style={{ fontWeight: 600, color: 'var(--text-primary, #0f172a)', fontSize: '13px' }}>{pt.full_name}</span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>PID: {pt.patient_code}</span>
-                            </div>
-                            <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Open Chart →</span>
+                /* Directory Search Mode View */
+                <div>
+                  {commandLoading ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      Searching clinical directory...
+                    </div>
+                  ) : !commandQuery.trim() || commandQuery.trim().length < 2 ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                      Type at least 2 characters to search across patients, active flags, follow-up tasks, and notes.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {/* Patients */}
+                      {commandResults.patients?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
+                            Patients ({commandResults.patients.length})
                           </div>
-                        ))}
-                      </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {commandResults.patients.map((pt) => (
+                              <div
+                                key={pt.patient_id}
+                                onClick={() => {
+                                  setSelectedPatientId(pt.patient_id);
+                                  setActiveNav('patient_chart');
+                                  setCommandPaletteOpen(false);
+                                }}
+                                style={{
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div>
+                                  <span style={{ fontWeight: 600, color: 'var(--text-primary, #0f172a)', fontSize: '13px' }}>{pt.full_name}</span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>PID: {pt.patient_code}</span>
+                                </div>
+                                <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Open Chart →</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Flags */}
+                      {commandResults.flags?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
+                            Active Flags ({commandResults.flags.length})
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {commandResults.flags.map((fl) => (
+                              <div
+                                key={fl.flag_id}
+                                onClick={() => {
+                                  setSelectedFlag(fl);
+                                  setCommandPaletteOpen(false);
+                                }}
+                                style={{
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div>
+                                  <span style={{ fontWeight: 600, color: '#b91c1c', fontSize: '12px' }}>
+                                    [{fl.severity === 'Review_Soon' ? 'Review soon' : fl.severity === 'Urgent_Review' ? 'Urgent' : fl.severity}]
+                                  </span>
+                                  <span style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', marginLeft: '6px' }}>{fl.reason}</span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({fl.full_name})</span>
+                                </div>
+                                <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Review Flag →</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tasks */}
+                      {commandResults.tasks?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
+                            Follow-Up Tasks ({commandResults.tasks.length})
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {commandResults.tasks.map((tk) => (
+                              <div
+                                key={tk.task_id}
+                                onClick={() => {
+                                  setActiveNav('tasks');
+                                  setCommandPaletteOpen(false);
+                                }}
+                                style={{
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div>
+                                  <span style={{ fontWeight: 600, color: 'var(--text-primary, #0f172a)', fontSize: '13px' }}>{tk.task_description}</span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({tk.full_name})</span>
+                                </div>
+                                <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Task Queue →</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Notes */}
+                      {commandResults.notes?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
+                            Clinician Notes ({commandResults.notes.length})
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {commandResults.notes.map((nt) => (
+                              <div
+                                key={nt.note_id}
+                                onClick={() => {
+                                  setSelectedPatientId(nt.patient_id);
+                                  setActiveNav('patient_chart');
+                                  setCommandPaletteOpen(false);
+                                }}
+                                style={{
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  background: 'var(--bg-base, #f8fafc)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div>
+                                  <span style={{ fontWeight: 600, color: '#6d28d9', fontSize: '12px' }}>[{nt.note_type}]</span>
+                                  <span style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', marginLeft: '6px' }}>{nt.note_text.slice(0, 60)}...</span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({nt.full_name})</span>
+                                </div>
+                                <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>View Note →</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {commandResults.patients?.length === 0 &&
+                        commandResults.flags?.length === 0 &&
+                        commandResults.tasks?.length === 0 &&
+                        commandResults.notes?.length === 0 && (
+                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                            No results found for &ldquo;{commandQuery}&rdquo;.
+                          </div>
+                        )}
                     </div>
                   )}
-
-                  {/* Flags */}
-                  {commandResults.flags?.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
-                        Active Flags ({commandResults.flags.length})
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {commandResults.flags.map((fl) => (
-                          <div
-                            key={fl.flag_id}
-                            onClick={() => {
-                              setSelectedFlag(fl);
-                              setCommandPaletteOpen(false);
-                            }}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              background: 'var(--bg-base, #f8fafc)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div>
-                              <span style={{ fontWeight: 600, color: '#b91c1c', fontSize: '12px' }}>
-                                [{fl.severity === 'Review_Soon' ? 'Review soon' : fl.severity === 'Urgent_Review' ? 'Urgent' : fl.severity}]
-                              </span>
-                              <span style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', marginLeft: '6px' }}>{fl.reason}</span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({fl.full_name})</span>
-                            </div>
-                            <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Review Flag →</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Tasks */}
-                  {commandResults.tasks?.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
-                        Follow-Up Tasks ({commandResults.tasks.length})
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {commandResults.tasks.map((tk) => (
-                          <div
-                            key={tk.task_id}
-                            onClick={() => {
-                              setActiveNav('tasks');
-                              setCommandPaletteOpen(false);
-                            }}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              background: 'var(--bg-base, #f8fafc)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div>
-                              <span style={{ fontWeight: 600, color: 'var(--text-primary, #0f172a)', fontSize: '13px' }}>{tk.task_description}</span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({tk.full_name})</span>
-                            </div>
-                            <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>Task Queue →</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Notes */}
-                  {commandResults.notes?.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
-                        Clinician Notes ({commandResults.notes.length})
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {commandResults.notes.map((nt) => (
-                          <div
-                            key={nt.note_id}
-                            onClick={() => {
-                              setSelectedPatientId(nt.patient_id);
-                              setActiveNav('patient_chart');
-                              setCommandPaletteOpen(false);
-                            }}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              background: 'var(--bg-base, #f8fafc)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div>
-                              <span style={{ fontWeight: 600, color: '#6d28d9', fontSize: '12px' }}>[{nt.note_type}]</span>
-                              <span style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', marginLeft: '6px' }}>{nt.note_text.slice(0, 60)}...</span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginLeft: '8px' }}>({nt.full_name})</span>
-                            </div>
-                            <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>View Note →</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {commandResults.patients?.length === 0 &&
-                    commandResults.flags?.length === 0 &&
-                    commandResults.tasks?.length === 0 &&
-                    commandResults.notes?.length === 0 && (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
-                        No results found for &ldquo;{commandQuery}&rdquo;.
-                      </div>
-                    )}
                 </div>
               )}
             </div>

@@ -32,4 +32,10 @@ AGENTS_V2_HINGLISH = os.getenv("AGENTS_V2_HINGLISH", "true").lower() in ("true",
 AGENTS_V2_PARALLEL_EXEC = os.getenv("AGENTS_V2_PARALLEL_EXEC", "true").lower() in ("true", "1", "yes")
 AGENTS_V2_RETRIEVAL_CACHE = os.getenv("AGENTS_V2_RETRIEVAL_CACHE", "true").lower() in ("true", "1", "yes")
 
+# Phase 3: Staff Copilot "Ask CareLoop" Flags
+AGENTS_V2_COPILOT = os.getenv("AGENTS_V2_COPILOT", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_COPILOT_CACHE = os.getenv("AGENTS_V2_COPILOT_CACHE", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_COPILOT_CACHE_TTL_SEC = int(os.getenv("AGENTS_V2_COPILOT_CACHE_TTL_SEC", "60"))
+AGENTS_V2_COPILOT_VOICE = os.getenv("AGENTS_V2_COPILOT_VOICE", "true").lower() in ("true", "1", "yes")
+
 

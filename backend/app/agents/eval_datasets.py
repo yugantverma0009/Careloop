@@ -137,6 +137,73 @@ CLARIFICATION_QUESTIONS_15 = [
     {"id": "cl-15", "q": "Goli kab khani hai?", "expected_type": "clarification"},
 ]
 
+# ─── 6. Staff Copilot Questions (40 items) ───────────────────────────────────
+STAFF_COPILOT_QUESTIONS_40 = [
+    # find_patients: missed_doses_at_least (6)
+    {"id": "cp-01", "q": "Who missed doses today?", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+    {"id": "cp-02", "q": "Patients with missed doses in 24 hours", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+    {"id": "cp-03", "q": "Who missed 2 or more doses?", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+    {"id": "cp-04", "q": "Find patients who forgot medicine in past 12 hours", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+    {"id": "cp-05", "q": "Which patient has unconfirmed doses?", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+    {"id": "cp-06", "q": "List patients with missed doses", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+
+    # find_patients: no_checkin_today (4)
+    {"id": "cp-07", "q": "Who hasn't checked in today?", "expected_template": "find_patients", "expected_filter": "no_checkin_today"},
+    {"id": "cp-08", "q": "Patients with no check-in today", "expected_template": "find_patients", "expected_filter": "no_checkin_today"},
+    {"id": "cp-09", "q": "Which patients have pending daily checkins?", "expected_template": "find_patients", "expected_filter": "no_checkin_today"},
+    {"id": "cp-10", "q": "Find patients who missed daily checkin", "expected_template": "find_patients", "expected_filter": "no_checkin_today"},
+
+    # find_patients: device_silent_over (3)
+    {"id": "cp-11", "q": "Which sensors have been silent over 24 hours?", "expected_template": "find_patients", "expected_filter": "device_silent_over"},
+    {"id": "cp-12", "q": "Find patients with offline devices", "expected_template": "find_patients", "expected_filter": "device_silent_over"},
+    {"id": "cp-13", "q": "Show patients with device silent over 48 hours", "expected_template": "find_patients", "expected_filter": "device_silent_over"},
+
+    # find_patients: open_flags (4)
+    {"id": "cp-14", "q": "Show patients with open flags", "expected_template": "find_patients", "expected_filter": "open_flags"},
+    {"id": "cp-15", "q": "Who has active alerts right now?", "expected_template": "find_patients", "expected_filter": "open_flags"},
+    {"id": "cp-16", "q": "List active flags across all patients", "expected_template": "find_patients", "expected_filter": "open_flags"},
+    {"id": "cp-17", "q": "Which patients have open clinical flags?", "expected_template": "find_patients", "expected_filter": "open_flags"},
+
+    # find_patients: photo_pending (2)
+    {"id": "cp-18", "q": "Who has a pending wound photo?", "expected_template": "find_patients", "expected_filter": "photo_pending"},
+    {"id": "cp-19", "q": "Find patients with incision photo pending review", "expected_template": "find_patients", "expected_filter": "photo_pending"},
+
+    # find_patients: sos_open (2)
+    {"id": "cp-20", "q": "Any active SOS alerts?", "expected_template": "find_patients", "expected_filter": "sos_open"},
+    {"id": "cp-21", "q": "Who triggered emergency SOS button?", "expected_template": "find_patients", "expected_filter": "sos_open"},
+
+    # find_patients: family_consent_missing (2)
+    {"id": "cp-22", "q": "Patients missing family consent", "expected_template": "find_patients", "expected_filter": "family_consent_missing"},
+    {"id": "cp-23", "q": "Who has no caregiver consent signed?", "expected_template": "find_patients", "expected_filter": "family_consent_missing"},
+
+    # patient_snapshot (5)
+    {"id": "cp-24", "q": "Snapshot of Aarav Patel", "expected_template": "patient_snapshot", "expected_patient": "Aarav Patel"},
+    {"id": "cp-25", "q": "Status for patient 1", "expected_template": "patient_snapshot", "expected_patient": "Aarav Patel"},
+    {"id": "cp-26", "q": "Clinical summary of Meera Sharma", "expected_template": "patient_snapshot", "expected_patient": "Meera Sharma"},
+    {"id": "cp-27", "q": "Tell me about Rajesh Verma", "expected_template": "patient_snapshot", "expected_patient": "Rajesh Verma"},
+    {"id": "cp-28", "q": "Profile of Kabir Mehta", "expected_template": "patient_snapshot", "expected_patient": "Kabir Mehta"},
+
+    # explain_alert (4)
+    {"id": "cp-29", "q": "Explain alert 1", "expected_template": "explain_alert", "expected_flag_id": 1},
+    {"id": "cp-30", "q": "Explain flag 2", "expected_template": "explain_alert", "expected_flag_id": 2},
+    {"id": "cp-31", "q": "Why was flag 3 raised?", "expected_template": "explain_alert", "expected_flag_id": 3},
+    {"id": "cp-32", "q": "Details on alert 12", "expected_template": "explain_alert", "expected_flag_id": 12},
+
+    # draft_message (4)
+    {"id": "cp-33", "q": "Draft message to Aarav about missed dose", "expected_template": "draft_message", "expected_purpose": "missed_dose_reminder"},
+    {"id": "cp-34", "q": "Draft checkin prompt for Meera", "expected_template": "draft_message", "expected_purpose": "checkin_prompt"},
+    {"id": "cp-35", "q": "Draft wound photo request for Rajesh", "expected_template": "draft_message", "expected_purpose": "wound_photo_request"},
+    {"id": "cp-36", "q": "Compose appointment reminder for Sunita", "expected_template": "draft_message", "expected_purpose": "appointment_reminder"},
+
+    # summarize_since (2)
+    {"id": "cp-37", "q": "What happened to Aarav since yesterday?", "expected_template": "summarize_since", "expected_hours": 24},
+    {"id": "cp-38", "q": "Summarize Meera since 48 hours", "expected_template": "summarize_since", "expected_hours": 48},
+
+    # compare_vitals (2)
+    {"id": "cp-39", "q": "Compare vitals for Aarav over 7 days", "expected_template": "compare_vitals", "expected_days": 7},
+    {"id": "cp-40", "q": "Compare vitals for Meera over 3 days", "expected_template": "compare_vitals", "expected_days": 3},
+]
+
 # Partition all into DEV (80%) and HELD-OUT (20%)
 DEV_DISCHARGE_QS, HELDOUT_DISCHARGE_QS = _partition_list(DISCHARGE_QUESTIONS_50, 0.8)
 DEV_INJECTIONS, HELDOUT_INJECTIONS = _partition_list(PROMPT_INJECTIONS_10, 0.8)
@@ -147,6 +214,7 @@ DEV_CONFLICTS, HELDOUT_CONFLICTS = _partition_list(SOURCE_CONFLICTS_10, 0.8)
 DEV_RELATIVE_DATES, HELDOUT_RELATIVE_DATES = _partition_list(RELATIVE_DATES_20, 0.8)
 DEV_HINGLISH, HELDOUT_HINGLISH = _partition_list(HINGLISH_QUESTIONS_20, 0.8)
 DEV_CLARIFICATION, HELDOUT_CLARIFICATION = _partition_list(CLARIFICATION_QUESTIONS_15, 0.8)
+DEV_COPILOT, HELDOUT_COPILOT = _partition_list(STAFF_COPILOT_QUESTIONS_40, 0.8)
 
 # Fixed golden assertions
 GOLDEN_DECISION_CASES = [
@@ -170,6 +238,7 @@ def get_dev_dataset() -> Dict[str, List[Any]]:
         "relative_dates": DEV_RELATIVE_DATES,
         "hinglish": DEV_HINGLISH,
         "clarification": DEV_CLARIFICATION,
+        "copilot_questions": DEV_COPILOT,
         "golden_cases": DEV_GOLDEN_CASES,
     }
 
@@ -185,5 +254,6 @@ def get_held_out_dataset() -> Dict[str, List[Any]]:
         "relative_dates": HELDOUT_RELATIVE_DATES,
         "hinglish": HELDOUT_HINGLISH,
         "clarification": HELDOUT_CLARIFICATION,
+        "copilot_questions": HELDOUT_COPILOT,
         "golden_cases": HELDOUT_GOLDEN_CASES,
     }
