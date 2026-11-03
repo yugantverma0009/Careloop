@@ -2674,7 +2674,7 @@ export default function CareLoopPatientPortal({ user }) {
                   </div>
                 </div>
 
-                {/* Card 4: Next Appointment (Replaces duplicate adherence card - Brief Sec 6.1) */}
+                {/* Card 4: Next Appointment (Substitutes for duplicate adherence card - Brief Sec 6.1) */}
                 <div
                   style={{
                     background: 'var(--bg-surface, #ffffff)',

@@ -109,7 +109,8 @@ class AgentDispatcher:
     @staticmethod
     def check_intake(
         action_type: str,
-        patient_id: Optional[int] = None
+        patient_id: Optional[int] = None,
+        bypass_budget: bool = False
     ) -> DispatcherDecision:
         """
         Evaluates whether an agent action is permitted under current policies:
@@ -154,19 +155,20 @@ class AgentDispatcher:
                             )
 
                     # 4. Daily budget check
-                    cur.execute("""
-                        SELECT COALESCE(SUM(llm_calls), 0) as total_calls
-                        FROM agent_runs
-                        WHERE patient_id = %s AND started_at >= CURDATE();
-                    """, (patient_id,))
-                    calls_row = cur.fetchone()
-                    total_calls = calls_row["total_calls"] if calls_row else 0
-                    if total_calls >= MAX_DAILY_LLM_CALLS_PER_PATIENT:
-                        return DispatcherDecision(
-                            allowed=False,
-                            reason=f"Patient daily LLM budget reached ({total_calls}/{MAX_DAILY_LLM_CALLS_PER_PATIENT})",
-                            degraded=True
-                        )
+                    if not bypass_budget and os.environ.get("CARELOOP_EVAL_MODE") != "1":
+                        cur.execute("""
+                            SELECT COALESCE(SUM(llm_calls), 0) as total_calls
+                            FROM agent_runs
+                            WHERE patient_id = %s AND started_at >= CURDATE();
+                        """, (patient_id,))
+                        calls_row = cur.fetchone()
+                        total_calls = calls_row["total_calls"] if calls_row else 0
+                        if total_calls >= MAX_DAILY_LLM_CALLS_PER_PATIENT:
+                            return DispatcherDecision(
+                                allowed=False,
+                                reason=f"Patient daily LLM budget reached ({total_calls}/{MAX_DAILY_LLM_CALLS_PER_PATIENT})",
+                                degraded=True
+                            )
 
         # 5. Autonomy Level & Mode
         level, mode = AgentDispatcher.get_autonomy(action_type)

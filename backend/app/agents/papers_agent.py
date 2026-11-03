@@ -145,7 +145,109 @@ class PapersAgent:
             plan={"question": clean_q, "language": lang, "template": "undetermined"}
         )
 
-        # ─── Step 0: Dispatcher Intake Check ─────────────────────────────────
+        seq = 1
+
+        # ─── Step 1: Safety Gates (Plain Code, No LLM) ─────────────────────────
+        # Evaluated first so safety and security checks are NEVER bypassed by budgets or pause
+
+        # Gate 1.1: Emergency Check
+        if has_emergency_term(clean_q):
+            guidance = EMERGENCY_GUIDANCE.get(lang, EMERGENCY_GUIDANCE["en"])
+            AgentLedger.record_step(
+                run_id, seq, "Gate",
+                "Emergency term detected in input — instant 112 guidance, zero LLM",
+                ok=True, ms=1
+            )
+            AgentLedger.finish_run(
+                run_id, status="Done", result_type="emergency_redirection",
+                latency_ms=int((time.time() - start_ts) * 1000),
+                guard_reasons=["Emergency red-flag keyword intercepted"]
+            )
+            return {
+                "answer_type": "emergency",
+                "answer": guidance,
+                "bullets": [],
+                "sources": [],
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": False,
+                "is_grounded": False,
+                "response": guidance,
+                "citations": [],
+                "retrieval_debug": {"intent": INTENT_EMERGENCY, "emergency_hit": True},
+                "run_id": run_id
+            }
+
+        # Gate 1.2: Dose Change Check
+        if is_dose_change_question(clean_q):
+            refusal_msg = (
+                "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team."
+                if lang == "en"
+                else "मैं दवा की खुराक बदलने, रोकने या बदलने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से बात करें।"
+            )
+            task_id = cls._create_or_get_care_team_task(patient_id, f"Patient asked about dose change: '{clean_q}'")
+            AgentLedger.record_step(
+                run_id, seq, "Gate",
+                f"Dose change question detected — deterministic refusal, task #{task_id}",
+                ids=[task_id], ok=True, ms=2
+            )
+            AgentLedger.finish_run(
+                run_id, status="Done", result_type="dose_change_refusal",
+                latency_ms=int((time.time() - start_ts) * 1000),
+                guard_reasons=["Dose change forbidden by clinical safety rule 3"]
+            )
+            return {
+                "answer_type": "refusal_dose",
+                "answer": refusal_msg,
+                "bullets": [
+                    "Your care team has been notified to follow up regarding your medication question."
+                    if lang == "en"
+                    else "आपकी दवा से जुड़े सवाल के संबंध में आपकी केयर टीम को सूचित कर दिया गया है।"
+                ],
+                "sources": [],
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": True,
+                "is_grounded": False,
+                "response": refusal_msg,
+                "citations": [],
+                "retrieval_debug": {"intent": INTENT_REFUSAL_DOSE, "task_id": task_id},
+                "run_id": run_id
+            }
+
+        # Gate 1.3: Red-Team & Injection Safety Gate
+        is_safe, attack_reason = PolicyGuard.inspect_redteam_attack(clean_q, context={"patient_id": patient_id})
+        if not is_safe:
+            block_msg = (
+                "I am an assistant for your hospital discharge papers. "
+                "I cannot execute administrative commands, diagnose conditions, override safety rules, or share data from other patients."
+                if lang == "en"
+                else "मैं आपके डिस्चार्ज पेपर्स के लिए एक असिस्टेंट हूँ। "
+                     "मैं सिस्टम कमांड निष्पादित नहीं कर सकता, चिकित्सा निदान नहीं कर सकता, या नियमों को ओवरराइड नहीं कर सकता।"
+            )
+            AgentLedger.record_step(
+                run_id, seq, "Gate",
+                f"Red-team attack intercepted by Policy Guard: {attack_reason}",
+                ok=False, ms=2
+            )
+            AgentLedger.finish_run(
+                run_id, status="Blocked_By_Guard", result_type="injection_blocked",
+                latency_ms=int((time.time() - start_ts) * 1000),
+                guard_reasons=[f"Red-team safety violation: {attack_reason}"]
+            )
+            return {
+                "answer_type": "refusal_injection",
+                "answer": block_msg,
+                "bullets": [],
+                "sources": [],
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": False,
+                "is_grounded": False,
+                "response": block_msg,
+                "citations": [],
+                "retrieval_debug": {"intent": "refusal_injection", "blocked": True, "reason": attack_reason},
+                "run_id": run_id
+            }
+
+        # ─── Step 2: Dispatcher Intake Check ─────────────────────────────────
         decision = AgentDispatcher.check_intake("papers_question_sourced", patient_id=patient_id)
         if not decision.allowed:
             # Check if patient opted out
@@ -207,108 +309,6 @@ class PapersAgent:
                 "response": pause_reply,
                 "citations": [],
                 "retrieval_debug": {"intent": "supervisor_paused", "reason": decision.reason},
-                "run_id": run_id
-            }
-
-        seq = 1
-
-        # ─── Step 1: Safety Gates (Plain Code, No LLM) ─────────────────────────
-
-        # Gate 1.1: Emergency Check
-        if has_emergency_term(clean_q):
-            guidance = EMERGENCY_GUIDANCE.get(lang, EMERGENCY_GUIDANCE["en"])
-            AgentLedger.record_step(
-                run_id, seq, "Gate",
-                "Emergency term detected in input — instant 112 guidance, zero LLM",
-                ok=True, ms=1
-            )
-            AgentLedger.finish_run(
-                run_id, status="Done", result_type="emergency_redirection",
-                latency_ms=int((time.time() - start_ts) * 1000),
-                guard_reasons=["Emergency red-flag keyword intercepted"]
-            )
-            return {
-                "answer_type": "emergency",
-                "answer": guidance,
-                "bullets": [],
-                "sources": [],
-                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
-                "can_ask_care_team": False,
-                "is_grounded": False,
-                "response": guidance,
-                "citations": [],
-                "retrieval_debug": {"intent": INTENT_EMERGENCY, "emergency_hit": True},
-                "run_id": run_id
-            }
-
-        # Gate 1.2: Dose Change Check
-        if is_dose_change_question(clean_q):
-            refusal_msg = (
-                "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team."
-                if lang == "en"
-                else "मैं दवा की खुराक बदलने, रोकने या बदलने की सलाह नहीं दे सकता। कृपया अपनी केयर टीम से बात करें।"
-            )
-            # Create staff task (deduplicated: max 1 per topic per day)
-            task_id = cls._create_or_get_care_team_task(patient_id, f"Patient asked about dose change: '{clean_q}'")
-            AgentLedger.record_step(
-                run_id, seq, "Gate",
-                f"Dose change question detected — deterministic refusal, task #{task_id}",
-                ids=[task_id], ok=True, ms=2
-            )
-            AgentLedger.finish_run(
-                run_id, status="Done", result_type="dose_change_refusal",
-                latency_ms=int((time.time() - start_ts) * 1000),
-                guard_reasons=["Dose change forbidden by clinical safety rule 3"]
-            )
-            return {
-                "answer_type": "refusal_dose",
-                "answer": refusal_msg,
-                "bullets": [
-                    "Your care team has been notified to follow up regarding your medication question."
-                    if lang == "en"
-                    else "आपकी दवा से जुड़े सवाल के संबंध में आपकी केयर टीम को सूचित कर दिया गया है।"
-                ],
-                "sources": [],
-                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
-                "can_ask_care_team": True,
-                "is_grounded": False,
-                "response": refusal_msg,
-                "citations": [],
-                "retrieval_debug": {"intent": INTENT_REFUSAL_DOSE, "task_id": task_id},
-                "run_id": run_id
-            }
-
-        # Gate 1.3: Red-Team & Injection Safety Gate (Phase 6 Task 2)
-        is_safe, attack_reason = PolicyGuard.inspect_redteam_attack(clean_q, context={"patient_id": patient_id})
-        if not is_safe:
-            block_msg = (
-                "I am an assistant for your hospital discharge papers. "
-                "I cannot execute administrative commands, diagnose conditions, override safety rules, or share data from other patients."
-                if lang == "en"
-                else "मैं आपके डिस्चार्ज पेपर्स के लिए एक असिस्टेंट हूँ। "
-                     "मैं सिस्टम कमांड निष्पादित नहीं कर सकता, चिकित्सा निदान नहीं कर सकता, या नियमों को ओवरराइड नहीं कर सकता।"
-            )
-            AgentLedger.record_step(
-                run_id, seq, "Gate",
-                f"Red-team attack intercepted by Policy Guard: {attack_reason}",
-                ok=False, ms=2
-            )
-            AgentLedger.finish_run(
-                run_id, status="Blocked_By_Guard", result_type="injection_blocked",
-                latency_ms=int((time.time() - start_ts) * 1000),
-                guard_reasons=[f"Red-team safety violation: {attack_reason}"]
-            )
-            return {
-                "answer_type": "refusal_injection",
-                "answer": block_msg,
-                "bullets": [],
-                "sources": [],
-                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
-                "can_ask_care_team": False,
-                "is_grounded": False,
-                "response": block_msg,
-                "citations": [],
-                "retrieval_debug": {"intent": "refusal_injection", "blocked": True, "reason": attack_reason},
                 "run_id": run_id
             }
 

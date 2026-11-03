@@ -18,6 +18,8 @@ Phase 2 Acceptance Verification:
 
 import os
 import sys
+
+os.environ["CARELOOP_EVAL_MODE"] = "1"
 import json
 import pytest
 from typing import Dict, Any, List

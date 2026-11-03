@@ -79,6 +79,7 @@ export default function LandingPage() {
         {/* Center Links */}
         <nav style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
           {[
+            { label: 'Care Agents', id: 'care-agents' },
             { label: 'Platform Principle', id: 'platform' },
             { label: 'Four Roles', id: 'roles' },
             { label: 'How a Day Works', id: 'day-in-the-life' },
@@ -187,7 +188,7 @@ export default function LandingPage() {
             }}
           >
             <IconShieldCheck width={14} height={14} />
-            <span>POST-DISCHARGE RECOVERY SYSTEM</span>
+            <span>CARELOOP CARE AGENTS PLATFORM</span>
           </div>
 
           <h1
@@ -200,7 +201,7 @@ export default function LandingPage() {
               marginBottom: '16px',
             }}
           >
-            After discharge, nothing should go quiet.
+            Agents do the routine. People make the calls.
           </h1>
 
           <p
@@ -208,11 +209,24 @@ export default function LandingPage() {
               fontSize: '16px',
               lineHeight: 1.6,
               color: '#475569',
-              marginBottom: '26px',
+              marginBottom: '20px',
             }}
           >
-            CareLoop keeps the days after discharge from going quiet: it automates the routine, shows its reason for every alert, answers only from the patient's own papers, and makes sure a person closes every loop.
+            CareLoop keeps the days after discharge from going quiet: agents prepare every case and answer from the patient's own papers, rules raise every alert with its reason, and people make every decision.
           </p>
+
+          {/* Supporting Micro-Badges */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '26px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', background: '#f1f5f9', color: '#334155', border: '1px solid #e2e8f0' }}>
+              ✓ Every case arrives prepared
+            </span>
+            <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', background: '#f1f5f9', color: '#334155', border: '1px solid #e2e8f0' }}>
+              ✓ Autonomy is earned: shadow mode first
+            </span>
+            <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', background: '#f1f5f9', color: '#334155', border: '1px solid #e2e8f0' }}>
+              ✓ Pause all agents with one switch
+            </span>
+          </div>
 
           {/* Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '28px' }}>
@@ -426,7 +440,7 @@ export default function LandingPage() {
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-                <span>Simulated watch telemetry readings (rules decide; LLM does not diagnose)</span>
+                <span>Simulated watch sensor readings (rules decide; LLM does not provide medical diagnosis)</span>
               </div>
             </div>
           </div>
@@ -534,6 +548,183 @@ export default function LandingPage() {
         </div>
         <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748b', marginTop: '14px' }}>
           Synthetic demo data. All names, medicine regimens and sensor streams are generated for testing.
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* CARELOOP CARE AGENTS SECTION (#care-agents)              */}
+      {/* ======================================================== */}
+      <section
+        id="care-agents"
+        style={{
+          padding: '70px 48px',
+          maxWidth: '1360px',
+          margin: '0 auto',
+          borderBottom: '1px solid #e2e8f0',
+          background: '#fcfdfd',
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: '780px', margin: '0 auto 40px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 12px',
+              borderRadius: '12px',
+              background: '#ecfdf5',
+              color: '#059669',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: '12px',
+            }}
+          >
+            CareLoop Care Agents
+          </div>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '10px' }}>
+            "Agents do the routine. People make the calls."
+          </h2>
+          <p style={{ fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
+            CareLoop pairs deterministic alert rules with six specialized clinical agents. The agents synthesize documents, prepare case briefs, draft shift handoffs, and manage routine check-ins inside strict physician-governed boundaries.
+          </p>
+        </div>
+
+        {/* The 6 Agents Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+          {[
+            {
+              name: 'Papers Agent',
+              role: 'Agentic RAG Assistant',
+              desc: 'Answers routine recovery questions using strictly the patient’s hospital discharge papers, citing chunk IDs and abstaining when unprovided.',
+              badge: 'Sourced Answers',
+              color: '#0284c7',
+              bg: '#f0f9ff'
+            },
+            {
+              name: 'Case Prep Agent',
+              role: 'Case Brief Synthesizer',
+              desc: 'Prepares incoming alarms into structured case briefs with grounded facts, pre-identified unknowns, and fixed administrative next steps.',
+              badge: 'Prepared Cases',
+              color: '#059669',
+              bg: '#ecfdf5'
+            },
+            {
+              name: 'Call Notes Agent',
+              role: '3-Click Documentation',
+              desc: 'Drafts structured clinician notes, follow-up tasks, and patient messages from quick picks and nurse speech dictation.',
+              badge: 'Paperwork Drafts',
+              color: '#7c3aed',
+              bg: '#f5f3ff'
+            },
+            {
+              name: 'Outreach Agent',
+              role: 'Adaptive Follow-Up Ladder',
+              desc: 'Executes routine reminders and retry schedules, strictly observing quiet hours (22:00–07:00 IST), daily caps, and caregiver consent.',
+              badge: 'Automated Limits',
+              color: '#d97706',
+              bg: '#fffbeb'
+            },
+            {
+              name: 'Handoff Agent',
+              role: 'Shift Synthesis & Fact Sheet',
+              desc: 'Compiles deterministic patient fact sheets from SQL and drafts SBAR shift handoffs with zero subjective judgment words.',
+              badge: 'Duty Handoff',
+              color: '#0891b2',
+              bg: '#ecfeff'
+            },
+            {
+              name: 'Plan Agent',
+              role: 'Recovery Plan Synthesis',
+              desc: 'Drafts post-discharge recovery plans from discharge documents, reconciles active medicines, and activates only upon doctor approval.',
+              badge: 'Doctor Approved',
+              color: '#4338ca',
+              bg: '#eef2ff'
+            }
+          ].map((agent) => (
+            <div
+              key={agent.name}
+              style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: '#0f172a' }}>{agent.name}</h3>
+                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px', background: agent.bg, color: agent.color }}>
+                    {agent.badge}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: agent.color, marginBottom: '8px' }}>{agent.role}</div>
+                <p style={{ fontSize: '12px', color: '#475569', lineHeight: 1.5, margin: 0 }}>{agent.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Autonomy Tiers & Safety Controls Card */}
+        <div style={{
+          background: '#ffffff',
+          border: '1px solid #cbd5e1',
+          borderRadius: '16px',
+          padding: '24px 28px',
+          display: 'grid',
+          gridTemplateColumns: '1.2fr 0.8fr',
+          gap: '24px',
+          alignItems: 'center'
+        }}>
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#0284c7', letterSpacing: '0.04em', marginBottom: '6px' }}>
+              Autonomy Is Earned
+            </div>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 10px 0', color: '#0f172a' }}>
+              Four Safe Autonomy Levels & Full Human Controls
+            </h3>
+            <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.6, margin: '0 0 16px 0' }}>
+              Every action defaults to safe tiers: <strong>Suggest</strong> (shadow mode only), <strong>Draft</strong> (requires clinician sign-off), <strong>Auto</strong> (runs inside limits), or <strong>Never</strong> (permanently blocked). Promotion between Shadow and Live is strictly reserved for physicians with full audit logging.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', background: '#ecfdf5', color: '#065f46' }}>
+                🛑 Kill Switch: Pause all agents with one switch
+              </span>
+              <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', background: '#f0f9ff', color: '#0369a1' }}>
+                👤 AI Help Switch: Patient opt-out at any time
+              </span>
+            </div>
+          </div>
+
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '18px',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.05em' }}>
+              Replay Benchmark Result
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: 900, color: '#0284c7', margin: '6px 0 2px' }}>
+              -76.8% Steps
+            </div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#166534', marginBottom: '8px' }}>
+              In a replay of 40 simulated events, human steps fell from 155 to 36
+            </div>
+            <div style={{ fontSize: '10px', color: '#64748b', fontStyle: 'italic' }}>
+              Estimated from editable assumptions · ~2.2 hours saved per shift
+            </div>
+          </div>
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '11px', color: '#94a3b8' }}>
+          Sample data. Not medical advice. · Synthetic-data prototype, not a medical device.
         </div>
       </section>
 
@@ -750,7 +941,7 @@ export default function LandingPage() {
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  transition: 'box-shadow 0.15s ease',
                 }}
               >
                 <div>
@@ -921,7 +1112,7 @@ export default function LandingPage() {
             },
             {
               step: 'Step 2',
-              title: 'Rounds & Watch Telemetry',
+              title: 'Rounds & Sensor Readings',
               who: 'Background Automation & ESP32 Watch',
               desc: 'Rounds executes 24h schedule with explicit reasons; watch streams vitals, filters invalid noise, and reports possible falls.',
               color: '#0284c7',

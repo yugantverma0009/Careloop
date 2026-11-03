@@ -2,7 +2,20 @@
 
 > [!IMPORTANT]
 > **Synthetic-data prototype, not a medical device.**  
-> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring workflows. All patient records, clinical notes, telemetry readings, wound photos, and thresholds are synthetic test data. It is not approved for clinical diagnostic use, does not establish medical diagnoses, and never replaces professional clinical judgment.
+> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring and clinical agent workflows. All patient records, clinical notes, sensor readings, wound photos, and limits are synthetic test data. It is not approved for clinical diagnostic use, does not provide medical diagnoses, and never substitutes for professional clinical judgment.
+
+---
+
+## 🏛️ Governing Headline & Principle
+
+> # **"Agents do the routine. People make the calls."**  
+> *"CareLoop keeps the days after discharge from going quiet: agents prepare every case and answer from the patient's own papers, rules raise every alert with its reason, and people make every decision."*
+
+* **The Core Rule:** *"The LLM talks. Rules decide. Humans act."*
+* **Every case arrives prepared:** Clinical alarms are pre-compiled into concise briefs with grounded facts, pre-identified unknowns, and fixed administrative next steps.
+* **Autonomy is earned:** Every automated action starts in Shadow Mode until agreement is proven from data; promotion to Live is strictly doctor-governed.
+* **Pause with one switch:** An emergency kill switch halts all automated agents immediately without affecting rules, reminders, or escalation.
+* **Patients retain control:** Patients can turn off automated assistance at any time from their home screen.
 
 ---
 
@@ -12,33 +25,35 @@
 3. [Architecture Diagram and End-to-End Data Flow](#3-architecture-diagram-and-end-to-end-data-flow)
 4. [Technology Stack](#4-technology-stack)
 5. [Repository Folder Structure](#5-repository-folder-structure)
-6. [Core Services & Capabilities](#6-core-services--capabilities)
+6. [Core Clinical Services & Workflows](#6-core-clinical-services--workflows)
    - [6.1 Rounds & Automation Policy](#61-rounds--automation-policy)
    - [6.2 Two-Way SMS & Guided Check-in](#62-two-way-sms--guided-check-in)
    - [6.3 Wound Photo Quality Check & Review](#63-wound-photo-quality-check--review)
    - [6.4 Recovery Plan Drafter & Admission](#64-recovery-plan-drafter--admission)
    - [6.5 Watch Events & Possible Fall Service](#65-watch-events--possible-fall-service)
-   - [6.6 Grounded RAG Assistant & Safety Gates](#66-grounded-rag-assistant--safety-gates)
-7. [Database Schema, Views, Procedures & Triggers](#7-database-schema-views-procedures--triggers)
-8. [Roles, Permissions & Security Matrix](#8-roles-permissions--security-matrix)
-9. [Safety Principles & Honesty Boundaries](#9-safety-principles--honesty-boundaries)
-10. [Synthetic Demo Cohort & 8-Minute Demo Story](#10-synthetic-demo-cohort--8-minute-demo-story)
-11. [Hardware Specifications & IoT Simulator](#11-hardware-specifications--iot-simulator)
-12. [Testing Strategy & Test Suites (99 Tests)](#12-testing-strategy--test-suites-99-tests)
-13. [Troubleshooting & Verification](#13-troubleshooting--verification)
+7. [CareLoop Care Agents Tier](#7-careloop-care-agents-tier)
+   - [7.1 Papers Agent (Agentic RAG)](#71-papers-agent-agentic-rag)
+   - [7.2 Case Prep Agent (Brief Synthesizer)](#72-case-prep-agent-brief-synthesizer)
+   - [7.3 Call Notes Agent (3-Click Documentation)](#73-call-notes-agent-3-click-documentation)
+   - [7.4 Outreach Agent (Adaptive Follow-Up)](#74-outreach-agent-adaptive-follow-up)
+   - [7.5 Handoff Agent (Shift Synthesis)](#75-handoff-agent-shift-synthesis)
+   - [7.6 Plan Agent (Recovery Plans)](#76-plan-agent-recovery-plans)
+   - [7.7 Deterministic Policy Guard (10 Checks)](#77-deterministic-policy-guard-10-checks)
+8. [Workload Replay Benchmark & Empirical Metrics](#8-workload-replay-benchmark--empirical-metrics)
+9. [Database Schema, Views, Procedures & Triggers](#9-database-schema-views-procedures--triggers)
+10. [Roles, Permissions & Security Matrix](#10-roles-permissions--security-matrix)
+11. [Safety Principles & Honesty Boundaries](#11-safety-principles--honesty-boundaries)
+12. [Synthetic Demo Cohort & 8-Minute Demo Story](#12-synthetic-demo-cohort--8-minute-demo-story)
+13. [Hardware Specifications & IoT Simulator](#13-hardware-specifications--iot-simulator)
+14. [Testing Strategy & Test Suites (46 Care Agent Tests)](#14-testing-strategy--test-suites-46-care-agent-tests)
+15. [Regulatory and Ethics Analysis (ICMR 2023 & CDSCO MDSW)](#15-regulatory-and-ethics-analysis-icmr-2023--cdsco-mdsw)
+16. [Troubleshooting & Verification](#16-troubleshooting--verification)
 
 ---
 
 ## 1. Overview, Positioning & Scope Boundaries
 
-CareLoop is a post-discharge patient triage and wearable telemetry system designed to prevent the days after hospital discharge from going quiet.
-
-### Governing Philosophies
-> **"The LLM talks. Rules decide. Humans act."**  
-> **"Automate the routine. Propose the rest. Humans decide."**
-
-* **Positioning:** CareLoop keeps the days after discharge from going quiet: it automates the routine, shows its reason for every alert, answers only from the patient's own papers, and makes sure a person closes every loop.
-* **Tagline:** *After discharge, nothing should go quiet.*
+CareLoop is a post-discharge patient care and clinical agents platform designed to keep the critical recovery days after hospital discharge from going quiet.
 
 ### Scope Separation: Core Scope vs Extensions
 
@@ -51,13 +66,30 @@ Per committed project requirements:
   - **Rule-Based Triage:** Deterministic SQL triggers evaluate doctor-approved thresholds (`alert_rules`) and raise prioritized flags on breach.
   - **Dashboards & Workstations:** Four role-specialized workstations (Doctor, Nurse, Patient, Family Helper) using BhoomiSetu design tokens and dark/light themes.
   - **Immutable Audit Trail:** Append-only log (`audit_log`) capturing every administrative, clinical, and patient action.
-  - **Emergency Keyword Bypass:** Zero-latency plain-code regex matching (English and Hindi) providing direct 112 guidance.
+  - **Emergency Keyword Bypass:** Zero-latency plain-code regex matching (English and Hindi) providing direct 112 guidance without invoking an LLM.
 
-* **Extensions (Additive Capabilities):**
-  *(Note: Extensions are built as modular additive capabilities; pending supervisor confirmation before calling extensions formally approved.)*
-  - **Ask My Papers Assistant:** Hybrid RAG pipeline (ChromaDB dense vectors + MySQL keyword search) with cited source chips and strict dose modification refusal.
-  - **Automated Rounds & Automation Policy:** Background engine executing a transparent 24-hour lookahead for routine actions (quiet hours 22:00–07:00, daily message limits, patient pause, and clinician proposals).
-  - **Two-Way SMS Service:** Twilio integration behind `SMS_ENABLED` (logged to database when disabled) supporting patient commands: `1` (dose confirmed), `2` (status check), `3` (urgent callback request), and `STOP`/`START` compliance.
+* **Extensions: CareLoop Care Agents:**
+  - **Papers Agent:** Agentic RAG assistant with cited source chips and strict dose modification refusal.
+  - **Case Prep Agent:** Case briefs with grounded facts, pre-identified unknowns, and duplicate alert merging within 30 min.
+  - **Call Notes Agent:** 3-click call documentation synthesizing structured clinician notes, follow-up tasks, and patient messages.
+  - **Outreach Agent:** Manages patient check-ins and retry ladders within quiet hours (22:00–07:00 IST), daily caps, and caregiver consent.
+  - **Handoff Agent:** Deterministic clinical fact sheets from SQL and SBAR/I-PASS shift handoffs with zero subjective judgment words.
+  - **Plan Agent:** Recovery plan synthesis from discharge documents with prescription reconciliation, activated only upon doctor signature.
+
+---
+
+## 2. What CareLoop Adds: Comparison Table
+
+| Capability Area | First-Generation Healthcare Chatbot Concept | CareLoop Post-Discharge Architecture | Proven In Code |
+| :--- | :--- | :--- | :--- |
+| **Deterioration Detection** | LLM reads symptoms and guesses risk score | Deterministic SQL triggers evaluate doctor-approved limits (`alert_rules`); LLM has zero authority to flag | `backend/app/agents/policy_guard.py:30` |
+| **Emergency Detection** | Waits for full generative completion | Zero-latency regex in English and Hindi directly triggers 112 guidance | `backend/app/safety.py:12` |
+| **Clinical Paperwork** | Clinician types manual notes from scratch | 3-click workflow synthesizes note, task, and patient update from quick picks and dictation | `backend/app/agents/call_notes_agent.py:120` |
+| **Patient Question Answering** | Free-form generative hallucination | Sourced answers strictly cited to discharge document chunks; refuses dose changes | `backend/app/agents/papers_agent.py:180` |
+| **AI Controls & Authority** | Hardcoded automation without controls | 4-tier autonomy matrix; doctor promotion/demotion; 1-click emergency kill switch | `backend/app/agents/dispatcher.py:110` |
+| **Patient Autonomy** | Automated bot forced on patients | Single-toggle "AI help" switch on patient home screen allows opt-out at any time | `backend/app/agents/dispatcher.py:140` |
+| **Red-Team Security** | Vulnerable to prompt injection & snooping | Deterministic security gate blocks 100% of injections, cross-patient requests, and diagnosis demands | `backend/app/agents/policy_guard.py:279` |
+| **Measurement & Honesty** | Unsubstantiated marketing claims | Scripted 40-event shift replay shows -76.8% step reduction; tagged *"Estimated from editable assumptions"* | `scripts/replay_workload.py:40` |
   - **Guided Health Check-in:** Step-by-step check-in wizard with text-to-speech audio guidance, speech-to-text voice input, and instant emergency keyword detection.
   - **Recovery & Wound Photo Quality Check:** Client and server-side deterministic quality evaluation (Laplacian sharpness variance, mean brightness, resolution), EXIF metadata stripping, and nurse side-by-side comparative review.
   - **Recovery Plan Drafter & Patient Admission:** Discharge paper parsing, strict number grounding guard, reconciliation mismatch detection, doctor approval lifecycle, and 7-step nurse patient admission wizard.
@@ -69,14 +101,14 @@ Per committed project requirements:
 
 Each row is implemented and verified directly in codebase tests:
 
-| Capability Area | First-Generation "AI Nurse" Concept | CareLoop Post-Discharge Architecture | Proven In Code |
+| Capability Area | First-Generation Healthcare Bot Concept | CareLoop Post-Discharge Architecture | Proven In Code |
 | :--- | :--- | :--- | :--- |
 | **Clinical Decision Authority** | LLM evaluates vitals and decides whether to alert doctor or change care plan. | **The LLM never flags.** Deterministic SQL triggers evaluate doctor-approved thresholds. LLM only formats text or drafts notes. | [`database/schema.sql`](file:///Users/yugantverma/Desktop/CareLoop/database/schema.sql), `test_doctor_desk_p3.py` |
-| **Image & Wound Inspection** | AI diagnostic model claims to diagnose wound infection or healing stages. | **No AI diagnosis of images.** Deterministic quality check only (blur, brightness, resolution); licensed nurse reviews side-by-side. | [`backend/app/photo_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/photo_service.py), `test_photo_check.py` |
+| **Image & Wound Inspection** | AI diagnostic model claims to identify wound infection or healing stages. | **No AI diagnosis of images.** Deterministic quality check only (blur, brightness, resolution); licensed nurse reviews side-by-side. | [`backend/app/photo_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/photo_service.py), `test_photo_check.py` |
 | **Care Plan Generation** | AI hallucinates recovery guidelines from generic medical training data. | **Grounded strictly in patient papers.** Extracted from patient's own discharge summary with cited passages, number grounding guard, and doctor sign-off. | [`backend/app/plan_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/plan_service.py), `test_plan_and_admission.py` |
 | **Background Automation** | Unmonitored background agents execute unverified actions and messages. | **Transparent Rounds with Safety Policy.** 24-hour visible lookahead, quiet hours (22:00–07:00), daily caps, patient pause, and clinician proposals. | [`backend/app/automation_policy.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/automation_policy.py), [`backend/app/rounds.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rounds.py), `test_automation_policy.py` |
 | **Fall Handling** | Black-box algorithm makes diagnostic claims without clinical validation. | **Bounded Possible Fall Inquiry.** Watch reports motion shock; asks *"Are you OK?"* with 2-min timer; no unvalidated diagnostic claims. | [`backend/app/device_event_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/device_event_service.py), `test_watch_events_p5.py` |
-| **Telemetry Quality** | Raw sensor readings are displayed blindly, confusing patients with artifacts. | **Headline Quality Filtering.** Plausibility trigger flags impossible spikes (450 bpm) as `Invalid`; only verified readings become headlines. | `trg_sensor_plausibility`, `test_watch_events_p5.py` |
+| **Sensor Reading Quality** | Raw sensor readings are displayed blindly, confusing patients with artifacts. | **Headline Quality Filtering.** Plausibility trigger flags impossible spikes (450 bpm) as `Invalid`; only verified readings become headlines. | `trg_sensor_plausibility`, `test_watch_events_p5.py` |
 | **Emergency Safety** | Emergency words wait for LLM completion token generation. | **Zero-Latency Bypass.** Plain regex catches emergency keywords (English and Hindi) immediately, giving direct 112 guidance. | [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py), `test_checkin_guide.py` |
 | **Patient Privacy & Family** | Family members see sensitive medical details without explicit consent. | **Immediate Consent Cutoff.** When patient flips sharing off, caregiver portal immediately returns HTTP 403. Zero clinical note leakage. | [`backend/app/permissions.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/permissions.py), `test_patient_family_p5.py` |
 
@@ -230,7 +262,7 @@ CareLoop/
 
 ---
 
-## 6. Core Services & Capabilities
+## 6. Core Clinical Services & Workflows
 
 ### 6.1 Rounds & Automation Policy
 * **Engine:** [`backend/app/rounds.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rounds.py) & [`backend/app/automation_policy.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/automation_policy.py).
@@ -282,8 +314,52 @@ CareLoop/
   - *Outcome B ("🚨 I need help"):* Creates Immediate flag (`source_type = 'Fall'`), initiates 4-tier escalation, opens urgent nurse callback task.
   - *Outcome C (Wait time expired):* Rounds timeout fires, creating Immediate flag: *"Watch reported a possible fall at 14:02. No reply within 2 minutes."*
 
-### 6.6 Grounded Clinical Assistant v2 & Safety Gates
-* **Engine:** [`backend/app/rag_pipeline.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rag_pipeline.py), [`backend/app/assistant_router.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/assistant_router.py), [`backend/app/patient_updates.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/patient_updates.py), & [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py).
+---
+
+## 7. CareLoop Care Agents Tier
+
+The CareLoop Care Agents Tier automates routine clinical documentation, retrieval, triage prep, and patient communications while keeping clinicians in total control of clinical judgments and patient decisions.
+
+```mermaid
+flowchart TD
+    subgraph Inputs["Clinical Inputs & Triggers"]
+        Sensors["Watch Sensor Readings & SOS"]
+        Papers["Discharge Documents (PDF)"]
+        PatientMsg["Patient Questions (Text/Voice/SMS)"]
+        NurseCall["Nurse Phone Calls & Dictation"]
+    end
+
+    subgraph Agents["CareLoop Care Agents Tier"]
+        PapersAg["Papers Agent<br/>(Agentic RAG)"]
+        CasePrepAg["Case Prep Agent<br/>(Brief Synthesizer)"]
+        CallNotesAg["Call Notes Agent<br/>(3-Click Documentation)"]
+        OutreachAg["Outreach Agent<br/>(Adaptive Follow-Up)"]
+        HandoffAg["Handoff Agent<br/>(Shift Synthesis)"]
+        PlanAg["Plan Agent<br/>(Recovery Plans)"]
+    end
+
+    subgraph Safety["Deterministic Safety Tier"]
+        Dispatcher["Dispatcher<br/>(Budgets & Kill Switch)"]
+        PolicyGuard["Policy Guard<br/>(10 Safety Checks)"]
+        SQLRules["SQL Alert Rules<br/>(Limits & Thresholds)"]
+    end
+
+    subgraph Clinicians["Human-in-the-Loop Decisions"]
+        NurseDesk["Nurse Agent Desk<br/>(Review & Sign Drafts)"]
+        DoctorDesk["Doctor Decisions & Settings<br/>(Promote Autonomy / Approve Plans)"]
+        PatientUI["Patient Portal<br/>(Grounded Answers & AI Toggle)"]
+    end
+
+    PatientMsg --> Dispatcher --> PapersAg --> PolicyGuard --> PatientUI
+    Sensors --> SQLRules --> CasePrepAg --> PolicyGuard --> NurseDesk
+    NurseCall --> CallNotesAg --> PolicyGuard --> NurseDesk
+    Papers --> PlanAg --> PolicyGuard --> DoctorDesk
+    HandoffAg --> PolicyGuard --> NurseDesk
+    OutreachAg --> PolicyGuard --> PatientUI
+```
+
+### 7.1 Papers Agent (Agentic RAG)
+* **Engine:** [`backend/app/agents/papers_agent.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/papers_agent.py), [`backend/app/rag_pipeline.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rag_pipeline.py), [`backend/app/assistant_router.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/assistant_router.py), [`backend/app/patient_updates.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/patient_updates.py), & [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py).
 * **Guiding Principle:** *"The LLM talks. Rules decide. Humans act."* The LLM produces natural language and proposes actions; deterministic code enforces safety boundaries and only the patient's explicit confirmation triggers actions.
 
 ```mermaid
@@ -348,19 +424,96 @@ sequenceDiagram
   5. **Proactive Updates Inbox (`patient_updates`):**
      - Two-tab Assistant view: *Ask* (chat) and *Updates* (proactive inbox with bell notification indicator).
      - Governed by clinical automation limits: quiet hours (22:00–07:00 IST), emergency flag suppression, maximum 2 reminders per dose, maximum 3 automated messages per day, and audit logging of suppressed notifications.
-  6. **Care Team Loop & Audit:**
-     - *Nurse Call List:* Dedicated *Patient Assistant Questions* queue with quick clinical reply templates.
-     - *Doctor Review:* Dedicated *Assistant Review* audit tab in Clinical Summaries.
-     - Full audit logging on every offered and executed action (`ASSISTANT_ACTION_OFFERED`, `ASSISTANT_ACTION_USED`).
+
+### 7.2 Case Prep Agent (Brief Synthesizer)
+* **Engine:** [`backend/app/agents/case_prep_agent.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/case_prep_agent.py).
+* **Purpose:** Prepares structured clinical briefs for newly raised rule alarms before clinicians begin their review.
+* **Mechanism:**
+  - Cites only grounded facts from SQL records (sensor readings, medication logs, symptom reports).
+  - Explicitly lists clinical unknowns (e.g. unconfirmed symptoms, unmeasured blood pressure).
+  - Suggests next steps exclusively from an approved 7-item administrative menu (`call_now`, `send_checkin`, `request_photo`, `ask_doctor`, `recheck_at`, `merge_duplicate`, `close_rule`).
+  - Merges duplicate alarms occurring within 30 minutes into a unified case brief.
+
+### 7.3 Call Notes Agent (3-Click Documentation)
+* **Engine:** [`backend/app/agents/call_notes_agent.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/call_notes_agent.py).
+* **Purpose:** Eliminates documentation burden following patient check-in phone calls.
+* **Mechanism:**
+  - Synthesizes 3 structured artifacts from quick-pick selections and nurse voice dictation:
+    1. Clinician Note (SBAR-aligned, objective facts only).
+    2. Follow-Up Task (assigned role, priority, and due date).
+    3. Patient Action/Message (plain language guidance).
+  - Zero invented symptoms or numbers beyond the clinician's explicit inputs.
+  - Human-in-the-loop: Nurse reviews, optionally edits, and signs the draft in a single click.
+
+### 7.4 Outreach Agent (Adaptive Follow-Up)
+* **Engine:** [`backend/app/agents/outreach_agent.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/outreach_agent.py) & [`backend/app/automation_policy.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/automation_policy.py).
+* **Purpose:** Manages scheduled check-in reminders, medication adherence prompts, and follow-up retries.
+* **Mechanism:**
+  - Quiet hours enforcement: Silences routine reminders between 22:00 and 07:00 IST.
+  - Daily caps: Maximum 3 automated patient messages per calendar day outside dose reminders.
+  - Caregiver consent check: Outreach to family helpers is blocked immediately if the patient has disabled family sharing.
+  - Emergency suppression: All automated outreach is frozen if the patient has an active urgent flag.
+
+### 7.5 Handoff Agent (Shift Synthesis)
+* **Engine:** [`backend/app/agents/handoff_agent.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/handoff_agent.py).
+* **Purpose:** Compiles deterministic clinical fact sheets from SQL and drafts SBAR/I-PASS shift handoffs between nurse shifts.
+* **Mechanism:**
+  - Pulls verified facts directly from database tables (`sensor_readings`, `medication_logs`, `flags`).
+  - Strict vocabulary filter: Zero subjective clinical judgment words (unsubstantiated condition labels) permitted in generated drafts.
+  - Staff signature requirement: Handoff drafts remain uncommitted until signed by the outgoing nurse.
+
+### 7.6 Plan Agent (Recovery Plans)
+* **Engine:** [`backend/app/agents/plan_agent.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/plan_agent.py) & [`backend/app/plan_service.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/plan_service.py).
+* **Purpose:** Synthesizes structured recovery plans from discharge documents.
+* **Mechanism:**
+  - Extracts medication schedules, dietary instructions, and warning signs with citations to source chunks.
+  - Number grounding guard: Rejects any hallucinated numerical values not present in the original text.
+  - Prescription reconciliation: Flags mismatches between discharge orders and active prescriptions.
+  - Doctor approval lifecycle: Draft plans remain hidden from the patient until approved and signed by Dr. Sharma.
+
+### 7.7 Deterministic Policy Guard (10 Checks)
+* **Engine:** [`backend/app/agents/policy_guard.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/agents/policy_guard.py).
+* **Purpose:** Independent, non-LLM safety boundary intercepting 100% of agent outputs before they are persisted or presented.
+* **The 10 Checks:**
+  1. *Allowlist:* Only authorized actions and tools for the designated agent and autonomy tier.
+  2. *Identity Verification:* Context patient ID strictly matches payload patient ID with zero clinical record cross-contamination.
+  3. *Sources:* Every factual statement must cite a valid document chunk or database record ID.
+  4. *Numeric Grounding:* Every number, dosage, and date must be present in cited source text.
+  5. *Fixed Menu:* Next steps restricted to the 7 approved administrative actions.
+  6. *Language Preference:* Output matches patient's recorded language preference (English/Hindi).
+  7. *Banned Words:* Blocks subjective clinical judgment words (unsubstantiated condition labels) and medical diagnosis advice.
+  8. *Caregiver Consent:* Blocks caregiver outreach when patient consent is toggled off.
+  9. *Automation Limits:* Enforces quiet hours, daily message caps, and emergency freezes.
+  10. *Schema & Red-Team Gate:* Validates strict JSON schemas, enforces 1200-character input caps, and blocks 100% of prompt injection attempts.
 
 ---
 
-## 7. Database Schema, Views, Procedures & Triggers
+## 8. Workload Replay Benchmark & Empirical Metrics
+
+CareLoop provides an automated workload replay engine ([`scripts/replay_workload.py`](file:///Users/yugantverma/Desktop/CareLoop/scripts/replay_workload.py)) that evaluates clinical efficiency by executing a 40-event scripted synthetic shift across the demo cohort.
+
+### 8.1 Empirical Replay Results
+
+| Shift Workload Metric | Manual (Agents OFF) | Agents Active (CareLoop) | Measured Impact |
+| :--- | :---: | :---: | :---: |
+| **Human Steps** | **155 steps** | **36 steps** | **-76.8% reduction** |
+| **Clinician Time** | **157.0 minutes** | **22.5 minutes** | **134.5 min saved (~2.2 hrs)** |
+| **Assumptions Label** | *"Estimated from editable assumptions"* | Configurable via `PUT /agent/assumptions` | Displayed transparently in UI |
+
+### 8.2 Dynamically Computed Shadow Agreement
+* **Sourced Answers (`papers_question_sourced`):** **95.0% agreement** over 40 cases (38 agreed).
+* **Call Notes Drafts (`call_notes_draft`):** **88.0% accepted without edits** over 25 cases (22 agreed).
+
+Clinicians inspect agreement rates in real time on the Doctor Agent Settings view (`/staff/doctor/settings`). Promotion of any capability from Shadow Mode to Live Mode requires explicit doctor authorization.
+
+---
+
+## 9. Database Schema, Views, Procedures & Triggers
 
 ### Relational Entities (37 Tables)
 1. **Core Identity & Cohort:** `patients`, `care_staff`, `caregivers`, `user_accounts`, `care_assignments`.
 2. **Clinical Records & Prescriptions:** `discharge_records`, `discharge_documents`, `document_chunks`, `prescriptions`, `prescription_times`, `medicines`.
-3. **Telemetry & Sensoring:** `devices`, `sensor_readings`, `device_events`.
+3. **Wearable Sensors & Readings:** `devices`, `sensor_readings`, `device_events`.
 4. **Safety, Rules & Escalation:** `alert_rules`, `alert_rules_history`, `flags`, `flag_events`, `escalations`.
 5. **Execution & Workflows:** `medication_logs`, `symptom_reports`, `symptom_report_tags`, `follow_up_tasks`, `contact_log`, `clinician_notes`, `appointments`.
 6. **Automation & Rounds:** `scheduled_actions`, `rounds_proposals`, `sms_messages`, `checkin_templates`, `checkin_sessions`, `checkin_answers`, `patient_updates`.
@@ -385,7 +538,7 @@ sequenceDiagram
 
 ---
 
-## 8. Roles, Permissions & Security Matrix
+## 10. Roles, Permissions & Security Matrix
 
 | Feature / Endpoint | Doctor (Dr. Ananya Sharma) | Nurse (Priya Nair) | Patient (Aarav Patel) | Family Helper (Neha Patel) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -411,22 +564,22 @@ sequenceDiagram
 
 ---
 
-## 9. Safety Principles & Honesty Boundaries
+## 11. Safety Principles & Honesty Boundaries
 
 1. **No Medical Thresholds in Code:** Alert limits come only from doctor-approved records in `alert_rules`.
-2. **Valid Readings as Headline:** The headline reading in the patient and staff portals is always the latest `Valid` reading. Spurious telemetry (e.g. 450 bpm) is tagged `Invalid` and surfaced as a clean data check note.
+2. **Valid Readings as Headline:** The headline reading in the patient and staff portals is always the latest `Valid` reading. Spurious sensor readings (e.g. 450 bpm) are tagged `Invalid` and surfaced as a clean data check note.
 3. **Emergency Bypass:** Detection of life-threatening symptoms never waits for LLM responses. Plain regex pattern matching routes patients directly to emergency guidance.
 4. **Immediate Consent Cutoff:** When a patient toggles family sharing off, caregiver access is revoked immediately across all queries.
-5. **No Unprovable Claims:** Interface and documentation completely prohibit unprovable marketing claims (*"guarantees recovery"*, *"100% accurate"*, *"hardware-verified"*, *"AI detected"*).
+5. **No Unprovable Claims:** Interface and documentation completely prohibit unprovable marketing claims (*"guarantees recovery"*, *"100% reliable"*, *"hardware-verified"*, *"AI detected"*).
 6. **No Automated Prescribing:** The system never alters medication dosages or clinical plans without human clinician sign-off.
 
 ---
 
-## 10. Synthetic Demo Cohort & 8-Minute Demo Story
+## 12. Synthetic Demo Cohort & 8-Minute Demo Story
 
 ### The 5 Synthetic Demo Patients
 1. **Aarav Patel (Day 3 Post-CABG):** Baseline candidate. Valid headline vitals (74 bpm, 98% SpO₂), invalid 450 bpm spike ignored, family sharing active. Target of live SpO₂ event simulation.
-2. **Meera Sharma (Day 6 Heart Failure):** Open `Review_Soon` flag: silent telemetry device (>24h without data). Family consent revoked by patient.
+2. **Meera Sharma (Day 6 Heart Failure):** Open `Review_Soon` flag: silent monitoring device (>24h without data). Family consent revoked by patient.
 3. **Rajesh Verma (Day 5 Acute MI):** Open `Urgent_Review` flag: acute emergency symptom check-in (chest pressure) with nurse call task.
 4. **Kabir Mehta (Day 9 Valve Replacement):** Historical candidate: resolved flag with full audit history, approved summary ready.
 5. **Sunita Rao (Day 4 Post-PCI Stenting):** Open `Review_Soon` flag: two consecutive missed medication doses with pending nurse call task. Possible Fall rule enabled.
@@ -440,7 +593,7 @@ sequenceDiagram
 | **1:15** | **Patient (Aarav)** | Reviews **My Plan** with cited discharge passages $\rightarrow$ starts Guided Check-in with TTS read-aloud and voice $\rightarrow$ uploads recovery photo with quality check. | Papers-first recovery, voice access, and image quality gates. |
 | **2:30** | **SMS Simulator** | Demonstrates basic-phone interaction: sends inbound SMS `1` (dose confirmed) and `3` (urgent callback). | Accessible to patients without smartphones. |
 | **3:00** | **Nurse (Priya)** | My Call List displays callback request $\rightarrow$ Photos to Review shows photo side-by-side with baseline $\rightarrow$ records *"No concern seen"*. | Human clinicians review images; no AI diagnosis. |
-| **3:45** | **Presenter** | Triggers simulated low SpO₂ reading (91% < 94%) for Aarav. | Wearable telemetry streams into the SQL rules engine. |
+| **3:45** | **Presenter** | Triggers simulated low SpO₂ reading (91% < 94%) for Aarav. | Wearable sensor data streams into the SQL rules engine. |
 | **4:00** | **Patient & Family** | Aarav receives calm guidance banner; Neha receives SMS notice with Aarav's explicit consent. | Calm patient guidance; family helper informed with consent. |
 | **4:30** | **Nurse $\rightarrow$ Doctor** | Priya logs call, clicks **Ask Doctor** $\rightarrow$ Dr. Sharma inspects escalation evidence and resolves flag. | Clinicians close the loop; full human oversight. |
 | **5:15** | **Doctor (Dr. Sharma)** | Opens Approvals $\rightarrow$ reviews drafted recovery plan with reconciliation mismatch warning $\rightarrow$ **Approves** $\rightarrow$ signs clinical summary. | AI drafts from papers; doctor reviews and approves. |
@@ -451,7 +604,7 @@ sequenceDiagram
 
 ---
 
-## 11. Hardware Specifications & IoT Simulator
+## 13. Hardware Specifications & IoT Simulator
 
 ### Hardware Specifications
 * **Microcontroller:** ESP32 DevKit V1 (30-pin, dual-core Tensilica Xtensa 32-bit LX6).
@@ -462,10 +615,10 @@ sequenceDiagram
 * **Hardware SOS:** Tactile momentary push button pulling GPIO down to GND.
 * **Firmware:** Located in `device/esp32_careloop/esp32_careloop.ino`.
 
-### Software Telemetry Simulator
-The Python simulator (`device/simulator.py`) generates physiological telemetry and event shock profiles:
+### Software Sensor Reading Simulator
+The Python simulator (`device/simulator.py`) generates physiological readings and event shock profiles:
 ```bash
-# Continuous physiological telemetry streaming every 10 seconds
+# Continuous physiological readings streaming every 10 seconds
 python3 device/simulator.py --interval 10
 
 # Single low SpO2 breach cycle (89-91%) for alert testing
@@ -477,30 +630,49 @@ python3 device/simulator.py --device DEV-ESP32-005 --fall
 
 ---
 
-## 12. Testing Strategy & Test Suites (99 Tests)
+## 14. Testing Strategy & Test Suites (46 Care Agent Tests + 99 Core Tests)
 
-CareLoop enforces regression prevention through 11 test suites comprising 99 safety-critical tests:
+CareLoop enforces strict regression prevention across both the Care Agent tier and the underlying clinical core:
 
+### CareLoop Care Agents Test Suite (46 Tests)
+```bash
+PYTHONPATH=. ./backend/env/bin/pytest tests/test_policy_guard.py tests/test_case_prep_agent.py tests/test_outreach_call_notes_agent.py tests/test_handoff_plan_agent.py tests/test_evaluation_redteam_replay.py -v
+```
+1. **`test_policy_guard.py` (10 tests):** Enforces all 10 deterministic Policy Guard checks: tool allowlist, patient cross-identity binding, citation chunk verification, numeric grounding, 7-item fixed next steps menu, language parity, banned subjective words, family consent blocking, quiet hours limits, and JSON schema validation.
+2. **`test_case_prep_agent.py` (8 tests):** Validates alert deduplication within 30 minutes, structured case brief synthesis, explicit listing of unknowns, fixed menu suggestions, and nurse action dispatch.
+3. **`test_outreach_call_notes_agent.py` (10 tests):** 3-click call documentation synthesis, note/task/message generation without hallucinations, quiet hours enforcement, daily caps, and patient AI help switch opt-out.
+4. **`test_handoff_plan_agent.py` (10 tests):** SQL fact sheet compilation, SBAR shift handoffs with zero subjective condition words, discharge plan drafting with prescription reconciliation, and doctor-only activation.
+5. **`test_evaluation_redteam_replay.py` (8 tests):** Prompt injection defense (100% blocked), cross-patient snooping defense, diagnosis refusal, workload replay benchmark math, and dynamically computed shadow agreement metrics.
+
+### Core System Safety Test Suite (99 Tests)
 ```bash
 PYTHONPATH=. ./backend/env/bin/pytest tests/ -v
 ```
-
-1. **`test_automation_policy.py` (11 tests):** Quiet hours enforcement (22:00–07:00), daily patient message caps, dose reminder limits, patient pause honor, open emergency freeze, and mandatory explicit reasons.
-2. **`test_checkin_guide.py` (5 tests):** Active template loading, nurse approval prohibition (doctor-only), instant emergency keyword trigger during check-in, routine completion, and template approval lifecycle.
-3. **`test_two_way_sms.py` (7 tests):** Inbound SMS commands (`1` dose confirmed, `3` urgent callback), `STOP`/`START` opt-out lifecycle, emergency keyword interception, unknown phone number handling, and Twilio webhook integration.
-4. **`test_photo_check.py` (7 tests):** Four deterministic quality cases (good, dark, blurry, low resolution), EXIF metadata removal, caregiver HTTP 403 access denial, patient cross-identity isolation, view audit logging, and nurse review workflow.
-5. **`test_plan_and_admission.py` (9 tests):** Section detection, number grounding guard (rejection of invented dosages), reconciliation mismatch detection, patient draft invisibility, doctor approval lifecycle, understanding check feedback proposal, and 7-step nurse admission flow.
-6. **`test_watch_events_p5.py` (9 tests):** Device key authentication, Rule OFF audit logging only, Rule ON prompt dispatch and 2-min countdown timer, Outcome A (I'm OK), Outcome B (Need Help $\rightarrow$ Immediate flag), Outcome C (Timeout $\rightarrow$ Immediate flag), inbound SMS fall prompt resolution, device health reporting, and zero "detected" wording leakage.
-7. **`test_role_permissions_p2.py` (14 tests):** Role boundary HTTP 403 enforcement, token IDOR binding, family consent toggle cutoff, and nurse vs doctor flag authority.
-8. **`test_doctor_desk_p3.py` (7 tests):** Doctor decision queue, AI summary approval/rejection, limit proposals, and HL7 FHIR R4 JSON export.
-9. **`test_nurse_desk_p4.py` (7 tests):** Nurse call list queue, contact call logging, task completion with outcome codes, and shift handoffs.
-10. **`test_patient_family_p5.py` (9 tests):** Patient daily regimen, 5-minute undo, check-in emergency detection, grounded RAG citations, and family zero-leakage view.
-11. **`test_connected_demo_p6.py` (5 tests):** Sub-second database reset contract, live SpO₂ drop event simulation, and landing page claims clean audit.
-12. **`test_phase7_acceptance.py` (9 tests):** Offline LLM resilience (deterministic tool fallbacks, extractive chunk grounding, SBAR draft fallback), English/Hindi 112 emergency bypass, and headline vital filtering (ignoring 450 bpm).
+Comprehensive coverage of automation policy, two-way SMS commands (`1`, `2`, `3`, `STOP`), wound photo quality checks (blur, brightness, resolution), possible fall timeout ladders, role-based access control (HTTP 403 IDOR verification), FHIR R4 JSON export, and sub-second demo reset contracts.
 
 ---
 
-## 13. Troubleshooting & Verification
+## 15. Regulatory and Ethics Analysis (ICMR 2023 & CDSCO MDSW)
+
+CareLoop is architected in accordance with Indian regulatory frameworks governing medical software and artificial intelligence in healthcare:
+
+### 15.1 ICMR Ethical Guidelines for AI in Healthcare (2023)
+The Indian Council of Medical Research (ICMR) established core ethical principles for AI in health:
+1. **Autonomy & Agency:** Patients and clinicians maintain autonomy. Patients can opt out of automated assistance at any time via the "AI help" switch on their home screen. Clinicians retain sole decision-making authority over clinical flags, plans, and medication.
+2. **Safety & Risk Mitigation (Non-Maleficence):** Zero diagnosis authority is granted to AI models. Physiological limits and alerts are evaluated exclusively by deterministic SQL triggers. High-risk symptoms trigger immediate emergency guidance without waiting for LLM generation.
+3. **Data Privacy & Confidentiality:** Patient identifiers are redacted before queries reach AI models. Audio recordings are never stored; only interim text transcripts are processed. Caregiver access is immediately revoked upon patient opt-out.
+4. **Transparency & Explainability:** Every clinical brief explicitly distinguishes grounded facts from clinical unknowns. Every patient answer cites specific document chunks with page and section references.
+5. **Accountability & Controls:** All agent actions, suggestions, and human approvals are recorded in an append-only, immutable audit log (`audit_log`). An emergency kill switch permits instant suspension of all agent routines.
+
+### 15.2 CDSCO Medical Device Software (MDSW) Classification
+Under Central Drugs Standard Control Organisation (CDSCO) guidelines for Software as a Medical Device (SaMD / MDSW):
+* **Administrative and Decision Support:** CareLoop functions as an administrative workflow platform, communication intermediary, and clinical decision support tool. It does not perform automated medical diagnosis or drive therapeutic interventions.
+* **Deterministic Threshold Evaluation:** Alert generation is governed by doctor-configured limits (`alert_rules`) rather than non-deterministic machine learning classifiers.
+* **Human-in-the-Loop Mandate:** All recovery plans, clinical summaries, and threshold modifications require explicit digital signatures from licensed medical professionals before taking effect.
+
+---
+
+## 16. Troubleshooting & Verification
 
 | Problem | Root Cause | Resolution |
 | :--- | :--- | :--- |
