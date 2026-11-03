@@ -98,6 +98,12 @@ ALLOWED_AGENT_TOOLS = {
         "build_patient_fact_sheet",
         "draft_shift_handoff",
         "draft_daily_summary"
+    },
+    "plan_agent": {
+        "search_discharge_papers",
+        "get_prescriptions",
+        "draft_recovery_plan",
+        "reconcile_medications"
     }
 }
 

@@ -6,6 +6,7 @@ import {
   dismissFlag,
   escalateFlagNow,
   escalateFlagToDoctor,
+  API_BASE,
 } from '../services/api';
 
 /**
@@ -439,8 +440,62 @@ export default function FlagDrawer({
                   )}
                 </div>
                 {resolution_note && (
-                  <div style={{ marginTop: '12px', padding: '10px', borderRadius: '6px', background: '#f8fafc', fontSize: '12px', color: '#475569' }}>
-                    <strong>Resolution Note:</strong> {resolution_note}
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '12px 14px',
+                    borderRadius: '8px',
+                    background: resolution_note.includes('Closed by approved rule') ? '#f0fdf4' : '#f8fafc',
+                    border: resolution_note.includes('Closed by approved rule') ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
+                    fontSize: '12px',
+                    color: '#334155',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}>
+                    <div>
+                      <strong style={{ color: resolution_note.includes('Closed by approved rule') ? '#166534' : '#1e293b' }}>
+                        {resolution_note.includes('Closed by approved rule') ? '🤖 Rule Auto-Closure:' : 'Resolution Note:'}
+                      </strong>{' '}
+                      {resolution_note}
+                    </div>
+                    {status === 'Resolved' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const reason = prompt('Reason for reopening this flag:', 'Clinician observed ongoing patient concern');
+                          if (!reason) return;
+                          try {
+                            const tok = localStorage.getItem('careloop_token');
+                            const res = await fetch(`${API_BASE}/flags/${flag_id}/reopen`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+                              body: JSON.stringify({ reopen_reason: reason })
+                            });
+                            if (res.ok) {
+                              alert('Flag reopened successfully.');
+                              if (onActionSuccess) onActionSuccess();
+                              if (onClose) onClose();
+                            }
+                          } catch (e) {
+                            alert('Reopen failed: ' + e.message);
+                          }
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          color: '#0284c7',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        ↩ Reopen
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

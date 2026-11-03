@@ -8190,12 +8190,47 @@ def get_agent_settings(user: Dict[str, Any] = Depends(require_role("Doctor"))):
         """)
         shadow_stats = cur.fetchall()
 
+    from .agents.auto_close_service import AutoCloseService
+    auto_close_on = AutoCloseService.is_auto_close_enabled()
+
     return {
         "global_paused": AgentDispatcher.is_global_paused(),
         "daily_llm_budget_per_patient": MAX_DAILY_LLM_CALLS_PER_PATIENT,
         "autonomy_matrix": matrix,
         "shadow_agreement_stats": shadow_stats,
+        "auto_close_enabled": auto_close_on,
+        "auto_close_catalog": [
+            {
+                "rule_type": "No_Data_30m",
+                "name": "No data from device (silent device)",
+                "low_risk": True,
+                "condition": "Data resumed for 30 minutes",
+                "refuses": "Emergency, SOS, Urgent, Symptom, Photo flags"
+            },
+            {
+                "rule_type": "Missed_Dose_Confirmed",
+                "name": "Missed medication dose confirmed taken",
+                "low_risk": True,
+                "condition": "Patient logs late confirmation within 2 hours",
+                "refuses": "Emergency, SOS, Urgent, Symptom, Photo flags"
+            }
+        ]
     }
+
+
+class AutoCloseToggleIn(BaseModel):
+    enabled: bool
+
+
+@app.put("/agent/settings/auto-close")
+def toggle_auto_close_setting(
+    body: AutoCloseToggleIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    from .agents.auto_close_service import AutoCloseService
+    staff_id = user.get("staff_id", 1)
+    AutoCloseService.set_auto_close_enabled(body.enabled, staff_id)
+    return {"status": "ok", "auto_close_enabled": body.enabled}
 
 
 @app.put("/agent/settings")
@@ -8214,9 +8249,9 @@ def update_agent_autonomy(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-            VALUES ('Doctor', %s, 'UPDATE_AGENT_AUTONOMY', 'agent_autonomy', %s,
+            VALUES ('Staff', %s, 'UPDATE_AGENT_AUTONOMY', 'agent_autonomy', 0,
                     JSON_OBJECT('action_type', %s, 'level', %s, 'mode', %s));
-        """, (str(user["account_id"]), body.action_type, body.action_type, body.level, body.mode))
+        """, (str(user["account_id"]), body.action_type, body.level, body.mode))
 
     return {
         "status": "ok",
@@ -8511,4 +8546,157 @@ def evaluate_outreach_endpoint(
         is_emergency=body.is_emergency
     )
     return res
+
+
+# ─── CareLoop Phase 5: Handoff, Plan & Auto-Close Endpoints ─────────────────
+
+class HandoffDraftIn(BaseModel):
+    shift_type: str = "Morning_to_Evening"
+    patient_id: Optional[int] = None
+
+
+class HandoffSignIn(BaseModel):
+    draft_id: int
+    notes: Optional[str] = None
+    edited_text: Optional[str] = None
+
+
+class PlanDraftIn(BaseModel):
+    patient_id: int
+    source_doc_id: Optional[int] = None
+
+
+class PlanApproveIn(BaseModel):
+    plan_id: int
+    notes: Optional[str] = None
+
+
+class AutoCloseEvaluateIn(BaseModel):
+    flag_id: int
+    trigger_condition: Optional[str] = "data resumed 30m"
+
+
+class FlagReopenIn(BaseModel):
+    reopen_reason: Optional[str] = "Reopened by clinician"
+
+
+@app.post("/agent/handoff/draft")
+def draft_handoff_endpoint(
+    body: HandoffDraftIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Drafts SBAR/I-PASS patient summary or cohort shift handoff from deterministic facts.
+    Marked 'AI-prepared draft', signed by human before patient or doctor viewing.
+    """
+    from .agents.handoff_agent import HandoffAgent
+
+    staff_id = user.get("staff_id", 1)
+    staff_name = user.get("name") or ("Dr. Sharma" if user.get("account_role") == "Doctor" else "Priya Nair")
+
+    if body.patient_id is not None:
+        res = HandoffAgent.draft_patient_summary(body.patient_id, staff_id, staff_name)
+    else:
+        res = HandoffAgent.draft_shift_handoff(staff_id, body.shift_type, staff_name)
+    return res
+
+
+@app.post("/agent/handoff/sign")
+def sign_handoff_endpoint(
+    body: HandoffSignIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Licensed clinician signs an AI-prepared summary or shift handoff draft.
+    Records reviewer identity, reviewed_at, and edit_chars fidelity.
+    """
+    from .agents.handoff_agent import HandoffAgent
+
+    staff_id = user.get("staff_id", 1)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT draft_type FROM agent_drafts WHERE draft_id = %s;", (body.draft_id,))
+        draft = cur.fetchone()
+        if not draft:
+            raise HTTPException(404, "Draft not found")
+
+        if draft["draft_type"] == "Summary":
+            res = HandoffAgent.sign_patient_summary(body.draft_id, staff_id, body.edited_text)
+        else:
+            res = HandoffAgent.sign_shift_handoff(body.draft_id, staff_id, body.notes)
+    return res
+
+
+@app.post("/agent/plan/draft")
+def draft_plan_endpoint(
+    body: PlanDraftIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Drafts recovery plan items with chunk citations and prescription reconciliation.
+    Saves in 'Draft' status (invisible to patients until doctor approved).
+    """
+    from .agents.plan_agent import PlanAgent
+
+    staff_id = user.get("staff_id", 1)
+    res = PlanAgent.draft_recovery_plan(body.patient_id, staff_id, body.source_doc_id)
+    return res
+
+
+@app.post("/agent/plan/approve")
+def approve_plan_endpoint(
+    body: PlanApproveIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """
+    Doctor-only: Signs and approves recovery plan.
+    Makes plan visible to patient and generates understanding checks.
+    """
+    from .agents.plan_agent import PlanAgent
+
+    doctor_staff_id = user.get("staff_id", 1)
+    try:
+        res = PlanAgent.approve_recovery_plan(body.plan_id, doctor_staff_id, body.notes)
+        return res
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/agent/auto-close/evaluate")
+def evaluate_auto_close_endpoint(
+    body: AutoCloseEvaluateIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Evaluates doctor-approved auto-close on a flag.
+    Strictly refuses emergency, SOS, urgent, symptom, or photo flags.
+    """
+    from .agents.auto_close_service import AutoCloseService
+
+    can_close, reason = AutoCloseService.can_auto_close(body.flag_id)
+    if not can_close:
+        return {"auto_closed": False, "can_auto_close": False, "reason": reason}
+
+    res = AutoCloseService.auto_close_flag(body.flag_id, body.trigger_condition or "data resumed 30m")
+    return res
+
+
+@app.post("/flags/{flag_id}/reopen")
+def reopen_flag_endpoint(
+    flag_id: int,
+    body: FlagReopenIn = FlagReopenIn(),
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Reopens a resolved or auto-closed flag and its parent case.
+    Audited with clinician identity.
+    """
+    from .agents.auto_close_service import AutoCloseService
+
+    staff_id = user.get("staff_id", 1)
+    try:
+        res = AutoCloseService.reopen_flag(flag_id, staff_id, body.reopen_reason or "Reopened by clinician")
+        return res
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
 
