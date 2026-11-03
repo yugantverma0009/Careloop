@@ -799,6 +799,199 @@ def main():
             except Exception as e:
                 print(f"      [Warning] Chroma collection indexing skipped: {e}")
 
+        with conn.cursor() as cur:
+            # 20. CareLoop Agents Baseline Runs, Cases, Drafts, and Shadow Decisions (Phase 1)
+            print("  20. Seeding CareLoop Agents baseline cases, drafts, runs, and shadow decisions...")
+            cur.execute("""
+                INSERT INTO agent_system_state (state_key, state_val) VALUES ('pause_all_agents', 'false')
+                ON DUPLICATE KEY UPDATE state_val = VALUES(state_val);
+            """)
+            autonomy_seeds = [
+                ('dose_reminder', 'Auto', 'Live', 1),
+                ('checkin_prompt', 'Auto', 'Live', 1),
+                ('photo_request', 'Auto', 'Live', 1),
+                ('papers_question_sourced', 'Auto', 'Live', 1),
+                ('not_found_care_team_request', 'Auto', 'Live', 1),
+                ('dose_change_care_team_request', 'Auto', 'Live', 1),
+                ('duplicate_alert_merging', 'Auto', 'Live', 1),
+                ('case_brief', 'Auto', 'Live', 1),
+                ('next_step_suggestion', 'Suggest', 'Shadow', 1),
+                ('call_script', 'Draft', 'Shadow', 1),
+                ('call_note', 'Draft', 'Shadow', 1),
+                ('post_call_patient_message', 'Draft', 'Shadow', 1),
+                ('daily_summary', 'Draft', 'Shadow', 1),
+                ('shift_handoff', 'Draft', 'Shadow', 1),
+                ('recovery_plan', 'Draft', 'Shadow', 1),
+                ('no_answer_retry_scheduling', 'Auto', 'Live', 1),
+                ('approved_flag_auto_close', 'Draft', 'Shadow', 1)
+            ]
+            for a_type, lvl, md, stf in autonomy_seeds:
+                cur.execute("""
+                    INSERT INTO agent_autonomy (action_type, level, mode, set_by_staff_id)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE level = VALUES(level), mode = VALUES(mode);
+                """, (a_type, lvl, md, stf))
+
+            # Cases
+            cur.execute("SELECT flag_id FROM flags WHERE patient_id = 1 LIMIT 1;")
+            aarav_flag = cur.fetchone()
+            aarav_fid = aarav_flag["flag_id"] if aarav_flag else None
+            cur.execute("""
+                INSERT INTO `cases` (case_id, patient_id, primary_flag_id, status, merged_count, created_at)
+                VALUES ('case-aarav-spo2', 1, %s, 'Resolved', 1, NOW() - INTERVAL 1 DAY)
+                ON DUPLICATE KEY UPDATE merged_count = VALUES(merged_count);
+            """, (aarav_fid,))
+            if aarav_fid:
+                cur.execute("""
+                    INSERT IGNORE INTO case_flags (case_id, flag_id) VALUES ('case-aarav-spo2', %s);
+                """, (aarav_fid,))
+
+            cur.execute("SELECT flag_id FROM flags WHERE patient_id = 2 AND source_type = 'Device_Silence' LIMIT 1;")
+            meera_flag = cur.fetchone()
+            meera_fid = meera_flag["flag_id"] if meera_flag else None
+            cur.execute("""
+                INSERT INTO `cases` (case_id, patient_id, primary_flag_id, status, merged_count, created_at)
+                VALUES ('case-meera-silent', 2, %s, 'Open', 1, NOW() - INTERVAL 12 HOUR)
+                ON DUPLICATE KEY UPDATE merged_count = VALUES(merged_count);
+            """, (meera_fid,))
+            if meera_fid:
+                cur.execute("""
+                    INSERT IGNORE INTO case_flags (case_id, flag_id) VALUES ('case-meera-silent', %s);
+                """, (meera_fid,))
+
+            cur.execute("SELECT flag_id FROM flags WHERE patient_id = 3 LIMIT 1;")
+            rajesh_flag = cur.fetchone()
+            rajesh_fid = rajesh_flag["flag_id"] if rajesh_flag else None
+            cur.execute("""
+                INSERT INTO `cases` (case_id, patient_id, primary_flag_id, status, merged_count, created_at)
+                VALUES ('case-rajesh-emergency', 3, %s, 'In_Progress', 1, NOW() - INTERVAL 3 HOUR)
+                ON DUPLICATE KEY UPDATE merged_count = VALUES(merged_count);
+            """, (rajesh_fid,))
+            if rajesh_fid:
+                cur.execute("""
+                    INSERT IGNORE INTO case_flags (case_id, flag_id) VALUES ('case-rajesh-emergency', %s);
+                """, (rajesh_fid,))
+
+            cur.execute("SELECT flag_id FROM flags WHERE patient_id = 5 LIMIT 1;")
+            sunita_flag = cur.fetchone()
+            sunita_fid = sunita_flag["flag_id"] if sunita_flag else None
+            cur.execute("""
+                INSERT INTO `cases` (case_id, patient_id, primary_flag_id, status, merged_count, created_at)
+                VALUES ('case-sunita-missed-doses', 5, %s, 'Open', 3, NOW() - INTERVAL 4 HOUR)
+                ON DUPLICATE KEY UPDATE merged_count = VALUES(merged_count);
+            """, (sunita_fid,))
+            if sunita_fid:
+                cur.execute("""
+                    INSERT IGNORE INTO case_flags (case_id, flag_id) VALUES ('case-sunita-missed-doses', %s);
+                """, (sunita_fid,))
+
+            # Agent Drafts
+            cur.execute("""
+                INSERT INTO agent_drafts (draft_id, run_id, patient_id, draft_type, body, sources, status, reviewed_by_staff_id, reviewed_at, edit_chars, created_at)
+                VALUES (1, 'run-aarav-call-01', 1, 'Call_Note',
+                        JSON_OBJECT('subject', 'Routine Post-op Recovery Follow-up',
+                                    'call_type', 'Follow-up Call',
+                                    'patient_reported', 'Patient reports mild fatigue after morning walks; denies acute chest pain or fever.',
+                                    'clinical_actions', 'Reinforced back-sleeping position and hydration.',
+                                    'plan', 'Continue CardioPulse-XR and VasculoNorm as scheduled.'),
+                        JSON_ARRAY('flag#1', 'reading#1'), 'Accepted', 2, NOW() - INTERVAL 22 HOUR, 14, NOW() - INTERVAL 23 HOUR)
+                ON DUPLICATE KEY UPDATE status = VALUES(status);
+            """)
+
+            cur.execute("""
+                INSERT INTO agent_drafts (draft_id, run_id, patient_id, draft_type, body, sources, status, created_at)
+                VALUES (2, 'run-meera-summary-01', 2, 'Summary',
+                        JSON_OBJECT('headline', 'Meera Sharma (Day 6 post-op): Device silent 6.5 hours',
+                                    'situation', 'Device connectivity silent since 08:30 IST. Vital signs unavailable.',
+                                    'background', 'Discharged post total knee replacement on JointEase-XR.',
+                                    'assessment', 'Patient consent status: family escalation not authorized by patient.',
+                                    'recommendation', 'Direct nurse phone callback to patient mobile.'),
+                        JSON_ARRAY('device#2', 'caregiver#2'), 'Pending', NOW() - INTERVAL 2 HOUR)
+                ON DUPLICATE KEY UPDATE status = VALUES(status);
+            """)
+
+            cur.execute("""
+                INSERT INTO agent_drafts (draft_id, run_id, patient_id, draft_type, body, sources, status, reviewed_by_staff_id, reviewed_at, created_at)
+                VALUES (3, 'run-rajesh-reply-01', 3, 'Reply',
+                        JSON_OBJECT('reply', 'Priya (Nurse): BronchoClear-10 should be taken after meals. Please do not modify your dose without Dr. Sharma reviewing.'),
+                        JSON_ARRAY('chunk#8'), 'Accepted', 2, NOW() - INTERVAL 1 HOUR, NOW() - INTERVAL 2 HOUR)
+                ON DUPLICATE KEY UPDATE status = VALUES(status);
+            """)
+
+            # Sample Agent Runs (25 runs across agents in last 24h)
+            for i in range(1, 26):
+                r_id = f"run-demo-sample-{i:02d}"
+                p_id = (i % 5) + 1
+                if i % 8 == 0:
+                    agent = "outreach_agent"
+                    trig = "dose_reminder"
+                    status = "Done"
+                    lvl = "Auto"
+                    mode = "Live"
+                elif i % 5 == 0:
+                    agent = "case_prep_agent"
+                    trig = "sensor_threshold"
+                    status = "Done"
+                    lvl = "Auto"
+                    mode = "Live"
+                elif i % 7 == 0:
+                    agent = "papers_agent"
+                    trig = "patient_query"
+                    status = "Blocked_By_Guard"
+                    lvl = "Auto"
+                    mode = "Live"
+                elif i % 6 == 0:
+                    agent = "papers_agent"
+                    trig = "out_of_scope"
+                    status = "Abstained"
+                    lvl = "Auto"
+                    mode = "Live"
+                else:
+                    agent = "papers_agent"
+                    trig = "patient_query"
+                    status = "Done"
+                    lvl = "Auto"
+                    mode = "Live"
+
+                guard_reasons = json.dumps(["Banned clinical word filtered"]) if status == "Blocked_By_Guard" else None
+
+                cur.execute("""
+                    INSERT INTO agent_runs (
+                        run_id, agent_name, trigger_type, patient_id, started_at, finished_at,
+                        status, autonomy_level, mode, llm_calls, latency_ms, guard_reasons
+                    ) VALUES (
+                        %s, %s, %s, %s, NOW() - INTERVAL %s HOUR, NOW() - INTERVAL %s HOUR + INTERVAL 1 SECOND,
+                        %s, %s, %s, 1, %s, %s
+                    ) ON DUPLICATE KEY UPDATE status = VALUES(status);
+                """, (r_id, agent, trig, p_id, 25 - i, 25 - i, status, lvl, mode, 250 + (i * 15), guard_reasons))
+
+                cur.execute("""
+                    INSERT INTO agent_steps (run_id, seq, step_type, summary, ok, ms, created_at)
+                    VALUES (%s, 1, 'Gate', 'Safety gate & intake policy verified', 1, 2, NOW() - INTERVAL %s HOUR),
+                           (%s, 2, 'Retrieve', 'Grounded sources fetched from clinical record', 1, 45, NOW() - INTERVAL %s HOUR)
+                    ON DUPLICATE KEY UPDATE ok = VALUES(ok);
+                """, (r_id, 25 - i, r_id, 25 - i))
+
+            # Shadow Decisions
+            for i in range(1, 41):
+                agreed = 1 if i <= 38 else 0
+                cur.execute("""
+                    INSERT INTO shadow_decisions (run_id, action_type, agent_decision, human_decision, agreed, created_at)
+                    VALUES (%s, 'papers_question_sourced',
+                            JSON_OBJECT('confidence', 0.94, 'suggested_action', 'Sourced answer delivered'),
+                            JSON_OBJECT('human_action', 'Answer confirmed by nurse audit'),
+                            %s, NOW() - INTERVAL %s HOUR);
+                """, (f"run-shadow-papers-{i:02d}", agreed, i % 24))
+
+            for i in range(1, 26):
+                agreed = 1 if i <= 22 else 0
+                cur.execute("""
+                    INSERT INTO shadow_decisions (run_id, action_type, agent_decision, human_decision, agreed, created_at)
+                    VALUES (%s, 'call_note',
+                            JSON_OBJECT('draft_quality', 'High', 'suggested_task', 'Schedule routine checkin'),
+                            JSON_OBJECT('human_action', 'Nurse accepted with minor edits'),
+                            %s, NOW() - INTERVAL %s HOUR);
+                """, (f"run-shadow-callnote-{i:02d}", agreed, i % 24))
 
         conn.commit()
         duration = (datetime.now() - start_time).total_seconds()

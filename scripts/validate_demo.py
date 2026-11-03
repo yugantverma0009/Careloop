@@ -331,6 +331,35 @@ def validate():
             else:
                 print(f"  ✓ Watch events and Possible Fall rules verified: Sunita enabled, cohort disabled by default, {dev_ev['total_events']} baseline device events")
 
+        # Check 22: CareLoop Agents Baseline Verification (Phase 1)
+        cur.execute("SELECT COUNT(*) AS autonomy_cnt FROM agent_autonomy;")
+        autonomy_row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS runs_cnt FROM agent_runs;")
+        runs_row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS drafts_cnt FROM agent_drafts;")
+        drafts_row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS cases_cnt, SUM(merged_count > 1) AS merged_cases FROM `cases`;")
+        cases_row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS shadow_cnt FROM shadow_decisions;")
+        shadow_row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS opt_in_cnt FROM patients WHERE ai_help_enabled = 1;")
+        opt_in_row = cur.fetchone()
+
+        if not autonomy_row or autonomy_row["autonomy_cnt"] < 17:
+            failures.append(f"❌ agent_autonomy count mismatch: {autonomy_row.get('autonomy_cnt')} (expected >= 17)")
+        elif not runs_row or runs_row["runs_cnt"] < 25:
+            failures.append(f"❌ agent_runs count mismatch: {runs_row.get('runs_cnt')} (expected >= 25)")
+        elif not drafts_row or drafts_row["drafts_cnt"] < 3:
+            failures.append(f"❌ agent_drafts count mismatch: {drafts_row.get('drafts_cnt')} (expected >= 3)")
+        elif not cases_row or cases_row["cases_cnt"] < 4 or (cases_row["merged_cases"] or 0) < 1:
+            failures.append(f"❌ cases count mismatch: {cases_row.get('cases_cnt')} (expected >= 4 with merged cases)")
+        elif not shadow_row or shadow_row["shadow_cnt"] < 65:
+            failures.append(f"❌ shadow_decisions count mismatch: {shadow_row.get('shadow_cnt')} (expected >= 65)")
+        elif not opt_in_row or opt_in_row["opt_in_cnt"] != 5:
+            failures.append(f"❌ patients.ai_help_enabled count mismatch: {opt_in_row.get('opt_in_cnt')} (expected 5)")
+        else:
+            print(f"  ✓ CareLoop Agents baseline verified: 17 autonomy levels, {runs_row['runs_cnt']} runs, {drafts_row['drafts_cnt']} drafts, {cases_row['cases_cnt']} cases ({cases_row['merged_cases']} merged), {shadow_row['shadow_cnt']} shadow decisions")
+
     conn.close()
 
     if failures:
@@ -339,7 +368,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 21 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 22 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 

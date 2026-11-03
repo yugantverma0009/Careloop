@@ -226,6 +226,29 @@ export default function CareLoopPatientPortal({ user }) {
       setSharingLoading(false);
     }
   };
+
+  // Patient AI Help Opt-Out State (CareLoop Care Agents Phase 1)
+  const [aiHelpEnabled, setAiHelpEnabled] = useState(true);
+  const [aiHelpLoading, setAiHelpLoading] = useState(false);
+
+  useEffect(() => {
+    if (todayData && todayData.ai_help_enabled !== undefined) {
+      setAiHelpEnabled(Boolean(todayData.ai_help_enabled));
+    }
+  }, [todayData]);
+
+  const handleToggleAiHelp = async () => {
+    try {
+      setAiHelpLoading(true);
+      const nextStatus = !aiHelpEnabled;
+      await updatePatientSettings({ ai_help_enabled: nextStatus });
+      setAiHelpEnabled(nextStatus);
+    } catch (err) {
+      alert(err.message || 'Failed to update AI help preference');
+    } finally {
+      setAiHelpLoading(false);
+    }
+  };
   const [checkinSuccessData, setCheckinSuccessData] = useState(null);
   const [checkinError, setCheckinError] = useState(null);
   const [checkinHistory, setCheckinHistory] = useState([]);
@@ -2197,6 +2220,84 @@ export default function CareLoopPatientPortal({ user }) {
                         position: 'absolute',
                         top: '3px',
                         left: familySharingEnabled ? '25px' : '3px',
+                        transition: 'left 0.2s ease',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      }}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Help Opt-Out Control (CareLoop Care Agents Phase 1) */}
+              <div
+                style={{
+                  backgroundColor: 'var(--bg-card, #ffffff)',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  padding: '16px 20px',
+                  boxShadow: 'var(--shadow-card)',
+                  marginBottom: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '8px',
+                      backgroundColor: aiHelpEnabled ? 'var(--accent-teal-soft, #ecfdf5)' : 'var(--bg-card-hover, #f1f5f9)',
+                      color: aiHelpEnabled ? 'var(--accent-teal, #0d9488)' : 'var(--text-muted, #64748b)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <IconActivity width={20} height={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                      {lang === 'hi' ? 'एआई सहायता (AI Help)' : 'AI help'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                      {aiHelpEnabled
+                        ? (lang === 'hi' ? 'डिस्चार्ज पेपर्स से स्वचालित उत्तर चालू हैं।' : 'Automated answers from your discharge papers are enabled.')
+                        : (lang === 'hi' ? 'केवल मानव देखभाल टीम सहायता। आपके सभी प्रश्न सीधे नर्स को भेजे जाएंगे।' : 'Human-only care active. All questions are sent directly to your nurse.')}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: aiHelpEnabled ? 'var(--accent-teal, #0d9488)' : 'var(--text-muted, #64748b)' }}>
+                    {aiHelpEnabled ? (lang === 'hi' ? 'चालू (On)' : 'On') : (lang === 'hi' ? 'बंद (Off)' : 'Off')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleToggleAiHelp}
+                    disabled={aiHelpLoading}
+                    style={{
+                      width: '48px',
+                      height: '26px',
+                      borderRadius: '13px',
+                      backgroundColor: aiHelpEnabled ? 'var(--accent-teal, #0d9488)' : 'var(--border-strong, #cbd5e1)',
+                      border: 'none',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s ease',
+                    }}
+                    title="Toggle AI help opt-out"
+                  >
+                    <div
+                      style={{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '10px',
+                        backgroundColor: '#ffffff',
+                        position: 'absolute',
+                        top: '3px',
+                        left: aiHelpEnabled ? '25px' : '3px',
                         transition: 'left 0.2s ease',
                         boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                       }}

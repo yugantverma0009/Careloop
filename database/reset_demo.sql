@@ -8,6 +8,14 @@ USE careloop;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. Truncate all transactional tables
+TRUNCATE TABLE shadow_decisions;
+TRUNCATE TABLE agent_steps;
+TRUNCATE TABLE agent_drafts;
+TRUNCATE TABLE agent_runs;
+TRUNCATE TABLE case_flags;
+TRUNCATE TABLE `cases`;
+TRUNCATE TABLE agent_autonomy;
+TRUNCATE TABLE agent_system_state;
 TRUNCATE TABLE checkin_answers;
 TRUNCATE TABLE checkin_sessions;
 TRUNCATE TABLE checkin_questions;
@@ -228,5 +236,29 @@ INSERT INTO checkin_questions (question_id, template_id, step_order, question_ke
 (8, 2, 3, 'leg_swelling', 'Do you observe any unusual swelling or redness in your graft harvest leg?', 'क्या आपके पैर में कोई असामान्य सूजन या लालिमा दिखाई दे रही है?', 'Choice', '[{"key": "none", "label_en": "No swelling", "label_hi": "कोई सूजन नहीं"}, {"key": "mild", "label_en": "Mild swelling", "label_hi": "हल्की सूजन"}, {"key": "severe", "label_en": "Puffy or painful", "label_hi": "सूजन और दर्दनाक"}]', 0),
 (9, 2, 4, 'mobility_check', 'Were you able to complete your recommended 15-minute gentle walk today?', 'क्या आज आप अपनी निर्धारित 15 मिनट की हल्की सैर पूरी कर पाए?', 'Choice', '[{"key": "yes", "label_en": "Completed walk", "label_hi": "सैर पूरी की"}, {"key": "partial", "label_en": "Walked a little", "label_hi": "थोड़ा चले"}, {"key": "unable", "label_en": "Unable due to fatigue", "label_hi": "थकान के कारण नहीं चल सके"}]', 0),
 (10, 2, 5, 'patient_feedback', 'Any symptoms or questions for Dr. Sharma?', 'डॉ. शर्मा के लिए कोई लक्षण या प्रश्न?', 'Text', NULL, 0);
+
+-- CareLoop Agents Baseline State & Autonomy Matrix
+INSERT INTO agent_system_state (state_key, state_val) VALUES ('pause_all_agents', 'false')
+ON DUPLICATE KEY UPDATE state_val = state_val;
+
+INSERT INTO agent_autonomy (action_type, level, mode, set_by_staff_id) VALUES
+('dose_reminder', 'Auto', 'Live', 1),
+('checkin_prompt', 'Auto', 'Live', 1),
+('photo_request', 'Auto', 'Live', 1),
+('papers_question_sourced', 'Auto', 'Live', 1),
+('not_found_care_team_request', 'Auto', 'Live', 1),
+('dose_change_care_team_request', 'Auto', 'Live', 1),
+('duplicate_alert_merging', 'Auto', 'Live', 1),
+('case_brief', 'Auto', 'Live', 1),
+('next_step_suggestion', 'Suggest', 'Shadow', 1),
+('call_script', 'Draft', 'Shadow', 1),
+('call_note', 'Draft', 'Shadow', 1),
+('post_call_patient_message', 'Draft', 'Shadow', 1),
+('daily_summary', 'Draft', 'Shadow', 1),
+('shift_handoff', 'Draft', 'Shadow', 1),
+('recovery_plan', 'Draft', 'Shadow', 1),
+('no_answer_retry_scheduling', 'Auto', 'Live', 1),
+('approved_flag_auto_close', 'Draft', 'Shadow', 1)
+ON DUPLICATE KEY UPDATE level = VALUES(level), mode = VALUES(mode);
 
 SET FOREIGN_KEY_CHECKS = 1;

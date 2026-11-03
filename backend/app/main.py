@@ -174,6 +174,7 @@ class ActionIn(BaseModel):
 
 class PatientSettingsIn(BaseModel):
     voice_autoplay: Optional[bool] = None
+    ai_help_enabled: Optional[bool] = None
 
 
 class AssistantReplyIn(BaseModel):
@@ -485,9 +486,11 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_patient)):
 
     with get_conn() as conn, conn.cursor() as cur:
         # 1. Patient basic profile & discharge info
-        cur.execute("SELECT full_name FROM patients WHERE patient_id=%s", (pid,))
+        cur.execute("SELECT full_name, ai_help_enabled, voice_autoplay FROM patients WHERE patient_id=%s", (pid,))
         p_row = cur.fetchone()
         name = p_row["full_name"] if p_row else "Patient"
+        ai_help_enabled = bool(p_row.get("ai_help_enabled", 1)) if p_row and p_row.get("ai_help_enabled") is not None else True
+        voice_autoplay = bool(p_row.get("voice_autoplay", 0)) if p_row and p_row.get("voice_autoplay") is not None else False
 
         cur.execute(
             """SELECT discharge_date FROM discharge_records
@@ -820,6 +823,8 @@ def get_patient_today(user: Dict[str, Any] = Depends(require_patient)):
         "next_appointment": next_appt,
         "week": week,
         "plan_checklist": plan_checklist,
+        "ai_help_enabled": ai_help_enabled,
+        "voice_autoplay": voice_autoplay,
     }
 
 
@@ -4085,7 +4090,7 @@ def mark_patient_update_seen(update_id: int, user: Dict[str, Any] = Depends(requ
 @app.patch("/patient/me/settings")
 def update_patient_settings(body: PatientSettingsIn, user: Dict[str, Any] = Depends(require_patient)):
     """
-    Updates patient settings such as voice_autoplay.
+    Updates patient settings such as voice_autoplay and ai_help_enabled.
     """
     pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
@@ -4100,12 +4105,25 @@ def update_patient_settings(body: PatientSettingsIn, user: Dict[str, Any] = Depe
                            JSON_OBJECT('voice_autoplay', %s))""",
                 (str(user["account_id"]), pid, body.voice_autoplay),
             )
+
+        if body.ai_help_enabled is not None:
+            cur.execute(
+                """UPDATE patients SET ai_help_enabled = %s WHERE patient_id = %s""",
+                (1 if body.ai_help_enabled else 0, pid),
+            )
+            cur.execute(
+                """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                   VALUES ('Patient', %s, 'UPDATE_AI_HELP_ENABLED', 'patient', %s,
+                           JSON_OBJECT('ai_help_enabled', %s))""",
+                (str(user["account_id"]), pid, body.ai_help_enabled),
+            )
         
-        cur.execute("SELECT voice_autoplay, preferred_language FROM patients WHERE patient_id = %s", (pid,))
+        cur.execute("SELECT voice_autoplay, ai_help_enabled, preferred_language FROM patients WHERE patient_id = %s", (pid,))
         p = cur.fetchone()
         return {
             "status": "ok",
             "voice_autoplay": bool(p["voice_autoplay"]) if p else False,
+            "ai_help_enabled": bool(p["ai_help_enabled"]) if p and p["ai_help_enabled"] is not None else True,
             "preferred_language": p["preferred_language"] if p else "en",
         }
 
@@ -7706,3 +7724,341 @@ def admit_patient_endpoint(
 
 
 
+
+
+# ─── CareLoop Care Agents Endpoints (Phase 1) ────────────────────────────────
+
+class AgentPauseIn(BaseModel):
+    paused: bool
+    patient_id: Optional[int] = None
+    reason: Optional[str] = None
+
+
+class DraftActionIn(BaseModel):
+    action: str = Field(..., pattern="^(accept|edit|reject)$")
+    edited_body: Optional[Dict[str, Any]] = None
+    rejection_reason: Optional[str] = None
+
+
+class AutonomyUpdateIn(BaseModel):
+    action_type: str
+    level: str = Field(..., pattern="^(Suggest|Draft|Auto|Never)$")
+    mode: str = Field(..., pattern="^(Shadow|Live)$")
+
+
+@app.get("/agent/desk")
+def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """
+    CareLoop Agent Desk Workspace (Brief Section 8 & Phase 1):
+    Four sections:
+    1. Waiting for you (pending drafts for nurse/doctor signature)
+    2. Done for you (automated actions with undo button)
+    3. Needs a decision (items held by policy guard or requiring human judgment)
+    4. Work saved today (transparent estimated counts)
+    """
+    from .agents.dispatcher import AgentDispatcher
+    from .agents.ledger import AgentLedger
+
+    is_paused = AgentDispatcher.is_global_paused()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Waiting for you: Pending drafts
+        cur.execute("""
+            SELECT d.draft_id, d.run_id, d.patient_id, p.full_name as patient_name,
+                   p.patient_code, d.draft_type, d.body, d.sources, d.status, d.created_at
+            FROM agent_drafts d
+            JOIN patients p ON p.patient_id = d.patient_id
+            WHERE d.status = 'Pending'
+            ORDER BY d.created_at DESC LIMIT 20;
+        """)
+        drafts_raw = cur.fetchall()
+        waiting_for_you = []
+        for d in drafts_raw:
+            body_obj = d["body"]
+            if isinstance(body_obj, str):
+                try:
+                    body_obj = json.loads(body_obj)
+                except Exception:
+                    pass
+            sources_obj = d["sources"]
+            if isinstance(sources_obj, str):
+                try:
+                    sources_obj = json.loads(sources_obj)
+                except Exception:
+                    pass
+            waiting_for_you.append({
+                "draft_id": d["draft_id"],
+                "run_id": d["run_id"],
+                "patient_id": d["patient_id"],
+                "patient_name": d["patient_name"],
+                "patient_code": d["patient_code"],
+                "draft_type": d["draft_type"],
+                "body": body_obj,
+                "sources": sources_obj or [],
+                "created_at": d["created_at"].strftime("%I:%M %p") if d.get("created_at") else "",
+                "created_date": d["created_at"].strftime("%Y-%m-%d %H:%M") if d.get("created_at") else ""
+            })
+
+        # 2. Done for you: Auto actions in Live mode
+        cur.execute("""
+            SELECT r.run_id, r.agent_name, r.trigger_type, r.trigger_ref, r.patient_id,
+                   p.full_name as patient_name, p.patient_code, r.result_type,
+                   r.started_at, r.latency_ms, r.plan
+            FROM agent_runs r
+            LEFT JOIN patients p ON p.patient_id = r.patient_id
+            WHERE r.status = 'Done' AND r.mode = 'Live' AND r.autonomy_level = 'Auto'
+            ORDER BY r.started_at DESC LIMIT 20;
+        """)
+        runs_raw = cur.fetchall()
+        done_for_you = []
+        for r in runs_raw:
+            done_for_you.append({
+                "run_id": r["run_id"],
+                "agent_name": r["agent_name"],
+                "trigger_type": r["trigger_type"],
+                "patient_id": r["patient_id"],
+                "patient_name": r["patient_name"] or "System Cohort",
+                "patient_code": r["patient_code"] or "CL-SYS",
+                "result_type": r["result_type"] or "automated_action",
+                "time": r["started_at"].strftime("%I:%M %p") if r.get("started_at") else "",
+                "latency_ms": r["latency_ms"],
+                "can_undo": r["trigger_type"] in ("duplicate_alert_merging", "scheduled_retry")
+            })
+
+        # 3. Needs a decision: Guard-blocked or escalation items
+        cur.execute("""
+            SELECT r.run_id, r.agent_name, r.trigger_type, r.patient_id,
+                   p.full_name as patient_name, p.patient_code, r.guard_reasons,
+                   r.started_at
+            FROM agent_runs r
+            LEFT JOIN patients p ON p.patient_id = r.patient_id
+            WHERE r.status IN ('Blocked_By_Guard', 'Abstained')
+            ORDER BY r.started_at DESC LIMIT 20;
+        """)
+        decisions_raw = cur.fetchall()
+        needs_a_decision = []
+        for d in decisions_raw:
+            reasons = d["guard_reasons"]
+            if isinstance(reasons, str):
+                try:
+                    reasons = json.loads(reasons)
+                except Exception:
+                    pass
+            needs_a_decision.append({
+                "run_id": d["run_id"],
+                "agent_name": d["agent_name"],
+                "patient_name": d["patient_name"] or "Cohort",
+                "patient_code": d["patient_code"] or "CL-SYS",
+                "reasons": reasons or ["Policy guard check held output for human verification"],
+                "time": d["started_at"].strftime("%I:%M %p") if d.get("started_at") else ""
+            })
+
+        # 4. Work saved today (transparent estimation)
+        cur.execute("SELECT COUNT(*) as cnt FROM agent_runs WHERE status = 'Done' AND autonomy_level = 'Auto';")
+        auto_cnt = cur.fetchone()["cnt"]
+
+        cur.execute("SELECT COUNT(*) as cnt FROM cases WHERE merged_count > 1;")
+        merged_cnt = cur.fetchone()["cnt"]
+
+        cur.execute("SELECT COUNT(*) as cnt FROM agent_drafts WHERE status = 'Accepted';")
+        accepted_drafts_cnt = cur.fetchone()["cnt"]
+
+        cur.execute("SELECT COUNT(*) as cnt FROM agent_runs WHERE agent_name = 'case_prep_agent' AND status = 'Done';")
+        briefs_cnt = cur.fetchone()["cnt"]
+
+        # Estimated minutes saved based on transparent baseline model:
+        # Brief = 4 min, Draft = 3 min, Auto answer/reminder = 2 min, Merge = 3 min
+        est_minutes = (briefs_cnt * 4) + (accepted_drafts_cnt * 3) + (auto_cnt * 2) + (merged_cnt * 3)
+
+        work_saved = {
+            "automated_actions_count": auto_cnt,
+            "briefs_prepared_count": briefs_cnt,
+            "drafts_accepted_count": accepted_drafts_cnt,
+            "duplicates_merged_count": merged_cnt,
+            "estimated_minutes_saved": est_minutes,
+            "assumptions_label": "Estimated from transparent, editable assumptions (4m/brief, 3m/draft, 2m/routine)",
+        }
+
+    return {
+        "global_paused": is_paused,
+        "waiting_for_you": waiting_for_you,
+        "done_for_you": done_for_you,
+        "needs_a_decision": needs_a_decision,
+        "work_saved": work_saved,
+    }
+
+
+@app.get("/agent/runs/{run_id}")
+def get_agent_run_trace(run_id: str, user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """
+    Returns complete execution trace for an agent run:
+    plan, steps, sources, duration, token usage, and Policy Guard inspection.
+    """
+    from .agents.ledger import AgentLedger
+    trace = AgentLedger.trace(run_id)
+    if not trace:
+        raise HTTPException(404, f"Agent run '{run_id}' not found.")
+    return trace
+
+
+@app.post("/agent/drafts/{draft_id}/action")
+def act_on_agent_draft(
+    draft_id: int,
+    body: DraftActionIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Nurse or Doctor accepts, edits, or rejects an agent-prepared draft.
+    Calculates edit character distance to monitor drafting fidelity.
+    """
+    staff_id = user.get("staff_id", 1)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT * FROM agent_drafts WHERE draft_id = %s;", (draft_id,))
+        draft = cur.fetchone()
+        if not draft:
+            raise HTTPException(404, "Draft not found.")
+
+        edit_chars = 0
+        final_body = draft["body"]
+        if body.action == "edit" and body.edited_body:
+            orig_str = json.dumps(draft["body"])
+            new_str = json.dumps(body.edited_body)
+            edit_chars = abs(len(new_str) - len(orig_str))
+            final_body = body.edited_body
+            status = "Edited"
+        elif body.action == "accept":
+            status = "Accepted"
+        else:
+            status = "Rejected"
+
+        cur.execute("""
+            UPDATE agent_drafts
+            SET status = %s,
+                body = %s,
+                reviewed_by_staff_id = %s,
+                reviewed_at = NOW(),
+                edit_chars = %s
+            WHERE draft_id = %s;
+        """, (status, json.dumps(final_body), staff_id, edit_chars, draft_id))
+
+        cur.execute("""
+            INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+            VALUES (%s, %s, %s, 'agent_draft', %s, JSON_OBJECT('action', %s, 'edit_chars', %s));
+        """, (user["account_role"], str(user["account_id"]), f"AGENT_DRAFT_{status.upper()}", str(draft_id), status, edit_chars))
+
+    return {
+        "status": "ok",
+        "draft_id": draft_id,
+        "new_status": status,
+        "edit_chars": edit_chars,
+    }
+
+
+@app.post("/agent/pause")
+def set_agent_pause_endpoint(
+    body: AgentPauseIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Doctor can pause all agents globally.
+    Nurse or Doctor can pause automated agents for a specific patient.
+    """
+    from .agents.dispatcher import AgentDispatcher
+
+    staff_id = user.get("staff_id", 1)
+    if body.patient_id is not None:
+        # Per-patient pause
+        with get_conn() as conn, conn.cursor() as cur:
+            if body.paused:
+                cur.execute("""
+                    UPDATE patients
+                    SET rounds_paused_until = NOW() + INTERVAL 24 HOUR,
+                        rounds_pause_reason = %s
+                    WHERE patient_id = %s;
+                """, (body.reason or "Clinician pause from Agent Desk", body.patient_id))
+            else:
+                cur.execute("""
+                    UPDATE patients
+                    SET rounds_paused_until = NULL,
+                        rounds_pause_reason = NULL
+                    WHERE patient_id = %s;
+                """, (body.patient_id,))
+            cur.execute("""
+                INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                VALUES (%s, %s, %s, 'patient', %s, JSON_OBJECT('paused', %s, 'reason', %s));
+            """, (user["account_role"], str(user["account_id"]), "AGENT_PATIENT_PAUSE_TOGGLED", str(body.patient_id), body.paused, body.reason))
+        return {"status": "ok", "patient_id": body.patient_id, "paused": body.paused}
+    else:
+        # Global pause (Doctor only)
+        if user.get("account_role") != "Doctor":
+            raise HTTPException(403, "Only a licensed Doctor can engage the global agent pause switch.")
+        AgentDispatcher.set_global_pause(body.paused, staff_id)
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                VALUES ('Doctor', %s, 'AGENT_GLOBAL_PAUSE_TOGGLED', 'system', 'agent_system_state', JSON_OBJECT('paused', %s));
+            """, (str(user["account_id"]), body.paused))
+        return {"status": "ok", "global_paused": body.paused}
+
+
+@app.get("/agent/settings")
+def get_agent_settings(user: Dict[str, Any] = Depends(require_role("Doctor"))):
+    """
+    Doctor-only Agent Settings:
+    Returns the autonomy matrix, shadow mode agreement rates, budgets, and pause state.
+    """
+    from .agents.dispatcher import AgentDispatcher, MAX_DAILY_LLM_CALLS_PER_PATIENT
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT action_type, level, mode, set_by_staff_id, set_at
+            FROM agent_autonomy
+            ORDER BY action_type ASC;
+        """)
+        matrix = cur.fetchall()
+
+        # Compute shadow agreement rates
+        cur.execute("""
+            SELECT action_type,
+                   COUNT(*) as total_cases,
+                   SUM(agreed = 1) as agreed_cases,
+                   ROUND((SUM(agreed = 1) / COUNT(*)) * 100, 1) as agreement_pct
+            FROM shadow_decisions
+            GROUP BY action_type;
+        """)
+        shadow_stats = cur.fetchall()
+
+    return {
+        "global_paused": AgentDispatcher.is_global_paused(),
+        "daily_llm_budget_per_patient": MAX_DAILY_LLM_CALLS_PER_PATIENT,
+        "autonomy_matrix": matrix,
+        "shadow_agreement_stats": shadow_stats,
+    }
+
+
+@app.put("/agent/settings")
+def update_agent_autonomy(
+    body: AutonomyUpdateIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """
+    Doctor-only: Promote or demote an action type's autonomy level or mode (Shadow/Live).
+    Audited with doctor identity and timestamp.
+    """
+    from .agents.dispatcher import AgentDispatcher
+
+    staff_id = user.get("staff_id", 1)
+    AgentDispatcher.set_autonomy(body.action_type, body.level, body.mode, staff_id)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+            VALUES ('Doctor', %s, 'UPDATE_AGENT_AUTONOMY', 'agent_autonomy', %s,
+                    JSON_OBJECT('action_type', %s, 'level', %s, 'mode', %s));
+        """, (str(user["account_id"]), body.action_type, body.action_type, body.level, body.mode))
+
+    return {
+        "status": "ok",
+        "action_type": body.action_type,
+        "level": body.level,
+        "mode": body.mode,
+    }

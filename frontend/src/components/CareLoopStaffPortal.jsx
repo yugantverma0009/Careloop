@@ -30,6 +30,7 @@ import DoctorFhirExportView from './DoctorFhirExportView';
 import NurseCallListView from './NurseCallListView';
 import RoundsView from './RoundsView';
 import AdmitPatientWizard from './AdmitPatientWizard';
+import AgentDesk from './AgentDesk';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -492,6 +493,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
               {(isDoctor
                 ? [
                     { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
+                    { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
@@ -503,6 +505,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                   ]
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
+                    { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
@@ -1341,6 +1344,17 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
           {/* TAB: ROUNDS (Feature F1: Scheduled Automation) */}
           {activeNav === 'rounds' && (
             <RoundsView currentUser={user} />
+          )}
+
+          {/* TAB: AGENT DESK (CareLoop Care Agents Phase 1) */}
+          {activeNav === 'agent_desk' && (
+            <AgentDesk
+              currentUser={user}
+              onSelectPatient={(pid) => {
+                setSelectedPatientId(pid);
+                setActiveNav('patient_chart');
+              }}
+            />
           )}
 
           {/* TAB: PATIENT CLINICAL CHART (Phase 2, D-05, D-06, D-12, D-18) */}

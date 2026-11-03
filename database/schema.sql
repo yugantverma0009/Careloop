@@ -2190,3 +2190,113 @@ DELIMITER ;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
 -- Dump completed on 2026-10-30 13:10:27
+
+
+-- -----------------------------------------------------
+-- CareLoop Agents Schema Additions (Phase 1)
+-- -----------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `agent_system_state` (
+  `state_key` varchar(64) NOT NULL,
+  `state_val` varchar(255) NOT NULL,
+  `updated_by_staff_id` int DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`state_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_autonomy` (
+  `action_type` varchar(64) NOT NULL,
+  `level` enum('Suggest','Draft','Auto','Never') NOT NULL DEFAULT 'Suggest',
+  `mode` enum('Shadow','Live') NOT NULL DEFAULT 'Shadow',
+  `set_by_staff_id` int DEFAULT NULL,
+  `set_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`action_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `cases` (
+  `case_id` varchar(64) NOT NULL,
+  `patient_id` int NOT NULL,
+  `primary_flag_id` int DEFAULT NULL,
+  `status` enum('Open','In_Progress','Resolved','Merged') NOT NULL DEFAULT 'Open',
+  `merged_count` int NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`case_id`),
+  KEY `idx_cases_patient` (`patient_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `case_flags` (
+  `case_id` varchar(64) NOT NULL,
+  `flag_id` int NOT NULL,
+  `added_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`case_id`,`flag_id`),
+  KEY `idx_cf_flag` (`flag_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_runs` (
+  `run_id` varchar(64) NOT NULL,
+  `agent_name` varchar(64) NOT NULL,
+  `trigger_type` varchar(64) NOT NULL,
+  `trigger_ref` varchar(128) DEFAULT NULL,
+  `patient_id` int DEFAULT NULL,
+  `case_id` varchar(64) DEFAULT NULL,
+  `started_at` datetime NOT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `status` enum('Done','Abstained','Failed','Blocked_By_Guard','Paused') NOT NULL DEFAULT 'Done',
+  `autonomy_level` enum('Suggest','Draft','Auto','Never') NOT NULL DEFAULT 'Suggest',
+  `mode` enum('Shadow','Live') NOT NULL DEFAULT 'Shadow',
+  `plan` json DEFAULT NULL,
+  `result_type` varchar(64) DEFAULT NULL,
+  `llm_calls` int NOT NULL DEFAULT '0',
+  `tokens_in` int NOT NULL DEFAULT '0',
+  `tokens_out` int NOT NULL DEFAULT '0',
+  `latency_ms` int NOT NULL DEFAULT '0',
+  `guard_reasons` json DEFAULT NULL,
+  PRIMARY KEY (`run_id`),
+  KEY `idx_agent_runs_patient` (`patient_id`),
+  KEY `idx_agent_runs_created` (`started_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_steps` (
+  `step_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) NOT NULL,
+  `seq` int NOT NULL,
+  `step_type` enum('Gate','Plan','Retrieve','Tool','Grade','Draft','Verify','Guard','Deliver','Abstain') NOT NULL,
+  `summary` varchar(255) NOT NULL,
+  `ids` json DEFAULT NULL,
+  `ok` tinyint(1) NOT NULL DEFAULT '1',
+  `ms` int NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`step_id`),
+  KEY `idx_steps_run` (`run_id`),
+  CONSTRAINT `fk_steps_run` FOREIGN KEY (`run_id`) REFERENCES `agent_runs` (`run_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_drafts` (
+  `draft_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) DEFAULT NULL,
+  `patient_id` int NOT NULL,
+  `draft_type` enum('Case_Brief','Call_Script','Call_Note','Patient_Message','Summary','Handoff','Plan','Reply') NOT NULL,
+  `body` json NOT NULL,
+  `sources` json DEFAULT NULL,
+  `status` enum('Pending','Accepted','Edited','Rejected','Auto_Sent','Expired') NOT NULL DEFAULT 'Pending',
+  `reviewed_by_staff_id` int DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `edit_chars` int DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`draft_id`),
+  KEY `idx_drafts_patient` (`patient_id`),
+  KEY `idx_drafts_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `shadow_decisions` (
+  `shadow_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) DEFAULT NULL,
+  `action_type` varchar(64) NOT NULL,
+  `agent_decision` json NOT NULL,
+  `human_decision` json DEFAULT NULL,
+  `agreed` tinyint(1) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`shadow_id`),
+  KEY `idx_shadow_action` (`action_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
