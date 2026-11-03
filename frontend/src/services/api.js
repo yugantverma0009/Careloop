@@ -660,6 +660,30 @@ export const sendDeviceEvent = (payload) =>
     body: JSON.stringify(payload),
   }).then(handleResponse);
 
+// ─── CareLoop Agents v2: Health, Incidents & Circuit Breaker API ────────────
+
+export const getAgentHealth = (window = '24h') =>
+  get(`/agent/health?window=${encodeURIComponent(window)}`);
+
+export const reportAgentIncident = (runId, category, note) =>
+  post('/agent/incidents', { run_id: runId, category, note });
+
+export const getCandidateTests = (status = null) =>
+  get(status ? `/agent/candidate-tests?status=${encodeURIComponent(status)}` : '/agent/candidate-tests');
+
+export const approveCandidateTest = (candidateId) =>
+  post(`/agent/candidate-tests/${candidateId}/approve`, {});
+
+export const rejectCandidateTest = (candidateId) =>
+  post(`/agent/candidate-tests/${candidateId}/reject`, {});
+
+export const getCircuitBreakerDemotions = () =>
+  get('/agent/circuit-breaker/demotions');
+
+export const evaluateCircuitBreaker = () =>
+  post('/agent/circuit-breaker/evaluate', {});
+
+
 
 
 

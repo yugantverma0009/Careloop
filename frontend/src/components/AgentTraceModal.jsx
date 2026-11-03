@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../services/api';
+import ReportIncidentModal from './ReportIncidentModal';
 import { IconX } from './Icons';
 
 export default function AgentTraceModal({ runId, isOpen, onClose }) {
   const [traceData, setTraceData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showIncident, setShowIncident] = useState(false);
   const token = localStorage.getItem('careloop_token');
 
   useEffect(() => {
@@ -78,19 +80,38 @@ export default function AgentTraceModal({ runId, isOpen, onClose }) {
             <strong style={{ fontSize: '14px', color: '#0f172a' }}>Agent Execution Trace</strong>
             <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{runId}</span>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#64748b',
-              padding: '4px',
-              display: 'flex',
-            }}
-          >
-            <IconX width={18} height={18} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => setShowIncident(true)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                border: '1px solid #fca5a5',
+                background: '#fef2f2',
+                color: '#dc2626',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              title="Report an incorrect or unsafe AI trace"
+            >
+              ⚠️ Report Wrong AI
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#64748b',
+                padding: '4px',
+                display: 'flex',
+              }}
+            >
+              <IconX width={18} height={18} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -191,6 +212,18 @@ export default function AgentTraceModal({ runId, isOpen, onClose }) {
           </button>
         </div>
       </div>
+
+      {showIncident && (
+        <ReportIncidentModal
+          runId={runId}
+          itemTitle={`Execution Trace #${runId}`}
+          onClose={() => setShowIncident(false)}
+          onReported={() => {
+            alert('Incident reported successfully. Candidate test created and action demoted to Draft.');
+            setShowIncident(false);
+          }}
+        />
+      )}
     </div>
   );
 }

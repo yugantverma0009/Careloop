@@ -360,6 +360,18 @@ def validate():
         else:
             print(f"  ✓ CareLoop Agents baseline verified: 17 autonomy levels, {runs_row['runs_cnt']} runs, {drafts_row['drafts_cnt']} drafts, {cases_row['cases_cnt']} cases ({cases_row['merged_cases']} merged), {shadow_row['shadow_cnt']} shadow decisions")
 
+        # Check 23: CareLoop Agents v2 Versions Registry (Phase 1)
+        cur.execute("SELECT COUNT(*) AS ver_cnt FROM agent_versions WHERE is_active = 1;")
+        ver_row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS runs_with_ver FROM agent_runs WHERE version_id IS NOT NULL;")
+        ver_runs_row = cur.fetchone()
+        if not ver_row or ver_row["ver_cnt"] < 6:
+            failures.append(f"❌ agent_versions count mismatch: {ver_row.get('ver_cnt') if ver_row else 0} (expected >= 6)")
+        elif not ver_runs_row or ver_runs_row["runs_with_ver"] < 25:
+            failures.append(f"❌ agent_runs with version_id mismatch: {ver_runs_row.get('runs_with_ver') if ver_runs_row else 0} (expected >= 25)")
+        else:
+            print(f"  ✓ CareLoop Agents v2 versions verified: {ver_row['ver_cnt']} active versions, {ver_runs_row['runs_with_ver']} runs tagged with version_id")
+
     conn.close()
 
     if failures:
@@ -368,7 +380,7 @@ def validate():
             print(f"  {err}")
         sys.exit(1)
     else:
-        print("\n🎉 ALL 22 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
+        print("\n🎉 ALL 23 ACCEPTANCE CHECKS PASSED PERFECTLY!\n")
         sys.exit(0)
 
 

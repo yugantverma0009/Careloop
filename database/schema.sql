@@ -2252,6 +2252,7 @@ CREATE TABLE IF NOT EXISTS `agent_runs` (
   `tokens_out` int NOT NULL DEFAULT '0',
   `latency_ms` int NOT NULL DEFAULT '0',
   `guard_reasons` json DEFAULT NULL,
+  `version_id` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`run_id`),
   KEY `idx_agent_runs_patient` (`patient_id`),
   KEY `idx_agent_runs_created` (`started_at`)
@@ -2299,4 +2300,45 @@ CREATE TABLE IF NOT EXISTS `shadow_decisions` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`shadow_id`),
   KEY `idx_shadow_action` (`action_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_versions` (
+  `version_id` varchar(64) NOT NULL,
+  `agent_name` varchar(64) NOT NULL,
+  `prompt_version` varchar(32) NOT NULL,
+  `model_name` varchar(64) NOT NULL,
+  `params` json DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` varchar(64) DEFAULT 'system',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  PRIMARY KEY (`version_id`),
+  KEY `idx_agent_versions_name` (`agent_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_incidents` (
+  `incident_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) NOT NULL,
+  `reported_by_staff_id` int NOT NULL,
+  `category` enum('Wrong fact','Unsafe','Tone','Other') NOT NULL,
+  `note` text NOT NULL,
+  `status` enum('Open','Reviewed','Closed') NOT NULL DEFAULT 'Open',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `candidate_test_id` int DEFAULT NULL,
+  PRIMARY KEY (`incident_id`),
+  KEY `idx_incidents_run` (`run_id`),
+  KEY `idx_incidents_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_candidate_tests` (
+  `candidate_id` int NOT NULL AUTO_INCREMENT,
+  `incident_id` int DEFAULT NULL,
+  `agent_name` varchar(64) NOT NULL,
+  `test_type` varchar(64) NOT NULL,
+  `input_payload` json NOT NULL,
+  `expected_behavior` text NOT NULL,
+  `status` enum('Pending_Review','Approved','Rejected') NOT NULL DEFAULT 'Pending_Review',
+  `reviewed_by_staff_id` int DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`candidate_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -338,19 +338,23 @@ def hybrid_retrieval(
             if hi_term in query:
                 augmented_query += " " + " ".join(en_terms)
 
-        res = collection.query(
-            query_texts=[augmented_query],
-            n_results=min(8, collection.count()),
-            include=["documents", "distances"]
-        )
-        ids = res.get("ids", [[]])[0] if res.get("ids") else []
-        distances = res.get("distances", [[]])[0] if res.get("distances") else []
-        debug_info["dense_count"] = len(ids)
-        for rank, vid in enumerate(ids):
-            dist = distances[rank] if rank < len(distances) else 0.0
-            # Distance <= 0.80 indicates semantic relevance for gemini-embedding
-            if dist <= 0.80 or not distances:
-                dense_ranks[vid] = rank + 1
+        cnt = collection.count()
+        if cnt > 0:
+            res = collection.query(
+                query_texts=[augmented_query],
+                n_results=min(8, cnt),
+                include=["documents", "distances"]
+            )
+            ids = res.get("ids", [[]])[0] if res.get("ids") else []
+            distances = res.get("distances", [[]])[0] if res.get("distances") else []
+            debug_info["dense_count"] = len(ids)
+            for rank, vid in enumerate(ids):
+                dist = distances[rank] if rank < len(distances) else 0.0
+                # Distance <= 0.80 indicates semantic relevance for gemini-embedding
+                if dist <= 0.80 or not distances:
+                    dense_ranks[vid] = rank + 1
+        else:
+            debug_info["dense_count"] = 0
     except Exception as e:
         logger.warning(f"Chroma dense retrieval error: {e}")
 

@@ -17,6 +17,25 @@ logger = logging.getLogger(__name__)
 
 class AgentLedger:
     @staticmethod
+    def get_active_version(agent_name: str) -> str:
+        """Looks up the currently active version id for an agent."""
+        norm_name = agent_name.lower().replace("agent", "").strip("_") + "_agent"
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT version_id FROM agent_versions 
+                        WHERE agent_name LIKE %s AND is_active = 1 
+                        ORDER BY created_at DESC LIMIT 1;
+                    """, (f"%{norm_name[:6]}%",))
+                    row = cur.fetchone()
+                    if row:
+                        return row["version_id"]
+        except Exception:
+            pass
+        return f"ver-{norm_name}-1.0.0"
+
+    @staticmethod
     def start_run(
         run_id: str,
         agent_name: str,
@@ -26,23 +45,26 @@ class AgentLedger:
         case_id: Optional[str] = None,
         autonomy_level: str = "Suggest",
         mode: str = "Shadow",
-        plan: Optional[Dict[str, Any]] = None
+        plan: Optional[Dict[str, Any]] = None,
+        version_id: Optional[str] = None
     ) -> None:
         """Records the initialization of an agent run."""
+        resolved_version = version_id or AgentLedger.get_active_version(agent_name)
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO agent_runs (
                         run_id, agent_name, trigger_type, trigger_ref, patient_id, case_id,
-                        started_at, status, autonomy_level, mode, plan, llm_calls, latency_ms
+                        started_at, status, autonomy_level, mode, plan, llm_calls, latency_ms, version_id
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, NOW(), 'Done', %s, %s, %s, 0, 0
+                        %s, %s, %s, %s, %s, %s, NOW(), 'Done', %s, %s, %s, 0, 0, %s
                     ) ON DUPLICATE KEY UPDATE
                         agent_name = VALUES(agent_name),
-                        plan = VALUES(plan);
+                        plan = VALUES(plan),
+                        version_id = VALUES(version_id);
                 """, (
                     run_id, agent_name, trigger_type, trigger_ref, patient_id, case_id,
-                    autonomy_level, mode, json.dumps(plan) if plan else None
+                    autonomy_level, mode, json.dumps(plan) if plan else None, resolved_version
                 ))
             conn.commit()
 

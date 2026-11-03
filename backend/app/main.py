@@ -8823,4 +8823,94 @@ def trigger_workload_replay_endpoint(user: Dict[str, Any] = Depends(require_role
     return res
 
 
+# ─── CareLoop Agents v2: Health, Incident & Circuit Breaker Endpoints ──────────
+
+class AgentIncidentIn(BaseModel):
+    run_id: str
+    category: str
+    note: str
+
+
+@app.get("/agent/health")
+def get_agent_health_endpoint(
+    window: str = "24h",
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Returns agent health, latencies, tokens, shadow trends and draft acceptance rates."""
+    from .agents.health_service import AgentHealthService
+    return AgentHealthService.get_health_metrics(window=window)
+
+
+@app.post("/agent/incidents")
+def report_agent_incident_endpoint(
+    body: AgentIncidentIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Reports a defect in AI output, creating a candidate test and triggering demotion."""
+    from .agents.incident_service import IncidentService
+    staff_id = user.get("staff_id", 1)
+    try:
+        res = IncidentService.report_incident(
+            run_id=body.run_id,
+            reported_by_staff_id=staff_id,
+            category=body.category,
+            note=body.note,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@app.get("/agent/candidate-tests")
+def get_candidate_tests_endpoint(
+    status: Optional[str] = None,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Doctor & nurse view for candidate evaluation tests generated from staff incident reports."""
+    from .agents.incident_service import IncidentService
+    return IncidentService.get_candidate_tests(status=status)
+
+
+@app.post("/agent/candidate-tests/{candidate_id}/approve")
+def approve_candidate_test_endpoint(
+    candidate_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor-only: Approves a candidate test case into the permanent regression evaluation suite."""
+    from .agents.incident_service import IncidentService
+    staff_id = user.get("staff_id", 1)
+    return IncidentService.review_candidate_test(candidate_id, staff_id, approve=True)
+
+
+@app.post("/agent/candidate-tests/{candidate_id}/reject")
+def reject_candidate_test_endpoint(
+    candidate_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor-only: Rejects a candidate test case."""
+    from .agents.incident_service import IncidentService
+    staff_id = user.get("staff_id", 1)
+    return IncidentService.review_candidate_test(candidate_id, staff_id, approve=False)
+
+
+@app.post("/agent/circuit-breaker/evaluate")
+def evaluate_circuit_breaker_endpoint(
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Evaluates all Auto/Live actions against continuous safety thresholds and triggers demotions."""
+    from .agents.circuit_breaker import CircuitBreaker
+    demotions = CircuitBreaker.evaluate_all()
+    return {"status": "ok", "demotions": demotions}
+
+
+@app.get("/agent/circuit-breaker/demotions")
+def get_circuit_breaker_demotions_endpoint(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Fetches active circuit breaker demotion alerts."""
+    from .agents.circuit_breaker import CircuitBreaker
+    return CircuitBreaker.get_active_demotions()
+
+
+
 

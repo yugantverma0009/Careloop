@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../services/api';
+import ReportIncidentModal from './ReportIncidentModal';
 import {
   IconShieldCheck,
   IconClock,
@@ -31,6 +32,7 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
   const [editingDraftId, setEditingDraftId] = useState(null);
   const [editText, setEditText] = useState('');
   const [actionMsg, setActionMsg] = useState('');
+  const [incidentModalRun, setIncidentModalRun] = useState(null);
 
   const token = localStorage.getItem('careloop_token');
 
@@ -534,6 +536,23 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                         }}
                       >
                         Reject
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIncidentModalRun({ runId: d.run_id || `run-draft-${d.draft_id}`, title: `${d.draft_type} for Patient #${d.patient_id}` })}
+                        style={{
+                          padding: '5px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid #fca5a5',
+                          background: 'transparent',
+                          color: '#dc2626',
+                          fontWeight: 600,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                        title="Report wrong or unsafe AI output"
+                      >
+                        ⚠️ Report wrong AI
                       </button>
                     </div>
                   </div>
@@ -1083,6 +1102,19 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
             </div>
           </div>
         </div>
+      )}
+      {/* Incident Reporting Modal (CareLoop Agents v2 Phase 1) */}
+      {incidentModalRun && (
+        <ReportIncidentModal
+          runId={incidentModalRun.runId}
+          itemTitle={incidentModalRun.title}
+          onClose={() => setIncidentModalRun(null)}
+          onReported={(res) => {
+            setActionMsg(`Incident reported (#${res.incident_id}). Action automatically demoted to Draft for safety.`);
+            setTimeout(() => setActionMsg(''), 5000);
+            fetchDeskData();
+          }}
+        />
       )}
     </div>
   );

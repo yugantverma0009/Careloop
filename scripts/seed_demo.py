@@ -832,6 +832,22 @@ def main():
                     ON DUPLICATE KEY UPDATE level = VALUES(level), mode = VALUES(mode);
                 """, (a_type, lvl, md, stf))
 
+            # Agent Versions Registry (Phase 1)
+            versions_seeds = [
+                ('ver-papers-1.0.0', 'papers_agent', 'rag_v1', 'gemini-3.5-flash-lite', json.dumps({'score_threshold': 0.62, 'max_tokens': 1024, 'temperature': 0.0})),
+                ('ver-caseprep-1.0.0', 'case_prep_agent', 'brief_v1', 'gemini-3.5-flash-lite', json.dumps({'merge_window_minutes': 30})),
+                ('ver-callnotes-1.0.0', 'call_notes_agent', 'notes_v1', 'gemini-3.5-flash-lite', json.dumps({'sbar_format': True})),
+                ('ver-outreach-1.0.0', 'outreach_agent', 'outreach_v1', 'gemini-3.5-flash-lite', json.dumps({'quiet_start': 22, 'quiet_end': 7, 'daily_cap': 3})),
+                ('ver-handoff-1.0.0', 'handoff_agent', 'handoff_v1', 'gemini-3.5-flash-lite', json.dumps({'style': 'sbar'})),
+                ('ver-plan-1.0.0', 'plan_agent', 'plan_v1', 'gemini-3.5-flash-lite', json.dumps({'num_grounding': True}))
+            ]
+            for vid, aname, pv, mname, params_json in versions_seeds:
+                cur.execute("""
+                    INSERT INTO agent_versions (version_id, agent_name, prompt_version, model_name, params, created_at, created_by, is_active)
+                    VALUES (%s, %s, %s, %s, %s, NOW(), 'system', 1)
+                    ON DUPLICATE KEY UPDATE prompt_version = VALUES(prompt_version), model_name = VALUES(model_name), params = VALUES(params);
+                """, (vid, aname, pv, mname, params_json))
+
             # Cases
             cur.execute("SELECT flag_id FROM flags WHERE patient_id = 1 LIMIT 1;")
             aarav_flag = cur.fetchone()
@@ -955,15 +971,25 @@ def main():
 
                 guard_reasons = json.dumps(["Banned clinical word filtered"]) if status == "Blocked_By_Guard" else None
 
+                ver_map = {
+                    "papers_agent": "ver-papers-1.0.0",
+                    "case_prep_agent": "ver-caseprep-1.0.0",
+                    "outreach_agent": "ver-outreach-1.0.0",
+                    "call_notes_agent": "ver-callnotes-1.0.0",
+                    "handoff_agent": "ver-handoff-1.0.0",
+                    "plan_agent": "ver-plan-1.0.0"
+                }
+                v_id = ver_map.get(agent, "ver-papers-1.0.0")
+
                 cur.execute("""
                     INSERT INTO agent_runs (
                         run_id, agent_name, trigger_type, patient_id, started_at, finished_at,
-                        status, autonomy_level, mode, llm_calls, latency_ms, guard_reasons
+                        status, autonomy_level, mode, llm_calls, latency_ms, guard_reasons, version_id
                     ) VALUES (
                         %s, %s, %s, %s, NOW() - INTERVAL %s HOUR, NOW() - INTERVAL %s HOUR + INTERVAL 1 SECOND,
-                        %s, %s, %s, 1, %s, %s
-                    ) ON DUPLICATE KEY UPDATE status = VALUES(status);
-                """, (r_id, agent, trig, p_id, 25 - i, 25 - i, status, lvl, mode, 250 + (i * 15), guard_reasons))
+                        %s, %s, %s, 1, %s, %s, %s
+                    ) ON DUPLICATE KEY UPDATE status = VALUES(status), version_id = VALUES(version_id);
+                """, (r_id, agent, trig, p_id, 25 - i, 25 - i, status, lvl, mode, 250 + (i * 15), guard_reasons, v_id))
 
                 cur.execute("""
                     INSERT INTO agent_steps (run_id, seq, step_type, summary, ok, ms, created_at)

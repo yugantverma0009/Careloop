@@ -188,6 +188,7 @@ export default function LandingPage() {
             }}
           >
             <IconShieldCheck width={14} height={14} />
+            <span>POST-DISCHARGE RECOVERY SYSTEM</span>
             <span>CARELOOP CARE AGENTS PLATFORM</span>
           </div>
 
@@ -201,6 +202,7 @@ export default function LandingPage() {
               marginBottom: '16px',
             }}
           >
+            After discharge, nothing should go quiet.
             Agents do the routine. People make the calls.
           </h1>
 
@@ -209,9 +211,11 @@ export default function LandingPage() {
               fontSize: '16px',
               lineHeight: 1.6,
               color: '#475569',
+              marginBottom: '26px',
               marginBottom: '20px',
             }}
           >
+            CareLoop keeps the days after discharge from going quiet: it automates the routine, shows its reason for every alert, answers only from the patient's own papers, and makes sure a person closes every loop.
             CareLoop keeps the days after discharge from going quiet: agents prepare every case and answer from the patient's own papers, rules raise every alert with its reason, and people make every decision.
           </p>
 
@@ -440,6 +444,7 @@ export default function LandingPage() {
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                <span>Simulated watch telemetry readings (rules decide; LLM does not diagnose)</span>
                 <span>Simulated watch sensor readings (rules decide; LLM does not provide medical diagnosis)</span>
               </div>
             </div>
@@ -941,6 +946,7 @@ export default function LandingPage() {
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                   transition: 'box-shadow 0.15s ease',
                 }}
               >
@@ -1112,6 +1118,7 @@ export default function LandingPage() {
             },
             {
               step: 'Step 2',
+              title: 'Rounds & Watch Telemetry',
               title: 'Rounds & Sensor Readings',
               who: 'Background Automation & ESP32 Watch',
               desc: 'Rounds executes 24h schedule with explicit reasons; watch streams vitals, filters invalid noise, and reports possible falls.',

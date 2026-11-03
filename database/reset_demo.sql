@@ -262,4 +262,14 @@ INSERT INTO agent_autonomy (action_type, level, mode, set_by_staff_id) VALUES
 ('approved_flag_auto_close', 'Draft', 'Shadow', 1)
 ON DUPLICATE KEY UPDATE level = VALUES(level), mode = VALUES(mode);
 
+-- CareLoop Agents Baseline Versions Registry (Phase 1)
+INSERT INTO agent_versions (version_id, agent_name, prompt_version, model_name, params, created_at, created_by, is_active) VALUES
+('ver-papers-1.0.0', 'papers_agent', 'rag_v1', 'gemini-3.5-flash-lite', '{"score_threshold": 0.62, "max_tokens": 1024, "temperature": 0.0}', NOW(), 'system', 1),
+('ver-caseprep-1.0.0', 'case_prep_agent', 'brief_v1', 'gemini-3.5-flash-lite', '{"merge_window_minutes": 30}', NOW(), 'system', 1),
+('ver-callnotes-1.0.0', 'call_notes_agent', 'notes_v1', 'gemini-3.5-flash-lite', '{"sbar_format": true}', NOW(), 'system', 1),
+('ver-outreach-1.0.0', 'outreach_agent', 'outreach_v1', 'gemini-3.5-flash-lite', '{"quiet_start": 22, "quiet_end": 7, "daily_cap": 3}', NOW(), 'system', 1),
+('ver-handoff-1.0.0', 'handoff_agent', 'handoff_v1', 'gemini-3.5-flash-lite', '{"style": "sbar"}', NOW(), 'system', 1),
+('ver-plan-1.0.0', 'plan_agent', 'plan_v1', 'gemini-3.5-flash-lite', '{"num_grounding": true}', NOW(), 'system', 1)
+ON DUPLICATE KEY UPDATE prompt_version = VALUES(prompt_version), model_name = VALUES(model_name), params = VALUES(params);
+
 SET FOREIGN_KEY_CHECKS = 1;

@@ -33,6 +33,7 @@ import RoundsView from './RoundsView';
 import AdmitPatientWizard from './AdmitPatientWizard';
 import AgentDesk from './AgentDesk';
 import AgentSettingsView from './AgentSettingsView';
+import AgentHealthView from './AgentHealthView';
 import WorkSavedPanel from './WorkSavedPanel';
 import AgentTraceModal from './AgentTraceModal';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
@@ -522,6 +523,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                     { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
                     { id: 'work_saved', label: 'Work saved', Icon: IconActivity },
                     { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
+                    { id: 'agent_health', label: 'Agent health', Icon: IconActivity },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
@@ -536,6 +538,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                     { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
                     { id: 'work_saved', label: 'Work saved', Icon: IconActivity },
                     { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
+                    { id: 'agent_health', label: 'Agent health', Icon: IconActivity },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
@@ -1450,6 +1453,11 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
           {/* TAB: AGENT SETTINGS (CareLoop Care Agents Phase 5) */}
           {activeNav === 'agent_settings' && (
             <AgentSettingsView currentUser={user} />
+          )}
+
+          {/* TAB: AGENT HEALTH & TELEMETRY (CareLoop Agents v2 Phase 1) */}
+          {activeNav === 'agent_health' && (
+            <AgentHealthView user={user} />
           )}
 
           {/* TAB: WORK SAVED & PERFORMANCE (CareLoop Care Agents Phase 6) */}
