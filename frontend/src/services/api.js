@@ -683,6 +683,27 @@ export const getCircuitBreakerDemotions = () =>
 export const evaluateCircuitBreaker = () =>
   post('/agent/circuit-breaker/evaluate', {});
 
+// ─── Phase 5: Proactive Help, Approved Examples & Transparency API ────────────
+
+export const getPatientTransparency = () =>
+  get('/patient/me/transparency');
+
+export const getPatientVisitPrep = () =>
+  get('/patient/me/visit-prep');
+
+export const updatePatientConsent = (consentGranted, noticeVersion = null) =>
+  post('/patient/me/consent', { consent_granted: consentGranted, notice_version: noticeVersion });
+
+export const triggerPatternDetection = (patientId = null) =>
+  post(patientId ? `/staff/patterns/detect?patient_id=${patientId}` : '/staff/patterns/detect', {});
+
+export const getAgentExemplars = (draftType, limit = 3) =>
+  get(`/agent/exemplars/${encodeURIComponent(draftType)}?limit=${limit}`);
+
+export const generatePatientDayBrief = (language = 'en') =>
+  post(`/patient/me/day-brief?language=${encodeURIComponent(language)}`, {});
+
+
 
 
 

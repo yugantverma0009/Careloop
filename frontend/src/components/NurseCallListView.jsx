@@ -486,6 +486,27 @@ export default function NurseCallListView({ onSelectPatient }) {
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)' }}>
                     <strong>Why:</strong> {prop.reason}
                   </div>
+                  {(() => {
+                    let ev = prop.evidence;
+                    if (typeof ev === 'string') {
+                      try { ev = JSON.parse(ev); } catch (e) { ev = null; }
+                    }
+                    if (ev && ev.approved_talking_points && ev.approved_talking_points.length > 0) {
+                      return (
+                        <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(13, 148, 136, 0.08)', borderRadius: '6px', borderLeft: '3px solid var(--accent-teal, #0d9488)', fontSize: '12px' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--accent-teal, #0d9488)', marginBottom: '4px' }}>
+                            📞 Approved Script: {ev.approved_script_topic || 'Ask about barriers'}
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-secondary, #334155)', fontSize: '11px' }}>
+                            {ev.approved_talking_points.map((pt, idx) => (
+                              <li key={idx} style={{ marginBottom: '2px' }}>{pt}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 {dismissTargetId === prop.proposal_id ? (

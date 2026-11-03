@@ -174,6 +174,18 @@ class CallNotesAgent:
             "sources": ["nurse_input"]
         }
 
+        # Include approved exemplars as training-free few-shot guidance if enabled
+        try:
+            from backend.app.agents.config import AGENTS_V2_APPROVED_EXEMPLARS
+            if AGENTS_V2_APPROVED_EXEMPLARS:
+                from backend.app.agents.proactive_service import retrieve_exemplars
+                exemplars = retrieve_exemplars("Call_Note", limit=3)
+                if exemplars:
+                    draft_payload["exemplars"] = exemplars
+                    draft_payload["exemplar_label"] = "Uses previously approved notes as examples. No model training."
+        except Exception as e:
+            logger.warning(f"Could not load exemplars for Call_Note: {e}")
+
         # Step 4: Policy Guard Verification
         guard_context = {
             "patient_id": patient_id,
@@ -319,6 +331,21 @@ class CallNotesAgent:
                         edit_chars = %s
                     WHERE draft_id = %s;
                 """, (final_status, json.dumps(active_body), staff_id, edit_chars, draft_id))
+
+                # Store de-identified exemplar (training-free) if enabled
+                try:
+                    from backend.app.agents.config import AGENTS_V2_APPROVED_EXEMPLARS
+                    if AGENTS_V2_APPROVED_EXEMPLARS and final_status in ("Accepted", "Edited"):
+                        from backend.app.agents.proactive_service import store_approved_exemplar
+                        store_approved_exemplar(
+                            draft_type="Call_Note",
+                            original_text=orig_body.get("note_text", ""),
+                            edited_text=active_body.get("note_text", ""),
+                            source_draft_id=draft_id,
+                            tags=["call_note", final_status.lower()]
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to store Call_Note exemplar: {e}")
 
                 # 7. Record Shadow Decision
                 agreed = (edit_chars == 0)

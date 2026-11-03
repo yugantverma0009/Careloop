@@ -9127,5 +9127,139 @@ def get_circuit_breaker_demotions_endpoint(
     return CircuitBreaker.get_active_demotions()
 
 
+# ─── Phase 5: Proactive Help, Approved Examples & Patient Transparency ────────
+
+class ConsentUpdateRequest(BaseModel):
+    consent_granted: bool
+    notice_version: Optional[str] = None
+
+
+@app.post("/patient/me/day-brief")
+def generate_patient_day_brief_me(
+    user: Dict[str, Any] = Depends(require_patient),
+    language: str = Query("en"),
+):
+    """Generates Day Brief (zero LLM template) for authenticated patient."""
+    pid = get_effective_patient_id(user)
+    from backend.app.agents.proactive_service import generate_day_brief
+    ok, update_id, reason, data = generate_day_brief(patient_id=pid, language=language, created_by="Patient")
+    return {"status": "ok" if ok else "suppressed", "update_id": update_id, "reason": reason, "data": data}
+
+
+@app.post("/patient/{patient_id}/day-brief")
+def generate_patient_day_brief(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+    language: str = Query("en"),
+    force: bool = Query(False),
+):
+    """Staff triggers Day Brief for a patient within clinical automation limits."""
+    from backend.app.agents.proactive_service import generate_day_brief
+    staff_name = user.get("full_name", "Staff")
+    ok, update_id, reason, data = generate_day_brief(patient_id=patient_id, language=language, created_by=staff_name, force=force)
+    return {"status": "ok" if ok else "suppressed", "update_id": update_id, "reason": reason, "data": data}
+
+
+@app.get("/patient/me/visit-prep")
+def get_patient_visit_prep_me(user: Dict[str, Any] = Depends(require_patient)):
+    """Generates printable Visit Prep Sheet for authenticated patient (Facts only: dates, pain numbers, unfound questions)."""
+    pid = get_effective_patient_id(user)
+    from backend.app.agents.proactive_service import generate_visit_prep_sheet
+    return generate_visit_prep_sheet(patient_id=pid)
+
+
+@app.get("/patient/{patient_id}/visit-prep")
+def get_patient_visit_prep(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Staff generates printable Visit Prep Sheet (Facts only, zero advice)."""
+    from backend.app.agents.proactive_service import generate_visit_prep_sheet
+    return generate_visit_prep_sheet(patient_id=patient_id)
+
+
+@app.post("/staff/patterns/detect")
+def trigger_pattern_detection(
+    patient_id: Optional[int] = Query(None),
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Deterministic rule-based pattern checks:
+    - Same dose unconfirmed >= 3 times in 7 days
+    - 2 consecutive unanswered check-ins
+    Creates nurse proposals with approved talking points in agent_proposals.
+    NEVER creates a flag; NEVER sends a patient message.
+    """
+    from backend.app.agents.proactive_service import detect_pattern_proposals
+    proposals = detect_pattern_proposals(patient_id=patient_id)
+    return {"status": "ok", "proposals_created": proposals, "count": len(proposals)}
+
+
+@app.get("/agent/exemplars/{draft_type}")
+def get_exemplars_endpoint(
+    draft_type: str,
+    limit: int = Query(3, ge=1, le=10),
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Retrieves up to 3 de-identified approved exemplars with 'Uses previously approved notes as examples. No model training.' label."""
+    from backend.app.agents.proactive_service import retrieve_exemplars
+    exemplars = retrieve_exemplars(draft_type=draft_type, limit=limit)
+    return {"status": "ok", "draft_type": draft_type, "exemplars": exemplars}
+
+
+@app.get("/patient/me/transparency")
+def get_patient_transparency_me(user: Dict[str, Any] = Depends(require_patient)):
+    """Patient transparency portal: counts & list of AI messages, sources used, staff reviewer attribution, consent version."""
+    pid = get_effective_patient_id(user)
+    from backend.app.agents.proactive_service import get_patient_ai_transparency
+    return get_patient_ai_transparency(patient_id=pid)
+
+
+@app.get("/patient/{patient_id}/transparency")
+def get_patient_transparency(
+    patient_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Staff views patient AI transparency audit."""
+    from backend.app.agents.proactive_service import get_patient_ai_transparency
+    return get_patient_ai_transparency(patient_id=patient_id)
+
+
+@app.post("/patient/me/consent")
+def update_patient_consent_me(
+    payload: ConsentUpdateRequest,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Records authenticated patient AI-help consent timestamp and notice version."""
+    pid = get_effective_patient_id(user)
+    from backend.app.agents.proactive_service import record_patient_ai_consent
+    from backend.app.agents.config import CURRENT_AI_NOTICE_VERSION
+    return record_patient_ai_consent(
+        patient_id=pid,
+        consent_granted=payload.consent_granted,
+        notice_version=payload.notice_version or CURRENT_AI_NOTICE_VERSION,
+        actor_id=pid,
+    )
+
+
+@app.post("/patient/{patient_id}/consent")
+def update_patient_consent(
+    patient_id: int,
+    payload: ConsentUpdateRequest,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Staff updates patient AI consent on their behalf with audit log."""
+    from backend.app.agents.proactive_service import record_patient_ai_consent
+    from backend.app.agents.config import CURRENT_AI_NOTICE_VERSION
+    staff_id = user.get("staff_id", 1)
+    return record_patient_ai_consent(
+        patient_id=patient_id,
+        consent_granted=payload.consent_granted,
+        notice_version=payload.notice_version or CURRENT_AI_NOTICE_VERSION,
+        actor_id=staff_id,
+    )
+
+
+
 
 

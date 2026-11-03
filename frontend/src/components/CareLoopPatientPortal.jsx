@@ -21,6 +21,10 @@ import {
   getFamilySharingStatus,
   toggleFamilySharing,
   submitFallResponse,
+  getPatientTransparency,
+  getPatientVisitPrep,
+  updatePatientConsent,
+  generatePatientDayBrief,
   logout,
   API_BASE,
 } from '../services/api';
@@ -242,9 +246,69 @@ export default function CareLoopPatientPortal({ user }) {
       setAiHelpLoading(true);
       const nextStatus = !aiHelpEnabled;
       await updatePatientSettings({ ai_help_enabled: nextStatus });
+      await updatePatientConsent(nextStatus).catch(() => null);
       setAiHelpEnabled(nextStatus);
     } catch (err) {
       alert(err.message || 'Failed to update AI help preference');
+    } finally {
+      setAiHelpLoading(false);
+    }
+  };
+
+  // Phase 5: Transparency & Visit Prep States
+  const [expandedWhyUpdateId, setExpandedWhyUpdateId] = useState(null);
+  const [showTransparencyModal, setShowTransparencyModal] = useState(false);
+  const [transparencyData, setTransparencyData] = useState(null);
+  const [transparencyLoading, setTransparencyLoading] = useState(false);
+  const [showVisitPrepModal, setShowVisitPrepModal] = useState(false);
+  const [visitPrepData, setVisitPrepData] = useState(null);
+  const [visitPrepLoading, setVisitPrepLoading] = useState(false);
+
+  const handleOpenTransparency = async () => {
+    setShowTransparencyModal(true);
+    setTransparencyLoading(true);
+    try {
+      const data = await getPatientTransparency();
+      setTransparencyData(data);
+    } catch (err) {
+      console.error('Failed to load AI transparency audit', err);
+    } finally {
+      setTransparencyLoading(false);
+    }
+  };
+
+  const handleOpenVisitPrep = async () => {
+    setShowVisitPrepModal(true);
+    setVisitPrepLoading(true);
+    try {
+      const data = await getPatientVisitPrep();
+      setVisitPrepData(data);
+    } catch (err) {
+      console.error('Failed to load visit prep sheet', err);
+    } finally {
+      setVisitPrepLoading(false);
+    }
+  };
+
+  const handleConsentToggleFromModal = async (newConsent) => {
+    try {
+      setAiHelpLoading(true);
+      await updatePatientConsent(newConsent);
+      setAiHelpEnabled(newConsent);
+      if (transparencyData) {
+        setTransparencyData({
+          ...transparencyData,
+          ai_help_enabled: newConsent,
+          consent: {
+            ...transparencyData.consent,
+            consent_granted: newConsent,
+            consented_at: new Date().toLocaleString(),
+            needs_reconsent: false
+          }
+        });
+      }
+    } catch (err) {
+      alert(`Failed to update consent: ${err.message || 'Error'}`);
     } finally {
       setAiHelpLoading(false);
     }
@@ -2304,6 +2368,58 @@ export default function CareLoopPatientPortal({ user }) {
                     />
                   </button>
                 </div>
+              </div>
+
+              {/* Phase 5: Transparency & Visit Prep Quick Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  marginBottom: '18px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleOpenTransparency}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--accent-teal, #0d9488)',
+                    background: 'var(--accent-teal-soft, #ecfdf5)',
+                    color: 'var(--accent-teal, #0d9488)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <span>📊</span>
+                  <span>{lang === 'hi' ? 'देखें: आपके लिए एआई का उपयोग कैसे हुआ' : 'How CareLoop used AI for you'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenVisitPrep}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    background: 'var(--bg-surface, #ffffff)',
+                    color: 'var(--text-secondary, #475569)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <span>📄</span>
+                  <span>{lang === 'hi' ? 'क्लिनिक विज़िट तैयारी पत्र (प्रिंट)' : 'Visit Prep Sheet (Printable)'}</span>
+                </button>
               </div>
 
               {/* HERO ROW: NEXT MEDICINE & TODAY SUMMARY (Brief Sec 5.2, 6.1) */}
@@ -6125,6 +6241,21 @@ export default function CareLoopPatientPortal({ user }) {
                               ✓ {lang === 'hi' ? 'पढ़ा हुआ चिह्नित करें' : 'Mark as read'}
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setExpandedWhyUpdateId(expandedWhyUpdateId === u.update_id ? null : u.update_id)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--text-muted, #64748b)',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              marginLeft: '2px',
+                            }}
+                          >
+                            {lang === 'hi' ? 'यह क्यों?' : 'Why am I seeing this?'}
+                          </button>
                         </div>
 
                         {u.action_type && (
@@ -6152,6 +6283,37 @@ export default function CareLoopPatientPortal({ user }) {
                           </button>
                         )}
                       </div>
+
+                      {expandedWhyUpdateId === u.update_id && (
+                        <div
+                          style={{
+                            marginTop: '8px',
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: 'var(--bg-card-hover, #f1f5f9)',
+                            borderLeft: '3px solid var(--accent-teal, #0d9488)',
+                            fontSize: '11px',
+                            lineHeight: 1.45,
+                            color: 'var(--text-secondary, #334155)',
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '3px' }}>
+                            {lang === 'hi' ? 'यह संदेश आपको क्यों भेजा गया:' : 'Why you are seeing this update:'}
+                          </div>
+                          <div>
+                            {(() => {
+                              let payload = u.action_payload;
+                              if (typeof payload === 'string') {
+                                try { payload = JSON.parse(payload); } catch (e) { payload = {}; }
+                              }
+                              return (payload && payload.why_am_i_seeing_this)
+                                || (u.update_type === 'day_brief'
+                                  ? (lang === 'hi' ? 'अस्पताल डिस्चार्ज के आधार पर दैनिक सुबह की रिकवरी योजना।' : 'Daily morning recovery plan based on your hospital discharge instructions.')
+                                  : (lang === 'hi' ? 'केयर टीम द्वारा अनुमोदित नियमित पोस्ट-ऑप अनुवर्ती।' : 'Approved post-operative follow-up routine by your care team.'));
+                            })()}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -6520,6 +6682,415 @@ export default function CareLoopPatientPortal({ user }) {
                 {lang === 'hi' ? 'समझ गया' : 'Got it'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Phase 5: AI Transparency Modal ("How CareLoop used AI for you") ─── */}
+      {showTransparencyModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 120,
+          }}
+          onClick={() => setShowTransparencyModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '14px',
+              padding: '24px',
+              width: '92%',
+              maxWidth: '620px',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              boxShadow: 'var(--shadow-float)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'केयरलूप ने आपके लिए एआई का उपयोग कैसे किया' : 'How CareLoop used AI for you'}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
+                  {lang === 'hi' ? 'पूर्ण पारदर्शिता: डेटा स्रोत, मानव सत्यापन और सहमति रिकॉर्ड' : 'Full transparency: data sources, staff verification & consent logs'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTransparencyModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '20px',
+                  color: 'var(--text-muted, #64748b)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {transparencyLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}>
+                {lang === 'hi' ? 'पारदर्शिता रिकॉर्ड लोड हो रहा है...' : 'Loading transparency records...'}
+              </div>
+            ) : transparencyData ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Consent & Notice Version Banner */}
+                <div
+                  style={{
+                    background: 'var(--accent-teal-soft, #ecfdf5)',
+                    border: '1px solid var(--accent-teal, #0d9488)',
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--accent-teal, #0d9488)' }}>
+                      {lang === 'hi' ? 'एआई सहायता सहमति स्थिति' : 'AI Help Consent Status'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #334155)', marginTop: '2px' }}>
+                      Notice Version: <strong>{transparencyData.consent?.current_notice_version || 'v2.0-2026-11'}</strong>
+                      {transparencyData.consent?.consented_at && (
+                        <span> · Timestamped: {transparencyData.consent.consented_at}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: transparencyData.ai_help_enabled ? 'var(--accent-teal, #0d9488)' : 'var(--text-muted, #64748b)' }}>
+                      {transparencyData.ai_help_enabled ? 'Active (Opted-in)' : 'Opted-out'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleConsentToggleFromModal(!transparencyData.ai_help_enabled)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--accent-teal, #0d9488)',
+                        background: 'var(--bg-surface, #ffffff)',
+                        color: 'var(--accent-teal, #0d9488)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {transparencyData.ai_help_enabled ? 'Switch Off' : 'Switch On'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metrics Overview */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', fontWeight: 700 }}>
+                      AI-Prepared Items
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginTop: '4px' }}>
+                      {transparencyData.ai_prepared_total_count || 0}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                      Drafted under clinician oversight
+                    </div>
+                  </div>
+                  <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', fontWeight: 700 }}>
+                      Delivered Updates
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--accent-teal, #0d9488)', marginTop: '4px' }}>
+                      {transparencyData.delivered_updates_count || 0}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                      Strictly inside automation limits
+                    </div>
+                  </div>
+                </div>
+
+                {/* Delivered Items List */}
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                    {lang === 'hi' ? 'हाल ही के अपडेट्स और सत्यापन रिकॉर्ड' : 'Recent Updates & Verification Records'}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {transparencyData.delivered_items && transparencyData.delivered_items.length > 0 ? (
+                      transparencyData.delivered_items.map((item, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            background: 'var(--bg-base, #f8fafc)',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            borderRadius: '8px',
+                            padding: '10px 12px',
+                            fontSize: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>{item.title}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)' }}>{item.date}</span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                            <strong>Reviewer:</strong> {item.reviewed_by}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginBottom: '4px' }}>
+                            <strong>Sources:</strong> {item.sources_used?.join(', ')}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--accent-teal, #0d9488)' }}>
+                            <strong>Why sent:</strong> {item.why_am_i_seeing_this}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted, #64748b)', fontSize: '12px' }}>
+                        No automated updates recorded for your chart yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Core Principle Footer */}
+                <div
+                  style={{
+                    background: 'var(--bg-card-hover, #f1f5f9)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    fontSize: '11px',
+                    color: 'var(--text-muted, #64748b)',
+                    textAlign: 'center',
+                  }}
+                >
+                  "The LLM talks. Rules decide. Humans act." · Agents do the routine. People make the calls.
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Phase 5: Visit Prep Sheet Modal (Printable, Facts Only) ─────────── */}
+      {showVisitPrepModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 120,
+          }}
+          onClick={() => setShowVisitPrepModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '14px',
+              padding: '28px',
+              width: '92%',
+              maxWidth: '680px',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              boxShadow: 'var(--shadow-float)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)', paddingBottom: '12px' }}>
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  CareLoop Clinical Visit Prep Sheet
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
+                  Facts-only summary for your upcoming doctor consultation
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--accent-teal, #0d9488)',
+                    background: 'var(--accent-teal-soft, #ecfdf5)',
+                    color: 'var(--accent-teal, #0d9488)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🖨️ Print Sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowVisitPrepModal(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    fontSize: '20px',
+                    color: 'var(--text-muted, #64748b)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {visitPrepLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}>
+                Preparing visit sheet facts...
+              </div>
+            ) : visitPrepData ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Two Identifiers & Appointment Header */}
+                <div style={{ background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', padding: '12px 14px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                        {visitPrepData.two_identifiers}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                        Condition: {visitPrepData.condition} · Physician: {visitPrepData.attending_doctor}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Next Clinic Visit
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--accent-teal, #0d9488)' }}>
+                        {visitPrepData.appointment_date}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 1. Prescribed Medicines List */}
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                    💊 Current Prescriptions Schedule
+                  </div>
+                  <div style={{ border: '1px solid var(--border-subtle, #e2e8f0)', borderRadius: '8px', overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-base, #f8fafc)', borderBottom: '1px solid var(--border-subtle, #e2e8f0)', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 12px' }}>Medicine</th>
+                          <th style={{ padding: '8px 12px' }}>Instructions</th>
+                          <th style={{ padding: '8px 12px' }}>Frequency</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visitPrepData.medicines_list?.map((m, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>{m.name}</td>
+                            <td style={{ padding: '8px 12px', color: 'var(--text-secondary, #334155)' }}>{m.instructions}</td>
+                            <td style={{ padding: '8px 12px', color: 'var(--text-secondary, #334155)' }}>{m.frequency}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 2. Recent Check-in Summary (Dates & Pain Numbers only) */}
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                    📊 Recent Check-In Summary (Pain Scores & Reported Symptoms)
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {visitPrepData.recent_checkins && visitPrepData.recent_checkins.length > 0 ? (
+                      visitPrepData.recent_checkins.map((c, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            background: 'var(--bg-base, #f8fafc)',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            fontSize: '12px',
+                          }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{c.date}</span>
+                          <span style={{ padding: '2px 8px', borderRadius: '10px', background: 'var(--accent-blue-soft, #eff6ff)', color: 'var(--accent-blue, #0284c7)', fontWeight: 700 }}>
+                            Pain {c.pain_score}
+                          </span>
+                          <span style={{ color: 'var(--text-muted, #64748b)', fontSize: '11px' }}>{c.patient_notes}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '12px' }}>
+                        No check-ins logged in the last 7 days.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Questions Not Found in Discharge Papers (Discuss with Doctor) */}
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                    ❓ Questions for Doctor Discussion (Unresolved in Discharge Papers)
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {visitPrepData.unfound_questions_for_doctor?.map((q, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: '10px 12px',
+                          background: 'rgba(234, 179, 8, 0.08)',
+                          borderRadius: '8px',
+                          borderLeft: '3px solid #eab308',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
+                          "{q.question}"
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
+                          {q.note}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Disclaimer */}
+                <div
+                  style={{
+                    background: 'var(--bg-card-hover, #f1f5f9)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    fontSize: '11px',
+                    color: 'var(--text-muted, #64748b)',
+                    textAlign: 'center',
+                    border: '1px dashed var(--border-subtle, #cbd5e1)',
+                  }}
+                >
+                  {visitPrepData.clinical_disclaimer}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

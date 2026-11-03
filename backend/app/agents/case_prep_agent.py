@@ -693,6 +693,18 @@ class CasePrepAgent:
             "guard": {"passed": True, "reasons": []}
         }
 
+        # Retrieve approved exemplars as training-free few-shot guidance if enabled
+        try:
+            from backend.app.agents.config import AGENTS_V2_APPROVED_EXEMPLARS
+            if AGENTS_V2_APPROVED_EXEMPLARS:
+                from backend.app.agents.proactive_service import retrieve_exemplars
+                case_exemplars = retrieve_exemplars("Case_Brief", limit=3)
+                if case_exemplars:
+                    brief_payload["exemplars"] = case_exemplars
+                    brief_payload["exemplar_label"] = "Uses previously approved notes as examples. No model training."
+        except Exception as e:
+            logger.warning(f"Could not load exemplars for Case_Brief: {e}")
+
         # Step 6: Policy Guard Inspection
         guard_context = {
             "patient_id": patient_id,

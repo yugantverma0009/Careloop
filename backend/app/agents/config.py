@@ -90,5 +90,16 @@ CASE_QUEUE_WEIGHTS = {
     "open_photo_review_points": 25
 }
 
+# Phase 5: Proactive Help, Approved Examples & Patient Transparency
+AGENTS_V2_DAY_BRIEF = os.getenv("AGENTS_V2_DAY_BRIEF", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_VISIT_PREP = os.getenv("AGENTS_V2_VISIT_PREP", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_PATTERN_PROPOSALS = os.getenv("AGENTS_V2_PATTERN_PROPOSALS", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_APPROVED_EXEMPLARS = os.getenv("AGENTS_V2_APPROVED_EXEMPLARS", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_PATIENT_TRANSPARENCY = os.getenv("AGENTS_V2_PATIENT_TRANSPARENCY", "true").lower() in ("true", "1", "yes")
+
+# Current AI governance notice version
+CURRENT_AI_NOTICE_VERSION = os.getenv("CURRENT_AI_NOTICE_VERSION", "v2.0-2026-11")
+
+
 
 

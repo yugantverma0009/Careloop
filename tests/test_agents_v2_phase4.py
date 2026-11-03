@@ -379,3 +379,4 @@ def test_phase4_nurse_draft_edit_stores_diff_and_exemplar():
             with get_conn() as conn, conn.cursor() as cur:
                 cur.execute("DELETE FROM agent_drafts WHERE draft_id = %s;", (test_draft_id,))
                 conn.commit()
+

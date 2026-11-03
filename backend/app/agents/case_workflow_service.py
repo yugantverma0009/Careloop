@@ -630,6 +630,19 @@ class RoutineDraftReviewService:
 
             conn.commit()
 
+        # Phase 5: Automatically save human edit as a de-identified exemplar (no model training)
+        try:
+            from backend.app.agents.proactive_service import store_approved_exemplar
+            store_approved_exemplar(
+                draft_type=draft["draft_type"],
+                original_text=orig_text,
+                edited_text=edited_text,
+                source_draft_id=draft_id,
+                tags=["nurse_edited", f"edit_chars_{edit_chars}"]
+            )
+        except Exception as e:
+            logger.warning(f"Exemplar auto-storage skipped: {e}")
+
         return {
             "status": "ok",
             "draft_id": draft_id,
