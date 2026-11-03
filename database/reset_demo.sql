@@ -30,6 +30,8 @@ TRUNCATE TABLE flag_events;
 TRUNCATE TABLE flags;
 TRUNCATE TABLE symptom_report_tags;
 TRUNCATE TABLE symptom_reports;
+TRUNCATE TABLE chat_actions;
+TRUNCATE TABLE patient_updates;
 TRUNCATE TABLE chat_feedback;
 TRUNCATE TABLE chat_message_sources;
 TRUNCATE TABLE chat_messages;

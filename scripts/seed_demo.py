@@ -349,7 +349,9 @@ def main():
                 ("AI_Nurse", "Yes, your discharge instructions state: walk indoors for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg.", 1, "grounded", conv_id, 4, {"intent": "activity", "source_ids": ["S1"]}),
                 # 6. Thank you (Small talk, NO source chip, name inserted by code)
                 ("Patient", "Thank you for the guidance.", None, None, conv_id, None, {}),
-                ("AI_Nurse", "You are welcome, Aarav. Please rest and reach out if you notice any warning signs.", 0, "not_found", conv_id, None, {"intent": "small_talk", "answer_type": "small_talk", "llm_called": False, "name_inserted_by_code": True}),
+                ("AI_Nurse", "You are welcome, Aarav. Please rest and reach out if you notice any warning signs.", 0, "small_talk", conv_id, None, {"intent": "small_talk", "answer_type": "small_talk", "llm_called": False, "name_inserted_by_code": True}),
+                # 7. Nurse Reply (Care Team human in the loop reply)
+                ("Care_Team", "Hello Aarav, this is Nurse Priya. I reviewed your query regarding medication. Please continue taking your morning tablet at 8:00 AM with water; I will check in with you during afternoon rounds.", 1, "care_team", conv_id, None, {"intent": "nurse_reply", "staff_id": 2}),
             ]
             for sender, text, is_grnd, ans_type, cid, target_chunk_id, rdebug in chat_data:
                 cur.execute(
@@ -364,6 +366,23 @@ def main():
                            VALUES (%s, %s)""",
                         (msg_id, target_chunk_id)
                     )
+
+            # Seed Chat Actions (Offered action cards)
+            cur.execute(
+                """INSERT INTO chat_actions (message_id, patient_id, action_type, status, created_at)
+                   VALUES (%s, 1, 'Open_Medicines', 'Offered', NOW() - INTERVAL 3 HOUR),
+                          (%s, 1, 'Start_Checkin', 'Offered', NOW() - INTERVAL 3 HOUR)""",
+                (msg_id - 2, msg_id - 2)
+            )
+
+            # Seed Patient Proactive Updates (3 updates for Aarav: 1 unread nurse reply, 1 dose reminder, 1 checkin prompt)
+            cur.execute(
+                """INSERT INTO patient_updates (patient_id, update_type, title, body, action_type, action_payload, created_by, seen_at, created_at)
+                   VALUES
+                   (1, 'nurse_reply', 'Message from Priya (nurse)', 'Hello Aarav, I reviewed your query regarding medication. Please continue taking your morning tablet at 8:00 AM with water; I will check in with you during afternoon rounds.', NULL, NULL, 'Staff', NULL, NOW() - INTERVAL 45 MINUTE),
+                   (1, 'reminder_dose', 'Morning dose reminder', 'CardioPulse-XR 50mg is scheduled for 8:00 AM. Please take with a glass of water.', 'Open_Medicines', JSON_OBJECT('medicine_name', 'CardioPulse-XR'), 'System', NOW() - INTERVAL 3 HOUR, NOW() - INTERVAL 3 HOUR),
+                   (1, 'checkin_prompt', 'Daily check-in', 'Time for your Day 3 recovery check-in. Tell us how you feel today.', 'Start_Checkin', NULL, 'System', NOW() - INTERVAL 4 HOUR, NOW() - INTERVAL 4 HOUR)"""
+            )
 
             # Step 11: Aarav's Check-in History (5 check-ins, mild pain 1-3)
             print("  11. Inserting patient check-in records...")

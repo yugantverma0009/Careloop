@@ -84,6 +84,13 @@ const post = (path, body) =>
     body: JSON.stringify(body || {}),
   }).then(handleResponse);
 
+const patch = (path, body) =>
+  fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify(body || {}),
+  }).then(handleResponse);
+
 const postFormData = (path, formData) => {
   const token = getToken();
   return fetch(`${API_BASE}${path}`, {
@@ -203,6 +210,30 @@ export const askCareTeamForChatMessage = (messageId) =>
 
 export const submitChatFeedback = (messageId, rating, comment = null) =>
   post(`/patient/me/chat/${messageId}/feedback`, { rating, comment });
+
+// Phase 4: Action Cards & Proactive Updates
+export const executePatientAction = (actionType, payload = {}) =>
+  post(`/patient/me/actions/${actionType}`, payload);
+
+export const getPatientUpdates = () => get('/patient/me/updates');
+
+export const markPatientUpdateSeen = (updateId) =>
+  post(`/patient/me/updates/${updateId}/seen`, {});
+
+export const updatePatientSettings = (settings) =>
+  patch('/patient/me/settings', settings);
+
+export const getStaffAssistantQuestions = () =>
+  get('/staff/assistant-questions');
+
+export const replyAssistantQuestion = (messageId, replyText, templateId = null) =>
+  post(`/staff/assistant-questions/${messageId}/reply`, { reply_text: replyText, template_id: templateId });
+
+export const markAssistantQuestionDone = (messageId) =>
+  post(`/staff/assistant-questions/${messageId}/done`, {});
+
+export const getStaffAssistantReview = () =>
+  get('/staff/assistant-review');
 
 // ─── Staff & Clinical Workflow Endpoints ─────────────────────────────────────
 

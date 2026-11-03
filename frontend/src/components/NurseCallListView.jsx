@@ -7,6 +7,9 @@ import {
   getAgentProposals,
   acceptProposal,
   dismissProposal,
+  getStaffAssistantQuestions,
+  replyAssistantQuestion,
+  markAssistantQuestionDone,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import NurseCallModal from './NurseCallModal';
@@ -43,6 +46,22 @@ export default function NurseCallListView({ onSelectPatient }) {
   const [dismissTargetId, setDismissTargetId] = useState(null);
   const [dismissReasonInput, setDismissReasonInput] = useState('');
 
+  // Assistant Questions (Phase 4 Feature)
+  const [assistantQuestions, setAssistantQuestions] = useState([]);
+  const [replyTextMap, setReplyTextMap] = useState({});
+  const [replyLoadingMap, setReplyLoadingMap] = useState({});
+
+  const loadAssistantQuestions = async () => {
+    try {
+      const res = await getStaffAssistantQuestions();
+      if (res) {
+        setAssistantQuestions(Array.isArray(res) ? res : (res.questions || []));
+      }
+    } catch (err) {
+      console.error('Failed to load assistant questions', err);
+    }
+  };
+
   const loadProposals = async () => {
     try {
       const res = await getAgentProposals('Pending');
@@ -66,12 +85,42 @@ export default function NurseCallListView({ onSelectPatient }) {
   useEffect(() => {
     loadCallList();
     loadProposals();
+    loadAssistantQuestions();
     const interval = setInterval(() => {
       loadCallList();
       loadProposals();
+      loadAssistantQuestions();
     }, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleSendReply = async (messageId) => {
+    const text = (replyTextMap[messageId] || '').trim();
+    if (!text) return;
+    setReplyLoadingMap((prev) => ({ ...prev, [messageId]: true }));
+    try {
+      await replyAssistantQuestion(messageId, text);
+      setActionMsg('Reply sent to patient portal and logged to chart.');
+      setReplyTextMap((prev) => ({ ...prev, [messageId]: '' }));
+      await loadAssistantQuestions();
+      setTimeout(() => setActionMsg(''), 4000);
+    } catch (err) {
+      alert(`Failed to send reply: ${err.message || 'Error'}`);
+    } finally {
+      setReplyLoadingMap((prev) => ({ ...prev, [messageId]: false }));
+    }
+  };
+
+  const handleMarkDone = async (messageId) => {
+    try {
+      await markAssistantQuestionDone(messageId);
+      setActionMsg('Question marked resolved.');
+      await loadAssistantQuestions();
+      setTimeout(() => setActionMsg(''), 4000);
+    } catch (err) {
+      alert(`Failed to mark done: ${err.message || 'Error'}`);
+    }
+  };
 
   const handleAcceptProposal = async (proposalId) => {
     try {
@@ -928,6 +977,175 @@ export default function NurseCallListView({ onSelectPatient }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Assistant Questions Section (Phase 4 Feature) */}
+      <div
+        style={{
+          background: 'var(--bg-surface, #ffffff)',
+          border: '1px solid var(--border-subtle, #e2e8f0)',
+          borderRadius: '12px',
+          padding: '20px',
+          boxShadow: 'var(--shadow-card)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid var(--border-subtle, #f1f5f9)', paddingBottom: '12px' }}>
+          <div>
+            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+              💬 Patient Assistant Questions ({assistantQuestions.length} Pending)
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary, #64748b)' }}>
+              Questions where the patient requested care team review or where the assistant flagged uncertainty.
+            </div>
+          </div>
+          <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: 'var(--accent-teal-soft, #f0fdfa)', color: 'var(--accent-teal, #0d9488)' }}>
+            Care Team Inbox
+          </span>
+        </div>
+
+        {assistantQuestions.length === 0 ? (
+          <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+            ✓ All patient assistant inquiries have been addressed. No pending questions.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {assistantQuestions.map((q) => {
+              const msgId = q.message_id;
+              const replyText = replyTextMap[msgId] || '';
+              const isSending = !!replyLoadingMap[msgId];
+
+              const templates = [
+                'Reviewed your medication query; please take dose with food and rest.',
+                'Will check on this during evening rounds today.',
+                'Care team reviewed your discharge instructions. Please continue as prescribed.',
+              ];
+
+              return (
+                <div
+                  key={msgId}
+                  style={{
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderLeft: '4px solid var(--accent-teal, #0d9488)',
+                    borderRadius: '8px',
+                    padding: '16px 18px',
+                    background: 'var(--bg-surface, #ffffff)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                        {q.patient_name} ({q.patient_code})
+                      </span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                        {q.created_at ? new Date(q.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleMarkDone(msgId)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        background: 'transparent',
+                        color: 'var(--text-secondary, #475569)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ✓ Mark Done (No reply needed)
+                    </button>
+                  </div>
+
+                  <div style={{ padding: '10px 14px', borderRadius: '6px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', marginBottom: '2px' }}>
+                      Patient Inquiry:
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', fontWeight: 600 }}>
+                      &ldquo;{q.question}&rdquo;
+                    </div>
+                    {q.draft_answer && (
+                      <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #cbd5e1', fontSize: '12px', color: '#475569' }}>
+                        <span style={{ fontWeight: 600, color: '#64748b' }}>Assistant Draft: </span>
+                        {q.draft_answer}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Reply Templates */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>Quick templates:</span>
+                    {templates.map((tmpl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setReplyTextMap((prev) => ({ ...prev, [msgId]: tmpl }))}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle, #cbd5e1)',
+                          background: 'var(--bg-base, #f8fafc)',
+                          color: 'var(--text-secondary, #334155)',
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {tmpl.slice(0, 32)}...
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Nurse Reply Composer */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <textarea
+                      rows={2}
+                      maxLength={500}
+                      value={replyText}
+                      onChange={(e) => setReplyTextMap((prev) => ({ ...prev, [msgId]: e.target.value }))}
+                      placeholder="Write nurse reply (sent directly to patient portal chat and updates inbox, max 500 chars)..."
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-strong, #cbd5e1)',
+                        fontSize: '12px',
+                        outline: 'none',
+                        resize: 'vertical',
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)' }}>
+                        {replyText.length}/500 chars
+                      </span>
+                      <button
+                        type="button"
+                        disabled={!replyText.trim() || isSending}
+                        onClick={() => handleSendReply(msgId)}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: 'var(--accent-teal, #0d9488)',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: !replyText.trim() || isSending ? 'not-allowed' : 'pointer',
+                          opacity: !replyText.trim() || isSending ? 0.6 : 1,
+                        }}
+                      >
+                        {isSending ? 'Sending...' : 'Send Nurse Reply →'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

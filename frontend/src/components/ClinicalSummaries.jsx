@@ -14,6 +14,7 @@ import {
   getPendingRecoveryPlans,
   approveRecoveryPlan,
   rejectRecoveryPlan,
+  getStaffAssistantReview,
 } from '../services/api';
 
 export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
@@ -74,6 +75,22 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
   // Recovery Plans State (Phase 4 Feature F5)
   const [pendingPlans, setPendingPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(false);
+
+  // Assistant Review State (Phase 4 Feature)
+  const [assistantReviewItems, setAssistantReviewItems] = useState([]);
+  const [assistantReviewLoading, setAssistantReviewLoading] = useState(false);
+
+  const fetchAssistantReview = async () => {
+    setAssistantReviewLoading(true);
+    try {
+      const data = await getStaffAssistantReview();
+      setAssistantReviewItems(Array.isArray(data) ? data : (data.items || []));
+    } catch (err) {
+      console.error('Failed to load assistant review items:', err);
+    } finally {
+      setAssistantReviewLoading(false);
+    }
+  };
 
   const fetchPendingPlans = async () => {
     setPlansLoading(true);
@@ -153,6 +170,7 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
   useEffect(() => {
     fetchPendingPlans();
     fetchCheckinTemplates();
+    fetchAssistantReview();
   }, []);
 
   useEffect(() => {
@@ -162,6 +180,8 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
       fetchCheckinTemplates();
     } else if (approvalTab === 'plans') {
       fetchPendingPlans();
+    } else if (approvalTab === 'assistant_review') {
+      fetchAssistantReview();
     }
   }, [approvalTab]);
 
@@ -409,6 +429,38 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
             }}
           >
             {pendingPlans.length} draft
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setApprovalTab('assistant_review')}
+          style={{
+            padding: '8px 18px',
+            borderRadius: '8px',
+            border: 'none',
+            background: approvalTab === 'assistant_review' ? 'var(--role-doctor, #7c3aed)' : 'transparent',
+            color: approvalTab === 'assistant_review' ? '#ffffff' : 'var(--text-secondary, #475569)',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>🤖 Assistant Review</span>
+          <span
+            style={{
+              fontSize: '11px',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: approvalTab === 'assistant_review' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+              color: approvalTab === 'assistant_review' ? '#ffffff' : '#475569',
+              fontWeight: 800,
+            }}
+          >
+            {assistantReviewItems.length} flagged
           </span>
         </button>
       </div>
@@ -961,6 +1013,163 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SECTION E: ASSISTANT REVIEW (Phase 4 Feature) */}
+      {approvalTab === 'assistant_review' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '16px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                Assistant Quality & Safety Review ({assistantReviewItems.length} Flagged Queries)
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
+                Patient queries resulting in thumbs-down ratings, not-found answers, or clinical escalation requests.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchAssistantReview}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-subtle, #cbd5e1)',
+                background: 'transparent',
+                color: 'var(--text-secondary, #475569)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              ↻ Refresh
+            </button>
+          </div>
+
+          {assistantReviewLoading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+              Loading assistant review items...
+            </div>
+          ) : assistantReviewItems.length === 0 ? (
+            <div
+              style={{
+                background: 'var(--bg-surface, #ffffff)',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+                borderRadius: '12px',
+                padding: '48px',
+                textAlign: 'center',
+                color: 'var(--text-secondary, #64748b)',
+                fontSize: '14px',
+              }}
+            >
+              ✓ No flagged assistant answers or negative patient feedback recorded.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {assistantReviewItems.map((item) => {
+                const isDown = item.rating === -1;
+                const isNotFound = item.answer_type === 'not_found';
+                const isCareTeam = item.care_team_requested;
+
+                return (
+                  <div
+                    key={item.message_id}
+                    style={{
+                      background: 'var(--bg-surface, #ffffff)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderLeft: `4px solid ${isDown ? '#ef4444' : isNotFound ? '#f59e0b' : '#7c3aed'}`,
+                      borderRadius: '10px',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                          {item.patient_name} ({item.patient_code})
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          {item.created_at ? new Date(item.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {isDown && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: '#fee2e2', color: '#dc2626' }}>
+                            👎 Thumbs Down
+                          </span>
+                        )}
+                        {isNotFound && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: '#fef3c7', color: '#b45309' }}>
+                            Unanswered (Not Found)
+                          </span>
+                        )}
+                        {isCareTeam && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', background: '#f5f3ff', color: '#7c3aed' }}>
+                            Care Team Review Requested
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '10px 14px', borderRadius: '6px', background: 'var(--bg-base, #f8fafc)', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>
+                        Patient Question:
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
+                        &ldquo;{item.question}&rdquo;
+                      </div>
+                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #cbd5e1' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>
+                          Assistant Response:
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#334155', lineHeight: 1.5 }}>
+                          {item.answer}
+                        </div>
+                      </div>
+                    </div>
+
+                    {item.feedback_comment && (
+                      <div style={{ fontSize: '12px', color: '#dc2626', background: '#fef2f2', padding: '6px 12px', borderRadius: '6px', border: '1px solid #fecaca' }}>
+                        <strong>Patient Feedback:</strong> &ldquo;{item.feedback_comment}&rdquo;
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectPatient && onSelectPatient(item.patient_id)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-strong, #cbd5e1)',
+                          background: 'transparent',
+                          color: 'var(--text-primary, #0f172a)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Open Patient Chart →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

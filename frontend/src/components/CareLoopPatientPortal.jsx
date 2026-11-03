@@ -14,10 +14,15 @@ import {
   getChatHistory,
   askCareTeamForChatMessage,
   submitChatFeedback,
+  getPatientUpdates,
+  markPatientUpdateSeen,
+  executePatientAction,
+  updatePatientSettings,
   getFamilySharingStatus,
   toggleFamilySharing,
   submitFallResponse,
   logout,
+  API_BASE,
 } from '../services/api';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
@@ -145,6 +150,13 @@ export default function CareLoopPatientPortal({ user }) {
   const chatRecognitionRef = useRef(null);
   const handsFreeTimeoutRef = useRef(null);
 
+  // Assistant v2 Phase 4 State: Ask vs Updates Tab, Proactive Updates Inbox, Actions
+  const [assistantSubTab, setAssistantSubTab] = useState('ask'); // 'ask' | 'updates'
+  const [updatesList, setUpdatesList] = useState([]);
+  const [unreadUpdatesCount, setUnreadUpdatesCount] = useState(0);
+  const [actionLoadingState, setActionLoadingState] = useState({});
+  const [actionFeedbackMsg, setActionFeedbackMsg] = useState(null);
+
   // Active navigation sidebar tab: 'recovery', 'prescriptions', 'checkin', 'chat'
   const [activeNav, setActiveNav] = useState('recovery');
   const [medicinesSubTab, setMedicinesSubTab] = useState('doses'); // 'doses' or 'calendar'
@@ -232,14 +244,19 @@ export default function CareLoopPatientPortal({ user }) {
     try {
       if (!silent) setLoading(true);
       setErrorMsg('');
-      const [todayRes, chatRes] = await Promise.all([
+      const [todayRes, chatRes, updatesRes] = await Promise.all([
         getPatientToday().catch((err) => {
           throw err;
         }),
         getChatHistory().catch(() => []),
+        getPatientUpdates().catch(() => ({ unread_count: 0, updates: [] })),
       ]);
       setTodayData(todayRes);
       setLastUpdatedTime(new Date().toLocaleTimeString());
+      if (updatesRes) {
+        setUpdatesList(updatesRes.updates || []);
+        setUnreadUpdatesCount(updatesRes.unread_count || 0);
+      }
       if (Array.isArray(chatRes)) {
         setChatMessages(chatRes);
         const initialFeedback = {};
@@ -1133,6 +1150,57 @@ export default function CareLoopPatientPortal({ user }) {
     window.speechSynthesis.speak(utterance);
   };
 
+  const handleMarkUpdateSeen = async (updateId) => {
+    try {
+      await markPatientUpdateSeen(updateId);
+      setUpdatesList((prev) =>
+        prev.map((u) => (u.update_id === updateId ? { ...u, is_seen: true } : u))
+      );
+      setUnreadUpdatesCount((prev) => Math.max(0, prev - 1));
+    } catch (e) {
+      console.warn('Failed to mark update seen:', e);
+    }
+  };
+
+  const handleExecuteAction = async (actionType, messageId = null, actionId = null, payload = null) => {
+    if (actionLoadingState[actionType]) return;
+    setActionLoadingState((prev) => ({ ...prev, [actionType]: true }));
+    try {
+      const res = await executePatientAction(actionType, {
+        message_id: messageId,
+        action_id: actionId,
+        payload,
+      });
+
+      if (res.ui_action === 'navigate') {
+        setActiveNav(res.target_tab);
+        setActionFeedbackMsg(res.message);
+      } else if (res.ui_action === 'modal') {
+        if (res.target_modal === 'wound_photo') {
+          setActiveNav('checkin');
+        }
+        setActionFeedbackMsg(res.message);
+      } else if (res.ui_action === 'download') {
+        if (res.download_url) {
+          window.location.href = `${API_BASE}${res.download_url}`;
+        }
+        setActionFeedbackMsg(res.message);
+      } else if (res.ui_action === 'tel') {
+        window.location.href = res.tel_url || 'tel:112';
+      } else {
+        setActionFeedbackMsg(res.message || 'Action executed.');
+      }
+
+      loadTodayData(true);
+    } catch (err) {
+      console.error('Action execution failed:', err);
+      setActionFeedbackMsg(err.message || 'Failed to execute action.');
+    } finally {
+      setActionLoadingState((prev) => ({ ...prev, [actionType]: false }));
+      setTimeout(() => setActionFeedbackMsg(null), 4000);
+    }
+  };
+
   // Derived telemetry metrics (filtered so invalid noise never becomes the headline)
   const validReadings = (todayData?.readings || []).filter(
     (r) => r.quality !== 'Invalid' && r.quality !== 'Noise' && r.is_valid !== false && r.is_valid !== 0
@@ -1500,18 +1568,26 @@ export default function CareLoopPatientPortal({ user }) {
                 title={lang === 'hi' ? 'रिमाइंडर' : 'Care Reminders'}
               >
                 <IconBell width={17} height={17} />
-                {remindersList.length > 0 && (
+                {(unreadUpdatesCount > 0 || remindersList.length > 0) && (
                   <span
                     style={{
                       position: 'absolute',
-                      top: '6px',
-                      right: '6px',
-                      width: '7px',
-                      height: '7px',
-                      borderRadius: '50%',
+                      top: '4px',
+                      right: '4px',
+                      minWidth: '14px',
+                      height: '14px',
+                      borderRadius: '7px',
                       background: 'var(--alert-red, #dc2626)',
+                      color: '#ffffff',
+                      fontSize: '9px',
+                      fontWeight: 800,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
-                  />
+                  >
+                    {unreadUpdatesCount > 0 ? unreadUpdatesCount : '!'}
+                  </span>
                 )}
               </button>
 
@@ -1531,6 +1607,38 @@ export default function CareLoopPatientPortal({ user }) {
                     zIndex: 100,
                   }}
                 >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '12px',
+                      paddingBottom: '8px',
+                      borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      {lang === 'hi' ? 'केयर रिमाइंडर व अपडेट्स' : 'Care Reminders & Updates'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRemindersOpen(false);
+                        setActiveNav('chat');
+                        setAssistantSubTab('updates');
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--accent-teal, #0d9488)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {lang === 'hi' ? 'सभी देखें →' : 'View inbox →'}
+                    </button>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
                     <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
                       {lang === 'hi' ? 'केयर रिमाइंडर' : 'Care Reminders'}
@@ -4952,6 +5060,7 @@ export default function CareLoopPatientPortal({ user }) {
                       const next = !voiceAutoplay;
                       setVoiceAutoplay(next);
                       try { localStorage.setItem('careloop_voice_autoplay', String(next)); } catch(e){}
+                      updatePatientSettings({ voice_autoplay: next }).catch(() => {});
                     }}
                     style={{
                       display: 'inline-flex',
@@ -5000,7 +5109,105 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
 
-              {/* Chat Message Scroll Area */}
+              {/* Action Execution Feedback Toast */}
+              {actionFeedbackMsg && (
+                <div
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(13, 148, 136, 0.12)',
+                    border: '1px solid var(--accent-teal, #0d9488)',
+                    color: 'var(--accent-teal, #0d9488)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    marginBottom: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span>✓ {actionFeedbackMsg}</span>
+                  <button
+                    type="button"
+                    onClick={() => setActionFeedbackMsg(null)}
+                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px' }}
+                  >
+                    <IconX width={14} height={14} />
+                  </button>
+                </div>
+              )}
+
+              {/* Sub-tab Navigation: Ask vs Updates (Phase 4) */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  marginBottom: '12px',
+                  borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                  paddingBottom: '8px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setAssistantSubTab('ask')}
+                  style={{
+                    padding: '6px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: assistantSubTab === 'ask' ? 'var(--navy-deep, #0b1528)' : 'transparent',
+                    color: assistantSubTab === 'ask' ? '#ffffff' : 'var(--text-secondary, #475569)',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <IconSparkles width={13} height={13} />
+                  <span>{lang === 'hi' ? 'पूछें (Ask)' : 'Ask'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssistantSubTab('updates')}
+                  style={{
+                    padding: '6px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: assistantSubTab === 'updates' ? 'var(--navy-deep, #0b1528)' : 'transparent',
+                    color: assistantSubTab === 'updates' ? '#ffffff' : 'var(--text-secondary, #475569)',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    position: 'relative',
+                  }}
+                >
+                  <IconBell width={13} height={13} />
+                  <span>{lang === 'hi' ? 'अपडेट्स (Updates)' : 'Updates'}</span>
+                  {unreadUpdatesCount > 0 && (
+                    <span
+                      style={{
+                        background: 'var(--alert-red, #dc2626)',
+                        color: '#ffffff',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                      }}
+                    >
+                      {unreadUpdatesCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* ─── TAB 1: ASK (Chat + Voice + Action Cards) ─── */}
+              {assistantSubTab === 'ask' && (
+                <>
+                  {/* Chat Message Scroll Area */}
               <div
                 style={{
                   flex: 1,
@@ -5244,6 +5451,71 @@ export default function CareLoopPatientPortal({ user }) {
                             </div>
                           )}
                         </div>
+
+                        {/* Allowlisted Action Cards (Phase 4 Safe Buttons) */}
+                        {!isUser && Array.isArray(msg.actions) && msg.actions.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '4px 0' }}>
+                            {msg.actions.map((act) => {
+                              const actType = act.action_type;
+                              const actId = act.action_id;
+                              const isLoading = !!actionLoadingState[actType];
+                              let label = act.label || actType;
+                              let icon = '⚡';
+                              if (actType === 'Open_Medicines') { label = lang === 'hi' ? 'दवाएं देखें' : 'View Medications'; icon = '💊'; }
+                              else if (actType === 'Start_Checkin') { label = lang === 'hi' ? 'दैनिक चेक-इन शुरू करें' : 'Start Check-in'; icon = '📋'; }
+                              else if (actType === 'Log_Symptom') { label = lang === 'hi' ? 'लक्षण दर्ज करें' : 'Log Symptoms'; icon = '📝'; }
+                              else if (actType === 'Photo_Check') { label = lang === 'hi' ? 'घाव फोटो चेक' : 'Photo Check'; icon = '📷'; }
+                              else if (actType === 'Emergency_Call') { label = lang === 'hi' ? '112 पर आपातकालीन कॉल' : 'Call 112 Emergency'; icon = '📞'; }
+                              else if (actType === 'Download_Summary') { label = lang === 'hi' ? 'डिस्चार्ज समरी डाउनलोड' : 'Download Summary'; icon = '📄'; }
+                              else if (actType === 'Ask_Care_Team') { label = lang === 'hi' ? 'केयर टीम से पूछें' : 'Ask My Care Team'; icon = '👨‍⚕️'; }
+
+                              return (
+                                <div
+                                  key={actId || actType}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    background: 'var(--bg-surface, #ffffff)',
+                                    border: '1px solid var(--accent-teal, #0d9488)',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '14px' }}>{icon}</span>
+                                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>{label}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={isLoading}
+                                    onClick={() => {
+                                      if (actType === 'Ask_Care_Team') {
+                                        handleAskCareTeam(msgId);
+                                      } else {
+                                        handleExecuteAction(actType, msgId, actId, act.payload);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '5px 12px',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      background: 'var(--accent-teal, #0d9488)',
+                                      color: '#ffffff',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      cursor: isLoading ? 'not-allowed' : 'pointer',
+                                      opacity: isLoading ? 0.7 : 1,
+                                    }}
+                                  >
+                                    {isLoading ? '...' : (lang === 'hi' ? 'खोलें →' : 'Open →')}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
 
                         {/* Grounded Source Pill Chips (Brief Sec 8.3 & 8.4) */}
                         {!isUser && sources.length > 0 && (
@@ -5631,8 +5903,162 @@ export default function CareLoopPatientPortal({ user }) {
                   <IconSend width={15} height={15} />
                 </button>
               </form>
+            </>
+          )}
+
+          {/* ─── TAB 2: UPDATES (Care Team & Scheduled Reminders Inbox) ─── */}
+          {assistantSubTab === 'updates' && (
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                paddingRight: '6px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'केयर टीम व स्वचालित अपडेट्स' : 'Care Team & Scheduled Updates'}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                  {updatesList.length} {lang === 'hi' ? 'अपडेट्स' : 'updates'}
+                </div>
+              </div>
+
+              {updatesList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted, #64748b)' }}>
+                  <IconBell width={32} height={32} style={{ margin: '0 auto 10px auto', opacity: 0.4 }} />
+                  <p style={{ fontSize: '13px', fontWeight: 600 }}>{lang === 'hi' ? 'कोई नया अपडेट नहीं है।' : 'No updates right now.'}</p>
+                  <p style={{ fontSize: '12px' }}>{lang === 'hi' ? 'केयर टीम या राउंड्स के संदेश यहाँ दिखाई देंगे।' : 'Messages from your care team or daily rounds will appear here.'}</p>
+                </div>
+              ) : (
+                updatesList.map((u) => {
+                  const isSeen = u.is_seen;
+                  const isNurse = u.update_type === 'nurse_reply';
+                  const isDose = u.update_type === 'dose_reminder';
+                  const isCheckin = u.update_type === 'checkin_prompt';
+
+                  let badgeLabel = 'Care Team';
+                  let badgeIcon = 'ℹ️';
+                  if (isNurse) { badgeLabel = 'Nurse Priya (Care Team)'; badgeIcon = '🩺'; }
+                  else if (isDose) { badgeLabel = 'Medication Reminder'; badgeIcon = '💊'; }
+                  else if (isCheckin) { badgeLabel = 'Daily Check-in'; badgeIcon = '📋'; }
+
+                  return (
+                    <div
+                      key={u.update_id}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        background: !isSeen ? 'rgba(13, 148, 136, 0.04)' : 'var(--bg-base, #f8fafc)',
+                        border: !isSeen ? '1.5px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #e2e8f0)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        boxShadow: !isSeen ? '0 2px 4px rgba(13, 148, 136, 0.08)' : 'none',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '14px' }}>{badgeIcon}</span>
+                          <span style={{ fontSize: '11px', fontWeight: 800, color: isNurse ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            {badgeLabel}
+                          </span>
+                          {!isSeen && (
+                            <span style={{ padding: '1px 6px', borderRadius: '8px', background: 'var(--accent-teal, #0d9488)', color: '#ffffff', fontSize: '9px', fontWeight: 800 }}>
+                              NEW
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)' }}>
+                          {u.created_at ? new Date(u.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                        {u.title}
+                      </div>
+
+                      <div style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--text-secondary, #334155)', whiteSpace: 'pre-wrap' }}>
+                        {u.body}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px dashed var(--border-subtle, #cbd5e1)', marginTop: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => speakAnswer(u.body, lang, `update-${u.update_id}`)}
+                            style={{
+                              background: speakingMsgId === `update-${u.update_id}` ? 'var(--accent-blue-soft, #eff6ff)' : 'transparent',
+                              border: '1px solid var(--border-subtle, #cbd5e1)',
+                              color: 'var(--text-secondary, #475569)',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <IconVolume2 width={12} height={12} />
+                            <span>{speakingMsgId === `update-${u.update_id}` ? (lang === 'hi' ? 'रोकें' : 'Stop') : (lang === 'hi' ? 'सुनें' : 'Listen')}</span>
+                          </button>
+                          {!isSeen && (
+                            <button
+                              type="button"
+                              onClick={() => handleMarkUpdateSeen(u.update_id)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--accent-teal, #0d9488)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              ✓ {lang === 'hi' ? 'पढ़ा हुआ चिह्नित करें' : 'Mark as read'}
+                            </button>
+                          )}
+                        </div>
+
+                        {u.action_type && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!isSeen) handleMarkUpdateSeen(u.update_id);
+                              handleExecuteAction(u.action_type, null, u.source_action_id, u.action_payload);
+                            }}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '6px',
+                              border: 'none',
+                              background: 'var(--navy-deep, #0b1528)',
+                              color: '#ffffff',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <span>{u.action_type === 'Open_Medicines' ? (lang === 'hi' ? 'दवाएं देखें →' : 'View Medications →') : u.action_type === 'Start_Checkin' ? (lang === 'hi' ? 'चेक-इन करें →' : 'Start Check-in →') : (lang === 'hi' ? 'कार्रवाई करें →' : 'Take Action →')}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           )}
+        </div>
+      )}
         </main>
       </div>
 

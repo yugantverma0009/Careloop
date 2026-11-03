@@ -258,17 +258,68 @@ DROP TABLE IF EXISTS `chat_messages`;
 CREATE TABLE `chat_messages` (
   `message_id` bigint NOT NULL AUTO_INCREMENT,
   `patient_id` int NOT NULL,
-  `sender` enum('Patient','AI_Nurse') NOT NULL,
+  `sender` enum('Patient','AI_Nurse','Care_Team') NOT NULL,
   `message_text` text NOT NULL,
   `is_grounded` tinyint(1) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `answer_type` enum('grounded','structured','refusal_dose','refusal_medical','emergency','not_found','unavailable') DEFAULT NULL,
+  `answer_type` enum('grounded','structured','small_talk','refusal_dose','refusal_medical','emergency','not_found','unavailable','care_team') DEFAULT NULL,
   `conversation_id` varchar(40) DEFAULT NULL,
   `retrieval_debug` json DEFAULT NULL,
+  `input_mode` varchar(10) DEFAULT 'Text',
+  `language` varchar(5) DEFAULT 'en',
+  `intent` varchar(40) DEFAULT NULL,
   PRIMARY KEY (`message_id`),
   KEY `idx_chat_patient_time` (`patient_id`,`created_at`),
   CONSTRAINT `fk_chat_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `chat_actions`
+--
+
+DROP TABLE IF EXISTS `chat_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `chat_actions` (
+  `action_id` bigint NOT NULL AUTO_INCREMENT,
+  `message_id` bigint DEFAULT NULL,
+  `patient_id` int NOT NULL,
+  `action_type` varchar(50) NOT NULL,
+  `status` enum('Offered','Used','Dismissed') NOT NULL DEFAULT 'Offered',
+  `used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`action_id`),
+  KEY `idx_chat_actions_msg` (`message_id`),
+  KEY `idx_chat_actions_pat` (`patient_id`),
+  CONSTRAINT `fk_chat_actions_msg` FOREIGN KEY (`message_id`) REFERENCES `chat_messages` (`message_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_chat_actions_pat` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `patient_updates`
+--
+
+DROP TABLE IF EXISTS `patient_updates`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `patient_updates` (
+  `update_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `update_type` varchar(50) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  `action_type` varchar(50) DEFAULT NULL,
+  `action_payload` json DEFAULT NULL,
+  `source_action_id` bigint DEFAULT NULL,
+  `created_by` enum('System','Staff') NOT NULL DEFAULT 'System',
+  `seen_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`update_id`),
+  KEY `idx_patient_updates_patient` (`patient_id`,`created_at`),
+  CONSTRAINT `fk_patient_updates_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -899,6 +950,7 @@ CREATE TABLE `patients` (
   `rounds_paused_until` datetime DEFAULT NULL,
   `rounds_pause_reason` varchar(120) DEFAULT NULL,
   `sms_opt_out` tinyint(1) NOT NULL DEFAULT '0',
+  `voice_autoplay` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`patient_id`),
   UNIQUE KEY `uq_patient_code` (`patient_code`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

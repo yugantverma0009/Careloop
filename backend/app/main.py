@@ -150,7 +150,7 @@ class LoginResponse(BaseModel):
     name: str
 
 
-from .rag_config import USE_UPGRADED_RAG
+from .rag_config import USE_UPGRADED_RAG, ALLOWLIST_ACTIONS
 from .rag_pipeline import answer_patient_query
 
 
@@ -164,6 +164,21 @@ class ChatIn(BaseModel):
 class FeedbackIn(BaseModel):
     rating: int = Field(..., ge=-1, le=1)
     comment: Optional[str] = Field(default=None, max_length=255)
+
+
+class ActionIn(BaseModel):
+    message_id: Optional[int] = None
+    action_id: Optional[int] = None
+    payload: Optional[Dict[str, Any]] = None
+
+
+class PatientSettingsIn(BaseModel):
+    voice_autoplay: Optional[bool] = None
+
+
+class AssistantReplyIn(BaseModel):
+    reply_text: str = Field(..., max_length=500)
+    template_id: Optional[str] = None
 
 
 class ReviewSummaryIn(BaseModel):
@@ -3548,6 +3563,23 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
             )
             ai_msg_id = cur.lastrowid
 
+            # 3b. Record offered actions
+            actions = rag_res.get("actions", []) if USE_UPGRADED_RAG else []
+            for act in actions:
+                a_type = act.get("action_type") if isinstance(act, dict) else str(act)
+                if a_type in ALLOWLIST_ACTIONS:
+                    cur.execute(
+                        """INSERT INTO chat_actions (message_id, patient_id, action_type, status)
+                           VALUES (%s, %s, %s, 'Offered')""",
+                        (ai_msg_id, pid, a_type),
+                    )
+                    cur.execute(
+                        """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                           VALUES ('System', %s, 'ASSISTANT_ACTION_OFFERED', 'chat_action', %s,
+                                   JSON_OBJECT('action_type', %s, 'message_id', %s))""",
+                        (str(pid), cur.lastrowid, a_type, ai_msg_id),
+                    )
+
             # 4. Link citations (only if not small talk or refusal)
             if citations and answer_type not in ("small_talk", "refusal_dose", "refusal_medical", "emergency"):
                 for vid in citations:
@@ -3580,6 +3612,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
         "sources": sources,
         "suggestions": suggestions,
         "can_ask_care_team": can_ask,
+        "actions": actions,
         # Backward compatibility fields:
         "response": ans,
         "is_grounded": is_grounded,
@@ -3645,10 +3678,23 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
                         "text": s_row["chunk_text"],
                     })
 
+            # Fetch actions for message
+            cur.execute(
+                """SELECT action_id, action_type, status, used_at
+                   FROM chat_actions
+                   WHERE message_id = %s""",
+                (msg_id,),
+            )
+            msg_actions = cur.fetchall() or []
+
+            sender_role = "user" if r["sender"] == "Patient" else ("care_team" if r["sender"] == "Care_Team" else "assistant")
+            sender_display = "Message from Priya (nurse)" if r["sender"] == "Care_Team" else r["sender"]
+
             messages.append({
                 "message_id": msg_id,
-                "role": "user" if r["sender"] == "Patient" else "assistant",
+                "role": sender_role,
                 "sender": r["sender"],
+                "sender_display": sender_display,
                 "content": r["message_text"],
                 "message_text": r["message_text"],
                 "response": r["message_text"],
@@ -3660,6 +3706,7 @@ def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
                 "timestamp": r["created_at"].isoformat() if isinstance(r["created_at"], datetime) else str(r["created_at"]),
                 "sources": sources,
                 "feedback_rating": r["feedback_rating"],
+                "actions": msg_actions,
             })
 
         return messages
@@ -3792,6 +3839,484 @@ def submit_chat_feedback(
             "message_id": message_id,
             "rating": body.rating,
         }
+
+
+# ─── Assistant v2 Phase 4: Actions, Updates & Care Team Replies ──────────────
+
+@app.post("/patient/me/actions/{action_type}")
+def execute_patient_action(
+    action_type: str,
+    body: Optional[ActionIn] = None,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Executes an allowlisted assistant action confirmed by patient button press.
+    Safety Rule 1: The LLM never executes actions. Only the patient's own click triggers execution.
+    """
+    pid = get_effective_patient_id(user)
+    if action_type not in ALLOWLIST_ACTIONS:
+        raise HTTPException(400, f"Action '{action_type}' is not on the approved allowlist.")
+
+    result = {}
+    with get_conn() as conn, conn.cursor() as cur:
+        # Mark chat_action status as 'Used' if referenced
+        if body and body.action_id:
+            cur.execute(
+                """UPDATE chat_actions
+                   SET status = 'Used', used_at = NOW()
+                   WHERE action_id = %s AND patient_id = %s""",
+                (body.action_id, pid),
+            )
+        elif body and body.message_id:
+            cur.execute(
+                """UPDATE chat_actions
+                   SET status = 'Used', used_at = NOW()
+                   WHERE message_id = %s AND patient_id = %s AND action_type = %s""",
+                (body.message_id, pid, action_type),
+            )
+
+        # Audit action usage
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Patient', %s, 'ASSISTANT_ACTION_USED', 'patient', %s,
+                       JSON_OBJECT('action_type', %s, 'patient_id', %s))""",
+            (str(user["account_id"]), pid, action_type, pid),
+        )
+
+        # Dispatch action
+        if action_type == "Start_Checkin":
+            result = {
+                "status": "ok",
+                "action_type": action_type,
+                "ui_action": "navigate",
+                "target_tab": "checkin",
+                "message": "Opening guided check-in.",
+            }
+        elif action_type == "Add_Photo":
+            result = {
+                "status": "ok",
+                "action_type": action_type,
+                "ui_action": "modal",
+                "target_modal": "wound_photo",
+                "message": "Opening wound photo check.",
+            }
+        elif action_type == "Open_Medicines":
+            result = {
+                "status": "ok",
+                "action_type": action_type,
+                "ui_action": "navigate",
+                "target_tab": "medicines",
+                "message": "Opening medicines dose list. (Reminder: doses can only be confirmed on the Medicines page).",
+            }
+        elif action_type == "Open_Plan_Item":
+            result = {
+                "status": "ok",
+                "action_type": action_type,
+                "ui_action": "navigate",
+                "target_tab": "my_plan",
+                "message": "Opening your recovery plan.",
+            }
+        elif action_type == "Request_Call":
+            # Creates a call task for assigned nurse (deduplicated: 1 call request per day)
+            cur.execute(
+                """SELECT followup_id FROM follow_up_tasks
+                   WHERE patient_id = %s AND status = 'Pending' AND DATE(created_at) = CURDATE()
+                     AND reason LIKE '%%call%%'
+                   LIMIT 1""",
+                (pid,),
+            )
+            existing = cur.fetchone()
+            if existing:
+                result = {
+                    "status": "already_exists",
+                    "action_type": action_type,
+                    "task_id": existing["followup_id"],
+                    "message": "A call request is already pending with your care team.",
+                }
+            else:
+                cur.execute(
+                    """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
+                       VALUES (%s, 2, 'Review_Soon', 'Patient requested a phone call via Assistant', 'Pending')""",
+                    (pid,),
+                )
+                tid = cur.lastrowid
+                result = {
+                    "status": "ok",
+                    "action_type": action_type,
+                    "task_id": tid,
+                    "message": "A nurse call request has been scheduled.",
+                }
+        elif action_type == "Ask_Care_Team":
+            # De-duplicated task
+            cur.execute(
+                """SELECT followup_id FROM follow_up_tasks
+                   WHERE patient_id = %s AND status = 'Pending' AND DATE(created_at) = CURDATE()
+                     AND reason LIKE '%%question%%'
+                   LIMIT 1""",
+                (pid,),
+            )
+            existing = cur.fetchone()
+            if existing:
+                result = {
+                    "status": "already_exists",
+                    "action_type": action_type,
+                    "task_id": existing["followup_id"],
+                    "message": "A question is already pending review by your care team today.",
+                }
+            else:
+                cur.execute(
+                    """INSERT INTO follow_up_tasks (patient_id, assigned_staff_id, priority, reason, status)
+                       VALUES (%s, 2, 'Review_Soon', 'Patient question submitted from Assistant for clinician review', 'Pending')""",
+                    (pid,),
+                )
+                tid = cur.lastrowid
+                result = {
+                    "status": "ok",
+                    "action_type": action_type,
+                    "task_id": tid,
+                    "message": "Your request has been forwarded to your care team.",
+                }
+        elif action_type == "Add_Appointment_To_Calendar":
+            cur.execute(
+                """SELECT appointment_id FROM appointments
+                   WHERE patient_id = %s AND appointment_date >= CURDATE()
+                   ORDER BY appointment_date ASC, appointment_time ASC LIMIT 1""",
+                (pid,),
+            )
+            appt = cur.fetchone()
+            appt_id = appt["appointment_id"] if appt else 1
+            result = {
+                "status": "ok",
+                "action_type": action_type,
+                "ui_action": "download",
+                "download_url": f"/patient/me/appointments/{appt_id}.ics",
+                "message": "Downloading appointment calendar sync (.ics).",
+            }
+        elif action_type == "Open_SOS":
+            # Placeholder for future SOS feature
+            result = {
+                "status": "coming_soon",
+                "action_type": action_type,
+                "ui_action": "placeholder",
+                "message": "SOS emergency response portal is coming soon.",
+            }
+        elif action_type == "Call_112":
+            result = {
+                "status": "ok",
+                "action_type": action_type,
+                "ui_action": "tel",
+                "tel_url": "tel:112",
+                "message": "Emergency national helpline: 112.",
+            }
+
+    return result
+
+
+@app.get("/patient/me/updates")
+def get_patient_updates(user: Dict[str, Any] = Depends(require_patient)):
+    """
+    Returns proactive updates inbox for patient (dose due, check-in prompt, nurse reply, etc.).
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT update_id, patient_id, update_type, title, body,
+                      action_type, action_payload, source_action_id,
+                      created_by, seen_at, created_at
+               FROM patient_updates
+               WHERE patient_id = %s
+               ORDER BY created_at DESC LIMIT 50""",
+            (pid,),
+        )
+        rows = cur.fetchall()
+        updates = []
+        unread_count = 0
+        for r in rows:
+            if r["seen_at"] is None:
+                unread_count += 1
+            
+            created_str = r["created_at"].strftime("%d %b, %I:%M %p") if isinstance(r["created_at"], datetime) else str(r["created_at"])
+            
+            payload = None
+            if r["action_payload"]:
+                try:
+                    payload = json.loads(r["action_payload"]) if isinstance(r["action_payload"], str) else r["action_payload"]
+                except Exception:
+                    payload = None
+
+            updates.append({
+                "update_id": r["update_id"],
+                "update_type": r["update_type"],
+                "title": r["title"],
+                "body": r["body"],
+                "action_type": r["action_type"],
+                "action_payload": payload,
+                "created_by": r["created_by"],
+                "is_seen": r["seen_at"] is not None,
+                "seen_at": r["seen_at"].isoformat() if r["seen_at"] else None,
+                "created_at": created_str,
+                "timestamp": r["created_at"].isoformat() if isinstance(r["created_at"], datetime) else str(r["created_at"]),
+            })
+
+        return {
+            "unread_count": unread_count,
+            "updates": updates,
+        }
+
+
+@app.post("/patient/me/updates/{update_id}/seen")
+def mark_patient_update_seen(update_id: int, user: Dict[str, Any] = Depends(require_patient)):
+    """
+    Marks an update as seen when opened by the patient.
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE patient_updates
+               SET seen_at = NOW()
+               WHERE update_id = %s AND patient_id = %s""",
+            (update_id, pid),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Update not found or does not belong to this patient.")
+        return {"status": "ok", "update_id": update_id, "marked_seen": True}
+
+
+@app.patch("/patient/me/settings")
+def update_patient_settings(body: PatientSettingsIn, user: Dict[str, Any] = Depends(require_patient)):
+    """
+    Updates patient settings such as voice_autoplay.
+    """
+    pid = get_effective_patient_id(user)
+    with get_conn() as conn, conn.cursor() as cur:
+        if body.voice_autoplay is not None:
+            cur.execute(
+                """UPDATE patients SET voice_autoplay = %s WHERE patient_id = %s""",
+                (1 if body.voice_autoplay else 0, pid),
+            )
+            cur.execute(
+                """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+                   VALUES ('Patient', %s, 'UPDATE_VOICE_AUTOPLAY', 'patient', %s,
+                           JSON_OBJECT('voice_autoplay', %s))""",
+                (str(user["account_id"]), pid, body.voice_autoplay),
+            )
+        
+        cur.execute("SELECT voice_autoplay, preferred_language FROM patients WHERE patient_id = %s", (pid,))
+        p = cur.fetchone()
+        return {
+            "status": "ok",
+            "voice_autoplay": bool(p["voice_autoplay"]) if p else False,
+            "preferred_language": p["preferred_language"] if p else "en",
+        }
+
+
+@app.get("/staff/assistant-questions")
+def get_assistant_questions(user: Dict[str, Any] = Depends(require_staff)):
+    """
+    Returns patient questions needing nurse review: Ask Care Team, dose-change refusals, and thumbs down.
+    Audited on every view.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        # Audit staff view of assistant questions
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'VIEW_ASSISTANT_QUESTIONS', 'staff', %s, JSON_OBJECT('role', %s))""",
+            (str(user["account_id"]), user.get("staff_id", 1), user.get("role", "Nurse")),
+        )
+        cur.execute(
+            """SELECT m.message_id, m.patient_id, p.full_name AS patient_name,
+                      p.patient_code, m.message_text, m.answer_type, m.created_at,
+                      m.retrieval_debug, f.rating, f.comment AS feedback_comment,
+                      (SELECT message_text FROM chat_messages m_user 
+                       WHERE m_user.patient_id = m.patient_id AND m_user.sender = 'Patient' 
+                         AND m_user.message_id < m.message_id 
+                       ORDER BY m_user.message_id DESC LIMIT 1) AS patient_question
+               FROM chat_messages m
+               JOIN patients p ON p.patient_id = m.patient_id
+               LEFT JOIN chat_feedback f ON f.message_id = m.message_id
+               WHERE m.sender = 'AI_Nurse'
+                 AND (
+                   m.answer_type IN ('refusal_dose', 'care_team')
+                   OR f.rating = -1
+                   OR EXISTS (
+                       SELECT 1 FROM follow_up_tasks t 
+                       WHERE t.patient_id = m.patient_id AND t.reason LIKE '%%question%%' AND t.status = 'Pending'
+                   )
+                 )
+               ORDER BY m.created_at DESC LIMIT 50"""
+        )
+        rows = cur.fetchall()
+        items = []
+        for r in rows:
+            created_str = r["created_at"].strftime("%d %b, %I:%M %p") if isinstance(r["created_at"], datetime) else str(r["created_at"])
+            
+            cur.execute(
+                """SELECT message_id, message_text, created_at FROM chat_messages
+                   WHERE patient_id = %s AND sender = 'Care_Team' AND created_at > %s
+                   ORDER BY created_at ASC LIMIT 1""",
+                (r["patient_id"], r["created_at"]),
+            )
+            rep = cur.fetchone()
+            replied = rep is not None
+            reply_text = rep["message_text"] if rep else None
+
+            items.append({
+                "message_id": r["message_id"],
+                "patient_id": r["patient_id"],
+                "patient_name": r["patient_name"],
+                "patient_code": r["patient_code"],
+                "question": r["patient_question"] or "Patient inquiry",
+                "draft_answer": r["message_text"],
+                "answer_type": r["answer_type"],
+                "rating": r["rating"],
+                "feedback_comment": r["feedback_comment"],
+                "created_at": created_str,
+                "status": "Replied" if replied else "Pending",
+                "reply_text": reply_text,
+            })
+        return items
+
+
+@app.post("/staff/assistant-questions/{message_id}/reply")
+def reply_to_assistant_question(
+    message_id: int,
+    body: AssistantReplyIn,
+    user: Dict[str, Any] = Depends(require_staff),
+):
+    """
+    Submits a nurse reply to an assistant question.
+    Creates a chat message from 'Care_Team', delivers an update to patient Updates,
+    resolves the associated task, and audits the reply.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT m.patient_id, p.full_name, p.preferred_language
+               FROM chat_messages m
+               JOIN patients p ON p.patient_id = m.patient_id
+               WHERE m.message_id = %s""",
+            (message_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Assistant question message not found.")
+
+        pid = row["patient_id"]
+        staff_name = user.get("name") or "Priya Nair"
+        first_staff_name = staff_name.split()[0] if staff_name else "Priya"
+
+        # 1. Insert reply as Care_Team sender in chat_messages
+        cur.execute(
+            """INSERT INTO chat_messages (patient_id, sender, message_text, is_grounded, answer_type, created_at)
+               VALUES (%s, 'Care_Team', %s, 1, 'care_team', NOW())""",
+            (pid, body.reply_text),
+        )
+        reply_msg_id = cur.lastrowid
+
+        # 2. Insert into patient_updates
+        title = f"Message from {first_staff_name} (nurse)"
+        cur.execute(
+            """INSERT INTO patient_updates (patient_id, update_type, title, body, created_by, created_at)
+               VALUES (%s, 'nurse_reply', %s, %s, 'Staff', NOW())""",
+            (pid, title, body.reply_text),
+        )
+        update_id = cur.lastrowid
+
+        # 3. Resolve pending follow-up task if one was associated
+        cur.execute(
+            """UPDATE follow_up_tasks
+               SET status = 'Resolved', completed_at = NOW()
+               WHERE patient_id = %s AND status = 'Pending' AND (reason LIKE '%%question%%' OR reason LIKE '%%dose%%')""",
+            (pid,),
+        )
+
+        # 4. Audit
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'NURSE_ASSISTANT_REPLY', 'chat_message', %s,
+                       JSON_OBJECT('patient_id', %s, 'reply_message_id', %s, 'update_id', %s))""",
+            (str(user["account_id"]), reply_msg_id, pid, reply_msg_id, update_id),
+        )
+
+        return {
+            "status": "ok",
+            "reply_message_id": reply_msg_id,
+            "update_id": update_id,
+            "message": "Reply delivered to patient chat and Updates.",
+        }
+
+
+@app.post("/staff/assistant-questions/{message_id}/done")
+def mark_assistant_question_done(
+    message_id: int,
+    user: Dict[str, Any] = Depends(require_staff),
+):
+    """
+    Marks an assistant question as done without a chat reply.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT patient_id FROM chat_messages WHERE message_id = %s""",
+            (message_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Message not found.")
+        pid = row["patient_id"]
+
+        cur.execute(
+            """UPDATE follow_up_tasks
+               SET status = 'Resolved', completed_at = NOW()
+               WHERE patient_id = %s AND status = 'Pending' AND (reason LIKE '%%question%%' OR reason LIKE '%%dose%%')""",
+            (pid,),
+        )
+
+        cur.execute(
+            """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+               VALUES ('Staff', %s, 'ASSISTANT_QUESTION_DONE', 'chat_message', %s, JSON_OBJECT('patient_id', %s))""",
+            (str(user["account_id"]), message_id, pid),
+        )
+        return {"status": "ok", "message_id": message_id, "marked_done": True}
+
+
+@app.get("/staff/assistant-review")
+def get_assistant_review_list(user: Dict[str, Any] = Depends(require_staff)):
+    """
+    Doctor review list for assistant quality: negative feedback (thumbs down) and not-found answers.
+    Feeds back into the evaluation set.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT m.message_id, m.patient_id, p.full_name AS patient_name,
+                      m.message_text AS draft_answer, m.answer_type, m.created_at,
+                      m.retrieval_debug, f.rating, f.comment AS feedback_comment,
+                      (SELECT message_text FROM chat_messages m_user 
+                       WHERE m_user.patient_id = m.patient_id AND m_user.sender = 'Patient' 
+                         AND m_user.message_id < m.message_id 
+                       ORDER BY m_user.message_id DESC LIMIT 1) AS patient_question
+               FROM chat_messages m
+               JOIN patients p ON p.patient_id = m.patient_id
+               LEFT JOIN chat_feedback f ON f.message_id = m.message_id
+               WHERE m.sender = 'AI_Nurse'
+                 AND (f.rating = -1 OR m.answer_type = 'not_found')
+               ORDER BY m.created_at DESC LIMIT 50"""
+        )
+        rows = cur.fetchall()
+        items = []
+        for r in rows:
+            created_str = r["created_at"].strftime("%d %b, %I:%M %p") if isinstance(r["created_at"], datetime) else str(r["created_at"])
+            items.append({
+                "message_id": r["message_id"],
+                "patient_id": r["patient_id"],
+                "patient_name": r["patient_name"],
+                "question": r["patient_question"] or "Patient inquiry",
+                "draft_answer": r["draft_answer"],
+                "answer_type": r["answer_type"],
+                "rating": r["rating"],
+                "feedback_comment": r["feedback_comment"],
+                "created_at": created_str,
+                "reason": "Negative Feedback (Thumbs Down)" if r["rating"] == -1 else "Information Not Found in Papers",
+            })
+        return items
 
 
 # ─── Daily AI Summaries & Clinician Review (Milestone M5) ────────────────────
