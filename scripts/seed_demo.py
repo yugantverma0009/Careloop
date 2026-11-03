@@ -846,7 +846,7 @@ def main():
                     INSERT IGNORE INTO case_flags (case_id, flag_id) VALUES ('case-aarav-spo2', %s);
                 """, (aarav_fid,))
 
-            cur.execute("SELECT flag_id FROM flags WHERE patient_id = 2 AND source_type = 'Device_Silence' LIMIT 1;")
+            cur.execute("SELECT flag_id FROM flags WHERE patient_id = 2 AND source_type IN ('Device', 'Device_Silence') LIMIT 1;")
             meera_flag = cur.fetchone()
             meera_fid = meera_flag["flag_id"] if meera_flag else None
             cur.execute("""

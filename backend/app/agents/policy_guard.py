@@ -201,8 +201,18 @@ class PolicyGuard:
         # 8. Caregiver Consent Check
         caregiver_consent = context.get("caregiver_consent", True)
         if not caregiver_consent:
-            # Check if any family contact or notification was proposed
-            if "family" in raw_text.lower() or "caregiver" in raw_text.lower() or next_step == "notify_family":
+            # Check if any family contact, notification, or outreach was proposed.
+            # Stating lack of consent (e.g. "Caregiver consent: not granted", source "caregiver#2") is allowed documentation.
+            outreach_patterns = [
+                r"\b(?:family|caregiver)\s+(?:notified|alerted|contacted|outreach|call|prompted|message|sent)\b",
+                r"\b(?:notify|contact|alert|call|message|reach)\s+(?:the\s+)?(?:family|caregiver)\b",
+                r"\bnotify_family\b",
+                r"\bcontact_caregiver\b"
+            ]
+            has_outreach = any(re.search(p, raw_text, re.IGNORECASE) for p in outreach_patterns)
+            step_has_family = any(k in str(next_step).lower() for k in ["family", "caregiver"])
+            actions_have_family = any(any(k in str(a).lower() for k in ["family", "caregiver"]) for a in proposed_actions)
+            if has_outreach or step_has_family or actions_have_family:
                 reasons.append("Family outreach proposed without valid caregiver consent")
 
         # 9. Automation Limits Check (Quiet Hours & Caps)

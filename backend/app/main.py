@@ -6451,7 +6451,50 @@ def get_doctor_decisions(
         # Combine into unified decision items list
         decision_items = []
 
+        # Map flags to cases and briefs for Doctor Decision desk (Phase 3)
+        from .agents.case_prep_agent import CasePrepAgent
+        cur.execute("""
+            SELECT cf.flag_id, c.case_id, c.merged_count, c.primary_flag_id
+            FROM case_flags cf
+            JOIN cases c ON c.case_id = cf.case_id
+            WHERE c.status IN ('Open', 'In_Progress');
+        """)
+        doc_case_map = {r["flag_id"]: r for r in cur.fetchall()}
+        cur.execute("""
+            SELECT primary_flag_id, case_id, merged_count
+            FROM cases
+            WHERE status IN ('Open', 'In_Progress');
+        """)
+        for r in cur.fetchall():
+            if r["primary_flag_id"] and r["primary_flag_id"] not in doc_case_map:
+                doc_case_map[r["primary_flag_id"]] = r
+
         for fl in flag_rows:
+            c_info = doc_case_map.get(fl["flag_id"])
+            case_id = c_info["case_id"] if c_info else None
+            brief = None
+            if case_id:
+                cur.execute("""
+                    SELECT run_id, body FROM agent_drafts
+                    WHERE draft_type = 'Case_Brief' AND JSON_UNQUOTE(JSON_EXTRACT(body, '$.case_id')) = %s
+                    ORDER BY created_at DESC LIMIT 1;
+                """, (case_id,))
+                b_row = cur.fetchone()
+                if b_row and b_row.get("body"):
+                    b_body = b_row["body"]
+                    if isinstance(b_body, str):
+                        try:
+                            b_body = json.loads(b_body)
+                        except Exception:
+                            pass
+                    b_body["run_id"] = b_row["run_id"]
+                    brief = b_body
+                else:
+                    try:
+                        brief = CasePrepAgent.generate_case_brief(case_id, force_deterministic=True)
+                    except Exception:
+                        pass
+
             waited = f"{fl['waited_mins']}m" if fl['waited_mins'] < 60 else f"{fl['waited_mins'] // 60}h {fl['waited_mins'] % 60}m"
             tier_label = "Immediate" if fl['tier'] == 'Immediate' else "Urgent Review"
             if fl.get('escalated_by'):
@@ -6464,6 +6507,12 @@ def get_doctor_decisions(
                 "type": "flag",
                 "id": fl["flag_id"],
                 "flag_id": fl["flag_id"],
+                "case_id": case_id,
+                "brief_ready": brief is not None,
+                "brief": brief,
+                "prefilled_note": brief.get("prefilled", {}).get("note_draft") if brief else f"Attending physician review completed for {fl['reason']}.",
+                "options": brief.get("options", ["call_now", "ask_doctor", "recheck_at"]) if brief else ["call_now", "ask_doctor", "recheck_at"],
+                "agent_run_id": brief.get("run_id") if brief else None,
                 "patient_id": fl["patient_id"],
                 "patient_name": fl["full_name"],
                 "patient_code": fl["patient_code"],
@@ -6652,8 +6701,41 @@ def get_nurse_call_list(
         )
         flag_rows = cur.fetchall() or []
 
+        # Map flags to cases for duplicate alert merging (Phase 3 Task 1)
+        cur.execute("""
+            SELECT cf.flag_id, c.case_id, c.merged_count, c.primary_flag_id
+            FROM case_flags cf
+            JOIN cases c ON c.case_id = cf.case_id
+            WHERE c.status IN ('Open', 'In_Progress');
+        """)
+        case_map = {r["flag_id"]: r for r in cur.fetchall()}
+
+        cur.execute("""
+            SELECT primary_flag_id, case_id, merged_count
+            FROM cases
+            WHERE status IN ('Open', 'In_Progress');
+        """)
+        for r in cur.fetchall():
+            if r["primary_flag_id"] and r["primary_flag_id"] not in case_map:
+                case_map[r["primary_flag_id"]] = r
+
+        from .agents.case_prep_agent import CasePrepAgent
+
         formatted_flags = []
+        seen_case_ids = set()
+
         for fl in flag_rows:
+            fid = fl["flag_id"]
+            c_info = case_map.get(fid)
+            case_id = c_info["case_id"] if c_info else None
+            merged_count = c_info["merged_count"] if c_info else 1
+
+            if case_id:
+                if case_id in seen_case_ids:
+                    # Duplicate flag already merged into active case card
+                    continue
+                seen_case_ids.add(case_id)
+
             tier = fl["tier"]
             waited = fl["waited_mins"] or 0
             if tier == "Immediate":
@@ -6685,8 +6767,48 @@ def get_nurse_call_list(
             needs_doctor = tier in ("Immediate", "Urgent")
             is_escalated = fl["escalated_by"] is not None
 
+            # Retrieve or generate prepared case brief
+            brief = None
+            if case_id:
+                cur.execute("""
+                    SELECT run_id, body FROM agent_drafts
+                    WHERE draft_type = 'Case_Brief' AND JSON_UNQUOTE(JSON_EXTRACT(body, '$.case_id')) = %s
+                    ORDER BY created_at DESC LIMIT 1;
+                """, (case_id,))
+                b_row = cur.fetchone()
+                if b_row and b_row.get("body"):
+                    b_body = b_row["body"]
+                    if isinstance(b_body, str):
+                        try:
+                            b_body = json.loads(b_body)
+                        except Exception:
+                            pass
+                    b_body["run_id"] = b_row["run_id"]
+                    brief = b_body
+                else:
+                    try:
+                        brief = CasePrepAgent.generate_case_brief(case_id, force_deterministic=True)
+                    except Exception as e:
+                        logger.error(f"Failed to generate brief for {case_id}: {e}")
+
+            suggested_step = brief.get("next_step") if brief else {
+                "key": "call_now",
+                "label": "Call the patient now",
+                "why": ["Routine clinical triage review"]
+            }
+            options = brief.get("options", ["call_now", "send_checkin", "ask_doctor", "recheck_at"]) if brief else ["call_now", "send_checkin", "ask_doctor", "recheck_at"]
+            agent_run_id = brief.get("run_id") if brief else None
+
             formatted_flags.append({
                 "flag_id": fl["flag_id"],
+                "case_id": case_id,
+                "merged_count": merged_count,
+                "merged_display": f"{merged_count} reports merged" if merged_count > 1 else None,
+                "brief_ready": brief is not None,
+                "brief": brief,
+                "suggested_step": suggested_step,
+                "options": options,
+                "agent_run_id": agent_run_id,
                 "patient_id": fl["patient_id"],
                 "patient_name": fl["full_name"],
                 "patient_code": fl["patient_code"],
@@ -8065,3 +8187,172 @@ def update_agent_autonomy(
         "level": body.level,
         "mode": body.mode,
     }
+
+
+# ─── CareLoop Case Prep Agent Endpoints (Phase 3) ───────────────────────────
+
+class CaseDecideIn(BaseModel):
+    action: str = Field(..., pattern="^(call_now|send_checkin|request_photo|ask_doctor|recheck_at|merge_duplicate|close_rule)$")
+    note: Optional[str] = None
+    script_id: Optional[int] = None
+
+
+@app.get("/cases")
+def list_cases(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Returns active cases with primary flag and patient context."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT c.case_id, c.patient_id, c.primary_flag_id, c.status, c.merged_count,
+                   c.created_at, c.updated_at,
+                   p.full_name as patient_name, p.patient_code, p.phone as patient_phone,
+                   f.reason as headline, f.severity, f.source_type
+            FROM cases c
+            JOIN patients p ON p.patient_id = c.patient_id
+            LEFT JOIN flags f ON f.flag_id = c.primary_flag_id
+            ORDER BY c.updated_at DESC;
+        """)
+        rows = cur.fetchall() or []
+        for r in rows:
+            if r.get("created_at"):
+                r["created_at"] = r["created_at"].strftime("%Y-%m-%d %H:%M")
+            if r.get("updated_at"):
+                r["updated_at"] = r["updated_at"].strftime("%Y-%m-%d %H:%M")
+        return rows
+
+
+@app.get("/cases/{case_id}/brief")
+def get_case_brief(case_id: str, user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Returns the prepared brief for a case (Phase 3)."""
+    from .agents.case_prep_agent import CasePrepAgent
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT draft_id, run_id, body FROM agent_drafts
+            WHERE draft_type = 'Case_Brief' AND JSON_UNQUOTE(JSON_EXTRACT(body, '$.case_id')) = %s
+            ORDER BY created_at DESC LIMIT 1;
+        """, (case_id,))
+        existing = cur.fetchone()
+        if existing and existing.get("body"):
+            body = existing["body"]
+            if isinstance(body, str):
+                try:
+                    body = json.loads(body)
+                except Exception:
+                    pass
+            body["draft_id"] = existing["draft_id"]
+            body["run_id"] = existing["run_id"]
+            return body
+
+    # Otherwise generate fresh brief
+    brief = CasePrepAgent.generate_case_brief(case_id, force_deterministic=True)
+    return brief
+
+
+@app.post("/cases/{case_id}/decide")
+def decide_case_action(
+    case_id: str,
+    payload: CaseDecideIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Clinician acts on a case (one-click action from approved menu).
+    Records clinician decision vs agent suggestion in shadow_decisions (Shadow mode).
+    Updates case and flag status with complete audit trail.
+    """
+    from .agents.case_prep_agent import CasePrepAgent
+    from .agents.policy_guard import ALLOWED_NEXT_STEPS
+
+    if payload.action not in ALLOWED_NEXT_STEPS:
+        raise HTTPException(400, f"Action '{payload.action}' not in approved menu: {list(ALLOWED_NEXT_STEPS)}")
+
+    staff_id = user.get("staff_id", 1)
+    staff_name = user.get("full_name") or user.get("account_role", "Clinician")
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # Retrieve case
+        cur.execute("SELECT * FROM cases WHERE case_id = %s;", (case_id,))
+        c = cur.fetchone()
+        if not c:
+            raise HTTPException(404, f"Case '{case_id}' not found.")
+
+        # Check existing brief to record shadow decision
+        cur.execute("""
+            SELECT run_id, body FROM agent_drafts
+            WHERE draft_type = 'Case_Brief' AND JSON_UNQUOTE(JSON_EXTRACT(body, '$.case_id')) = %s
+            ORDER BY created_at DESC LIMIT 1;
+        """, (case_id,))
+        draft_row = cur.fetchone()
+
+        run_id = draft_row["run_id"] if draft_row else f"run-shadow-{uuid.uuid4().hex[:8]}"
+        agent_step = {"key": "call_now"}
+        if draft_row and draft_row.get("body"):
+            b = draft_row["body"]
+            if isinstance(b, str):
+                try:
+                    b = json.loads(b)
+                except Exception:
+                    b = {}
+            if isinstance(b, dict) and b.get("next_step"):
+                agent_step = b["next_step"]
+
+        human_decision = {
+            "key": payload.action,
+            "staff_id": staff_id,
+            "staff_name": staff_name,
+            "note": payload.note
+        }
+
+        # Record in shadow_decisions
+        CasePrepAgent.record_shadow_decision(
+            run_id=run_id,
+            action_type="next_step_suggestion",
+            agent_decision=agent_step,
+            human_decision=human_decision
+        )
+
+        # Update case and primary flag status based on action
+        if payload.action in ("call_now", "send_checkin", "request_photo"):
+            new_case_status = "In_Progress"
+            new_flag_status = "Acknowledged"
+        elif payload.action in ("close_rule", "merge_duplicate"):
+            new_case_status = "Resolved"
+            new_flag_status = "Resolved"
+        elif payload.action == "ask_doctor":
+            new_case_status = "In_Progress"
+            new_flag_status = "Acknowledged"
+            if c.get("primary_flag_id"):
+                cur.execute("""
+                    INSERT INTO flag_events (flag_id, staff_id, event_type, note, created_at)
+                    VALUES (%s, %s, 'Escalated', %s, NOW());
+                """, (c["primary_flag_id"], staff_id, payload.note or "Escalated to physician from case decision"))
+        else:
+            new_case_status = "In_Progress"
+            new_flag_status = "Acknowledged"
+
+        cur.execute("""
+            UPDATE cases SET status = %s, updated_at = NOW() WHERE case_id = %s;
+        """, (new_case_status, case_id))
+
+        if c.get("primary_flag_id"):
+            cur.execute("""
+                UPDATE flags SET status = %s, acknowledged_by_staff_id = %s, acknowledged_at = NOW()
+                WHERE flag_id = %s;
+            """, (new_flag_status, staff_id, c["primary_flag_id"]))
+
+        entity_id_val = c.get("primary_flag_id") or c.get("patient_id") or 1
+        cur.execute("""
+            INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
+            VALUES ('Staff', %s, 'CASE_DECISION_RECORDED', 'case', %s, JSON_OBJECT('case_id', %s, 'action', %s, 'agent_suggested', %s, 'note', %s));
+        """, (str(user.get("account_id", staff_id)), entity_id_val, case_id, payload.action, agent_step.get("key"), payload.note))
+
+        conn.commit()
+
+    return {
+        "status": "ok",
+        "case_id": case_id,
+        "action": payload.action,
+        "case_status": new_case_status,
+        "agent_suggested": agent_step.get("key"),
+        "agreed": (agent_step.get("key") == payload.action)
+    }
+

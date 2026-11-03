@@ -15,6 +15,7 @@ import {
   getNurseCallList,
   simulateInboundSms,
   logout,
+  API_BASE,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import FlagDrawer from './FlagDrawer';
@@ -31,6 +32,7 @@ import NurseCallListView from './NurseCallListView';
 import RoundsView from './RoundsView';
 import AdmitPatientWizard from './AdmitPatientWizard';
 import AgentDesk from './AgentDesk';
+import AgentTraceModal from './AgentTraceModal';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import {
@@ -130,6 +132,28 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
     items: [],
     quiet_patients: { count: 0, patients: [], message: '' },
   });
+  const [doctorTraceRunId, setDoctorTraceRunId] = useState(null);
+
+  const handleDoctorCaseDecide = async (caseId, actionKey, note = '') => {
+    try {
+      const token = localStorage.getItem('careloop_token');
+      const res = await fetch(`${API_BASE}/cases/${caseId}/decide`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ action: actionKey, note: note || `Physician selected ${actionKey}` })
+      });
+      if (res.ok) {
+        setActionMsg(`✓ Action '${actionKey}' recorded.`);
+        setTimeout(() => setActionMsg(''), 4000);
+        loadData();
+      }
+    } catch (err) {
+      console.error('Failed to decide case', err);
+    }
+  };
 
   // Nurse Call List State (Phase 4)
   const [nurseCallCount, setNurseCallCount] = useState(3);
@@ -1223,6 +1247,66 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                                   ⚡ {item.escalated_kicker}
                                 </div>
                               )}
+
+                              {/* Phase 3 Doctor Decision Card Brief, Pre-drafted note, and One-click options */}
+                              {item.brief && (
+                                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', color: '#7c3aed', background: '#f5f3ff', padding: '2px 8px', borderRadius: '10px', border: '1px solid #ddd6fe' }}>
+                                      ✨ Case Brief Ready
+                                    </span>
+                                    {item.agent_run_id && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setDoctorTraceRunId(item.agent_run_id)}
+                                        style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                      >
+                                        <span>⚡ Agent trace</span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                                    {(item.brief.what_happened || []).slice(0, 2).concat((item.brief.context || []).slice(0, 3)).map((f, idx) => (
+                                      <span key={idx} style={{ fontSize: '11px', color: '#334155', background: '#ffffff', border: '1px solid #e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>
+                                        {f.fact} <strong style={{ color: '#64748b', fontSize: '9px' }}>[{f.source}]</strong>
+                                      </span>
+                                    ))}
+                                  </div>
+
+                                  {item.prefilled_note && (
+                                    <div style={{ fontSize: '12px', color: '#475569', background: '#ffffff', border: '1px dashed #cbd5e1', padding: '6px 10px', borderRadius: '6px', marginTop: '4px' }}>
+                                      <strong style={{ color: '#0f172a' }}>Pre-drafted note:</strong> {item.prefilled_note}
+                                    </div>
+                                  )}
+
+                                  {/* 2 to 3 one-click doctor options */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>One-click action:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDoctorCaseDecide(item.case_id, 'call_now')}
+                                      style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #0284c7', background: '#eff6ff', color: '#0284c7', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                      Call now
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDoctorCaseDecide(item.case_id, 'ask_doctor')}
+                                      style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #7c3aed', background: '#f5f3ff', color: '#6d28d9', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                      Consult team
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDoctorCaseDecide(item.case_id, 'recheck_at')}
+                                      style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #64748b', background: '#f8fafc', color: '#334155', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                      Re-check at 2h
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
@@ -2027,6 +2111,12 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
           </div>
         </div>
       )}
+      {/* Phase 3 Doctor Desk Agent Execution Trace Modal */}
+      <AgentTraceModal
+        runId={doctorTraceRunId}
+        isOpen={!!doctorTraceRunId}
+        onClose={() => setDoctorTraceRunId(null)}
+      />
     </div>
   );
 }

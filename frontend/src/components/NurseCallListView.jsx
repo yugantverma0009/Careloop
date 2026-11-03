@@ -10,11 +10,13 @@ import {
   getStaffAssistantQuestions,
   replyAssistantQuestion,
   markAssistantQuestionDone,
+  API_BASE,
 } from '../services/api';
 import PatientIdentity from './PatientIdentity';
 import NurseCallModal from './NurseCallModal';
 import NurseTaskCompleteModal from './NurseTaskCompleteModal';
 import NurseProposeLimitModal from './NurseProposeLimitModal';
+import AgentTraceModal from './AgentTraceModal';
 import {
   IconCheck,
   IconPhone,
@@ -50,6 +52,30 @@ export default function NurseCallListView({ onSelectPatient }) {
   const [assistantQuestions, setAssistantQuestions] = useState([]);
   const [replyTextMap, setReplyTextMap] = useState({});
   const [replyLoadingMap, setReplyLoadingMap] = useState({});
+
+  // Case Prep Agent (Phase 3 Feature)
+  const [traceRunId, setTraceRunId] = useState(null);
+
+  const handleCaseAction = async (caseId, actionKey, note = '') => {
+    try {
+      const token = localStorage.getItem('careloop_token');
+      const res = await fetch(`${API_BASE}/cases/${caseId}/decide`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ action: actionKey, note: note || `Executed ${actionKey} from nurse call list` })
+      });
+      if (res.ok) {
+        setActionMsg(`✓ Action '${actionKey}' recorded.`);
+        setTimeout(() => setActionMsg(''), 4000);
+        loadCallList();
+      }
+    } catch (err) {
+      console.error('Failed to decide case:', err);
+    }
+  };
 
   const loadAssistantQuestions = async () => {
     try {
@@ -659,6 +685,40 @@ export default function NurseCallListView({ onSelectPatient }) {
                         ⏱ {item.target_display}
                       </span>
 
+                      {/* Merged Alerts Chip (Phase 3 Task 1) */}
+                      {item.merged_display && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            background: '#eff6ff',
+                            color: '#1d4ed8',
+                            border: '1px solid #bfdbfe',
+                          }}
+                        >
+                          🔁 {item.merged_display}
+                        </span>
+                      )}
+
+                      {/* Brief Ready Chip (Phase 3 Task 6) */}
+                      {item.brief_ready && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            background: '#f5f3ff',
+                            color: '#7c3aed',
+                            border: '1px solid #ddd6fe',
+                          }}
+                        >
+                          ✨ Brief ready
+                        </span>
+                      )}
+
                       {/* Tier Pill */}
                       <span
                         style={{
@@ -700,6 +760,114 @@ export default function NurseCallListView({ onSelectPatient }) {
                       </div>
                     </div>
                   </div>
+
+                  {/* Phase 3: Case Brief Display */}
+                  {item.brief && (
+                    <div
+                      style={{
+                        background: 'var(--bg-base, #f8fafc)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '8px',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                      }}
+                    >
+                      {/* Evidence facts */}
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em', marginBottom: '4px' }}>
+                          Evidence &amp; Telemetry
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {(item.brief.what_happened || []).map((fact, idx) => (
+                            <div key={idx} style={{ fontSize: '12px', color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ color: '#0284c7', fontSize: '10px' }}>●</span>
+                              <span>{fact.fact}</span>
+                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', background: '#e2e8f0', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>
+                                [{fact.source}]
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Context facts */}
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em', marginBottom: '4px' }}>
+                          Care Context
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {(item.brief.context || []).slice(0, 5).map((fact, idx) => (
+                            <div key={idx} style={{ fontSize: '11px', color: '#334155', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span>{fact.fact}</span>
+                              <span style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', fontFamily: 'monospace' }}>
+                                [{fact.source}]
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Unknowns */}
+                      {item.brief.unknowns && item.brief.unknowns.length > 0 && (
+                        <div style={{ fontSize: '11px', color: '#d97706', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <strong>Unknowns:</strong>
+                          <span>{item.brief.unknowns.join(' · ')}</span>
+                        </div>
+                      )}
+
+                      {/* Suggested Next Step Banner & Agent Trace link */}
+                      <div
+                        style={{
+                          background: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginTop: '2px',
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#1d4ed8' }}>
+                            Suggested next step:{' '}
+                          </span>
+                          <strong style={{ fontSize: '12px', color: '#0f172a' }}>
+                            {item.suggested_step?.label || item.suggested_step?.key}
+                          </strong>
+                          {item.suggested_step?.why && (
+                            <span style={{ fontSize: '11px', color: '#475569', marginLeft: '6px' }}>
+                              ({item.suggested_step.why.join(' · ')})
+                            </span>
+                          )}
+                        </div>
+
+                        {item.agent_run_id && (
+                          <button
+                            type="button"
+                            onClick={() => setTraceRunId(item.agent_run_id)}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid #93c5fd',
+                              borderRadius: '4px',
+                              padding: '2px 8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: '#1d4ed8',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <span>⚡ Agent trace</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Action Buttons Row */}
                   <div
@@ -1319,6 +1487,12 @@ export default function NurseCallListView({ onSelectPatient }) {
           </div>
         </div>
       )}
+      {/* Phase 3: Agent Execution Trace Modal */}
+      <AgentTraceModal
+        runId={traceRunId}
+        isOpen={!!traceRunId}
+        onClose={() => setTraceRunId(null)}
+      />
     </div>
   );
 }
