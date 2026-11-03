@@ -282,26 +282,90 @@ CareLoop/
   - *Outcome B ("🚨 I need help"):* Creates Immediate flag (`source_type = 'Fall'`), initiates 4-tier escalation, opens urgent nurse callback task.
   - *Outcome C (Wait time expired):* Rounds timeout fires, creating Immediate flag: *"Watch reported a possible fall at 14:02. No reply within 2 minutes."*
 
-### 6.6 Grounded RAG Assistant & Safety Gates
-* **Engine:** [`backend/app/rag_pipeline.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rag_pipeline.py) & [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py).
-* **Citations & Refusal Guard:**
-  - Patient questions are answered strictly from indexed discharge documents with clickable section citations (*"Discharge summary · Warning signs"*).
-  - *Dose Modification Refusal:* Questions requesting dose increases or schedule alterations trigger an immediate polite refusal: *"I cannot recommend changing your medication dose. Please consult Dr. Sharma."* and opens a nurse follow-up task.
-  - *Offline Fallback:* Operates cleanly with deterministic extractive tool fallbacks if Google GenAI is offline or unreachable.
+### 6.6 Grounded Clinical Assistant v2 & Safety Gates
+* **Engine:** [`backend/app/rag_pipeline.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/rag_pipeline.py), [`backend/app/assistant_router.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/assistant_router.py), [`backend/app/patient_updates.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/patient_updates.py), & [`backend/app/safety.py`](file:///Users/yugantverma/Desktop/CareLoop/backend/app/safety.py).
+* **Guiding Principle:** *"The LLM talks. Rules decide. Humans act."* The LLM produces natural language and proposes actions; deterministic code enforces safety boundaries and only the patient's explicit confirmation triggers actions.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Patient
+    participant UI as Patient Portal (React)
+    participant Router as Intent Router (Rules-First)
+    participant Tools as Read-Only Tools (SQL)
+    participant RAG as Hybrid Retrieval (ChromaDB + BM25)
+    participant LLM as Google Gemini (12s Timeout)
+    participant Staff as Care Team (Nurse & Doctor)
+
+    Patient->>UI: Speaks or types query (EN / HI)
+    Note over UI: Emergency keywords checked in interim transcript
+    UI->>Router: POST /patient/me/chat
+    alt Emergency Intent
+        Router-->>UI: Deterministic 112 guidance + Call 112 button (0 LLM calls, 0 sources)
+    else Small Talk Intent
+        Router-->>UI: Friendly reply with patient name inserted by code (0 LLM calls, 0 sources)
+    else Dose Modification Attempt
+        Router-->>UI: Refusal + "Ask Care Team" button (0 LLM calls, 0 sources)
+    else Tool Query (Medicines, Appointments, Contacts)
+        Router->>Tools: Fetch deterministic patient record
+        Tools-->>UI: Structured card + "From your care plan" chip
+    else Document Question
+        Router->>RAG: Hybrid dense vector + keyword search + RRF
+        alt Below 0.62 threshold
+            RAG-->>UI: "Not in your discharge papers" + Ask Care Team card
+        else Above threshold
+            RAG->>LLM: JSON prompt with retrieved passages (Patient identity redacted)
+            LLM-->>RAG: Structured JSON {found, answer, bullets, source_ids, actions}
+            Note over RAG: Numeric guard validates numbers; filters actions to allowlist
+            RAG-->>UI: Grounded answer + Section source chips + Action cards
+        end
+    end
+    opt Patient clicks Action Card
+        Patient->>UI: Confirms action (e.g. Ask Care Team / Start Checkin)
+        UI->>Staff: Dispatches task to Nurse Call List & records audit log
+    end
+```
+
+* **Core Architectural Components:**
+  1. **Rules-First Intent Router:** Evaluates user input deterministically before invoking an LLM.
+     - *Emergency Detection:* Evaluates bilingual regex (English and Hindi) across interim speech and final text, presenting emergency guidance and 112 dialing.
+     - *Small Talk:* Returns polite greeting/acknowledgment with the patient's first name inserted by application code; zero source chips.
+     - *Dose Modification Refusal:* Requests to modify doses or schedules are refused deterministically with an *Ask Care Team* action card (limited to one follow-up task per topic per day).
+     - *Read-Only Tools:* Queries regarding daily doses, appointments, medicine plans, latest valid sensor values, and care contacts bypass document chunks and pull directly from SQL endpoints.
+  2. **Section-Aware Ingestion & Hybrid RAG:**
+     - Discharge summaries are split into section-aware chunks recording `section_title`, `section_type`, and `page_no`.
+     - Dense semantic retrieval via ChromaDB multilingual embeddings combined with BM25 keyword matching via Reciprocal Rank Fusion (RRF).
+     - 0.62 score threshold downgrades out-of-scope questions to *"That is not in your discharge papers, so I will not guess."*
+  3. **Structured Generation & Deterministic Guards:**
+     - Strict JSON-only response schema with a 12-second timeout and graceful extractive fallback.
+     - *Numeric Grounding Guard:* Verifies that every number, dosage, and date in the response text originates from the cited chunk or tool payload.
+     - *Allowlisted Action Cards:* Filters suggested actions to an approved allowlist (`Start_Checkin`, `Add_Photo`, `Request_Call`, `Ask_Care_Team`, `Open_Plan_Item`, `Open_Medicines`, `Add_Appointment_To_Calendar`, `Call_112`, `Open_SOS`).
+  4. **Voice Interaction & Privacy Boundary:**
+     - Web Speech API integration supporting English (`en-IN`) and Hindi (`hi-IN`).
+     - Review-before-send default preview (*"Heard: ..."*) with an optional Hands-Free auto-send toggle.
+     - Audio playback via browser `speechSynthesis` with patient preference stored in `patients.voice_autoplay`.
+     - Privacy boundary: CareLoop stores only text transcripts; audio streams are never saved or sent to the backend.
+  5. **Proactive Updates Inbox (`patient_updates`):**
+     - Two-tab Assistant view: *Ask* (chat) and *Updates* (proactive inbox with bell notification indicator).
+     - Governed by clinical automation limits: quiet hours (22:00–07:00 IST), emergency flag suppression, maximum 2 reminders per dose, maximum 3 automated messages per day, and audit logging of suppressed notifications.
+  6. **Care Team Loop & Audit:**
+     - *Nurse Call List:* Dedicated *Patient Assistant Questions* queue with quick clinical reply templates.
+     - *Doctor Review:* Dedicated *Assistant Review* audit tab in Clinical Summaries.
+     - Full audit logging on every offered and executed action (`ASSISTANT_ACTION_OFFERED`, `ASSISTANT_ACTION_USED`).
 
 ---
 
 ## 7. Database Schema, Views, Procedures & Triggers
 
-### Relational Entities (35 Tables)
+### Relational Entities (37 Tables)
 1. **Core Identity & Cohort:** `patients`, `care_staff`, `caregivers`, `user_accounts`, `care_assignments`.
 2. **Clinical Records & Prescriptions:** `discharge_records`, `discharge_documents`, `document_chunks`, `prescriptions`, `prescription_times`, `medicines`.
 3. **Telemetry & Sensoring:** `devices`, `sensor_readings`, `device_events`.
 4. **Safety, Rules & Escalation:** `alert_rules`, `alert_rules_history`, `flags`, `flag_events`, `escalations`.
 5. **Execution & Workflows:** `medication_logs`, `symptom_reports`, `symptom_report_tags`, `follow_up_tasks`, `contact_log`, `clinician_notes`, `appointments`.
-6. **Automation & Rounds:** `scheduled_actions`, `rounds_proposals`, `sms_messages`, `checkin_templates`, `checkin_sessions`, `checkin_answers`.
+6. **Automation & Rounds:** `scheduled_actions`, `rounds_proposals`, `sms_messages`, `checkin_templates`, `checkin_sessions`, `checkin_answers`, `patient_updates`.
 7. **Photos & Plans:** `wound_photos`, `recovery_plans`, `recovery_plan_items`.
-8. **AI & Audit:** `ai_summaries`, `chat_messages`, `chat_message_sources`, `chat_feedback`, `risk_context`, `risk_snapshots`, `audit_log`.
+8. **AI & Audit:** `ai_summaries`, `chat_messages`, `chat_message_sources`, `chat_feedback`, `chat_actions`, `risk_context`, `risk_snapshots`, `audit_log`.
 
 ### Views (8)
 * `v_device_status`: Connectivity status, minutes since last seen, and silence status.

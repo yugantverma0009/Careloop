@@ -34,7 +34,7 @@ Per project architectural guidelines, capabilities are structured into committed
 
 ### 2. Extensions (Additive Capabilities)
 *(Note: Extensions are modular capabilities added to enhance post-discharge safety; pending supervisor confirmation before calling extensions formally approved.)*
-* **"Ask My Papers" Assistant:** Hybrid RAG pipeline (ChromaDB dense vectors + MySQL keyword search) with cited source chips and strict dose modification refusal.
+* **"Ask My Papers" Assistant v2:** Grounded clinical assistant adhering to *"The LLM talks. Rules decide. Humans act."* Combines a hybrid RAG pipeline (ChromaDB multilingual embeddings + MySQL keyword search + Reciprocal Rank Fusion) with deterministic intent routing, read-only tools matching Medicines and Calendar, numeric grounding guard, Web Speech API voice input (en-IN and hi-IN) with review-before-send preview, action cards allowlist, and proactive updates inbox with clinical automation limits (quiet hours 22:00–07:00 IST, dose reminder caps, emergency flag suppression).
 * **Automated Rounds & Automation Policy:** Background scheduler executing a transparent 24-hour lookahead for routine actions (quiet hours 22:00–07:00, daily message limits, patient pause, and clinician proposals).
 * **Two-Way SMS Service:** Twilio integration behind `SMS_ENABLED` (logged to database when disabled) supporting patient commands: `1` (dose confirmed), `2` (status check), `3` (urgent callback request), and `STOP`/`START` compliance.
 * **Guided Health Check-in:** Step-by-step check-in wizard with text-to-speech audio guidance, speech-to-text voice input, and instant emergency keyword detection.
