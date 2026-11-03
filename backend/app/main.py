@@ -3628,6 +3628,16 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
     }
 
 
+@app.post("/patient/me/chat/new")
+def start_new_chat_endpoint(user: Dict[str, Any] = Depends(require_patient)):
+    """Clears ephemeral conversation state (topic, pending clarification, last sources)."""
+    from .agents.rag_v2_service import ConversationStateManager
+    pid = get_effective_patient_id(user)
+    ConversationStateManager.clear_conversation(str(pid))
+    return {"status": "ok", "message": "Conversation state reset. No long-term memory retained."}
+
+
+
 @app.get("/patient/me/chat/history")
 def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
     """

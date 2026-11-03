@@ -271,8 +271,8 @@ def route_intent_v2(question: str) -> str:
 
     # Today's Scheduled Doses
     today_doses_keywords = [
-        "what medicine", "medicines today", "doses today", "take today", "morning dose",
-        "evening dose", "night dose", "what time do i take", "time do i take",
+        "what medicine", "which medicine", "which tablet", "medicines today", "doses today", "take today", "morning dose",
+        "evening dose", "night dose", "what time do i take", "time do i take", "when do i take", "after meals",
         "दवाइयां आज", "आज कौन सी दवा", "रात की दवा", "सुबह की दवा", "दवा का समय",
         "कौन सी दवाइयाँ", "कौन सी दवा", "दवा लेनी है", "गोली खानी है", "दवाइयां लेनी"
     ]
@@ -293,8 +293,9 @@ def route_intent_v2(question: str) -> str:
         "oxygen", "pulse", "heart rate", "spo2", "reading", "sensor", "blood pressure", "vitals",
         "ऑक्सीजन", "हार्ट रेट", "पल्स", "रीडिंग", "बीपी", "दिल की धड़कन", "ब्लड प्रेशर", "रक्तचाप", "ताज़ा पल्स"
     ]
-    if any(k in q for k in vitals_keywords):
-        return INTENT_VITALS
+    for k in vitals_keywords:
+        if re.search(r"\b" + re.escape(k) + r"\b", q):
+            return INTENT_VITALS
 
     # 7. Document Question Categories
     # Warning signs
@@ -318,7 +319,7 @@ def route_intent_v2(question: str) -> str:
         "diet", "food", "eat", "drink", "water", "meal", "eat and drink", "salt", "sodium", "fluid", "fluids",
         "खाना", "आहार", "भोजन", "पानी", "डाइट", "पानी पीना", "नमक", "सोडियम", "सुपाच्य"
     ]
-    if any(k in q for k in diet_keywords):
+    if any(k in q for k in diet_keywords) and not any(k in q for k in ["medicine", "tablet", "दवा", "pill", "goli"]):
         return INTENT_DIET
 
     # Wound Care & Incision

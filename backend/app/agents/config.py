@@ -20,3 +20,16 @@ CIRCUIT_BREAKER_MIN_SHADOW_AGREEMENT_PCT = float(os.getenv("CIRCUIT_BREAKER_MIN_
 # Regression gate thresholds
 REGRESSION_GATE_DEV_RATIO = float(os.getenv("REGRESSION_GATE_DEV_RATIO", "0.80"))
 REGRESSION_GATE_MAX_QUALITY_DROP_POINTS = float(os.getenv("REGRESSION_GATE_MAX_QUALITY_DROP_POINTS", "2.0"))
+
+# Phase 2: Agentic RAG v2 Flags
+AGENTS_V2_RAG_DECOMPOSITION = os.getenv("AGENTS_V2_RAG_DECOMPOSITION", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_SOURCE_CONFLICT = os.getenv("AGENTS_V2_SOURCE_CONFLICT", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_RERANKING = os.getenv("AGENTS_V2_RERANKING", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_RELATIVE_DATES = os.getenv("AGENTS_V2_RELATIVE_DATES", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_CLARIFICATION = os.getenv("AGENTS_V2_CLARIFICATION", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_EVIDENCE_STRENGTH = os.getenv("AGENTS_V2_EVIDENCE_STRENGTH", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_HINGLISH = os.getenv("AGENTS_V2_HINGLISH", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_PARALLEL_EXEC = os.getenv("AGENTS_V2_PARALLEL_EXEC", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_RETRIEVAL_CACHE = os.getenv("AGENTS_V2_RETRIEVAL_CACHE", "true").lower() in ("true", "1", "yes")
+
+

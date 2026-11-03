@@ -591,3 +591,4 @@ export default function AgentHealthView({ user }) {
     </div>
   );
 }
+

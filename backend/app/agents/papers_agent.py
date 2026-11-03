@@ -66,6 +66,15 @@ from backend.app.rag_config import (
     INTENT_CONTACTS,
     INTENT_PLAN_ITEMS,
 )
+from backend.app.agents.rag_v2_service import (
+    decompose_query,
+    detect_source_conflicts,
+    resolve_relative_dates,
+    compute_evidence_strength,
+    detect_ambiguity,
+    normalize_hinglish,
+    ConversationStateManager,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +156,19 @@ class PapersAgent:
 
         seq = 1
 
-        # ─── Step 1: Safety Gates (Plain Code, No LLM) ─────────────────────────
-        # Evaluated first so safety and security checks are NEVER bypassed by budgets or pause
+        # ─── Step 1: Safety Gates & Normalization (Plain Code, No LLM) ─────────
+        # Check Hinglish
+        norm_q, was_hinglish = normalize_hinglish(clean_q)
+        if was_hinglish:
+            AgentLedger.record_step(
+                run_id, seq, "Hinglish_Normalizer",
+                f"Hinglish query detected and normalized: '{clean_q}' -> '{norm_q}'",
+                ok=True, ms=1
+            )
+        effective_q = norm_q if was_hinglish else clean_q
 
         # Gate 1.1: Emergency Check
-        if has_emergency_term(clean_q):
+        if has_emergency_term(clean_q) or has_emergency_term(effective_q):
             guidance = EMERGENCY_GUIDANCE.get(lang, EMERGENCY_GUIDANCE["en"])
             AgentLedger.record_step(
                 run_id, seq, "Gate",
@@ -171,6 +188,7 @@ class PapersAgent:
                 "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
                 "can_ask_care_team": False,
                 "is_grounded": False,
+                "evidence_strength": "Not enough evidence",
                 "response": guidance,
                 "citations": [],
                 "retrieval_debug": {"intent": INTENT_EMERGENCY, "emergency_hit": True},
@@ -178,7 +196,7 @@ class PapersAgent:
             }
 
         # Gate 1.2: Dose Change Check
-        if is_dose_change_question(clean_q):
+        if is_dose_change_question(clean_q) or is_dose_change_question(effective_q):
             refusal_msg = (
                 "I cannot advise on changing, stopping, or adjusting medication doses. Please contact your care team."
                 if lang == "en"
@@ -207,6 +225,7 @@ class PapersAgent:
                 "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
                 "can_ask_care_team": True,
                 "is_grounded": False,
+                "evidence_strength": "Not enough evidence",
                 "response": refusal_msg,
                 "citations": [],
                 "retrieval_debug": {"intent": INTENT_REFUSAL_DOSE, "task_id": task_id},
@@ -246,6 +265,171 @@ class PapersAgent:
                 "retrieval_debug": {"intent": "refusal_injection", "blocked": True, "reason": attack_reason},
                 "run_id": run_id
             }
+
+        # Gate 1.4: Query Decomposition for Multi-Part Questions (Section 1)
+        sub_qs = decompose_query(effective_q, language=lang)
+        if len(sub_qs) > 1:
+            AgentLedger.record_step(
+                run_id, seq, "Decomposition",
+                f"Decomposed multi-part query into {len(sub_qs)} sub-questions: {sub_qs}",
+                ok=True, ms=2
+            )
+            sub_bullets = []
+            combined_sources = []
+            any_grounded = False
+
+            for sq in sub_qs:
+                sub_res = answer_patient_query(
+                    patient_id=patient_id,
+                    question=sq,
+                    conversation_id=conversation_id,
+                    language=lang,
+                    history=history,
+                    patient_name=p_name
+                )
+                if sub_res.get("is_grounded") or sub_res.get("answer_type") == "structured":
+                    any_grounded = True
+                    part_ans = sub_res.get("answer", "").strip()
+                    sub_bullets.append(part_ans)
+                    combined_sources.extend(sub_res.get("sources", []))
+                else:
+                    sub_bullets.append(f"Regarding '{sq}': This information is not found in your discharge papers.")
+
+            combined_ans = "\n\n".join(sub_bullets)
+            combined_ans = resolve_relative_dates(combined_ans, patient_id)
+
+            guard_output = {
+                "answer": combined_ans,
+                "bullets": sub_bullets,
+                "sources": combined_sources,
+                "actions": [],
+                "patient_id": patient_id
+            }
+            guard_res = PolicyGuard.inspect(
+                agent_name="papers_agent",
+                output_payload=guard_output,
+                context={
+                    "patient_id": patient_id,
+                    "source_texts": [s.get("snippet", "") if isinstance(s, dict) else str(s) for s in combined_sources],
+                    "preferred_language": lang
+                }
+            )
+
+            evidence_label = compute_evidence_strength(combined_sources, "grounded" if any_grounded else "not_found", any_grounded)
+            AgentLedger.finish_run(
+                run_id, status="Done" if guard_res.passed else "Blocked_By_Guard",
+                result_type="decomposed_multi_part_answer",
+                latency_ms=int((time.time() - start_ts) * 1000)
+            )
+            return {
+                "answer_type": "decomposed_multi_part",
+                "answer": combined_ans,
+                "bullets": sub_bullets,
+                "sources": combined_sources,
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": True,
+                "is_grounded": any_grounded,
+                "evidence_strength": evidence_label,
+                "response": combined_ans,
+                "citations": combined_sources,
+                "retrieval_debug": {"intent": "multi_part_decomposition", "sub_questions": sub_qs},
+                "run_id": run_id
+            }
+
+        # Gate 1.2c: Ambiguity Check & Clarifying Question (Section 6)
+        ambiguity = detect_ambiguity(patient_id, effective_q)
+        if ambiguity:
+            AgentLedger.record_step(
+                run_id, seq, "Clarification",
+                f"Query ambiguous: asking clarifying question '{ambiguity['clarification_question']}'",
+                ok=True, ms=1
+            )
+            ConversationStateManager.update_state(conversation_id or str(patient_id), {
+                "pending_clarification": ambiguity,
+                "topic": ambiguity["topic"]
+            })
+            AgentLedger.finish_run(
+                run_id, status="Done", result_type="clarification_prompt",
+                latency_ms=int((time.time() - start_ts) * 1000)
+            )
+            return {
+                "answer_type": "clarification",
+                "answer": ambiguity["clarification_question"],
+                "bullets": [],
+                "sources": [],
+                "suggestions": ambiguity["buttons"],
+                "buttons": ambiguity["buttons"],
+                "can_ask_care_team": False,
+                "is_grounded": True,
+                "evidence_strength": "Combined from your papers and care record",
+                "response": ambiguity["clarification_question"],
+                "citations": [],
+                "retrieval_debug": {"intent": "clarification", "ambiguity": ambiguity},
+                "run_id": run_id
+            }
+
+        # Gate 1.2d: Deterministic Source Conflict Check (Section 2)
+        conflicts = detect_source_conflicts(patient_id)
+        if conflicts:
+            q_lower = effective_q.lower()
+            for c in conflicts:
+                f_lower = c["fact"].lower()
+                is_relevant = (
+                    ("appointment" in q_lower and "appointment" in f_lower) or
+                    ("cardiopulse" in q_lower and "cardiopulse" in f_lower) or
+                    ("vasculonorm" in q_lower and "vasculonorm" in f_lower) or
+                    ("timing" in q_lower and "medication" in f_lower) or
+                    ("dose" in q_lower and "dosage" in f_lower) or
+                    ("oxygen" in q_lower and "spo2" in f_lower) or
+                    ("dressing" in q_lower and "dressing" in f_lower) or
+                    ("water" in q_lower and "water" in f_lower) or
+                    ("morning" in q_lower and "morning" in f_lower) or
+                    ("ointment" in q_lower and "ointment" in f_lower) or
+                    ("neosporin" in q_lower and "ointment" in f_lower) or
+                    ("walk" in q_lower and "walking" in f_lower) or
+                    ("salt" in q_lower and "salt" in f_lower) or
+                    ("sodium" in q_lower and "salt" in f_lower) or
+                    any(w in q_lower for w in f_lower.split() if len(w) > 4)
+                )
+                if is_relevant:
+                    AgentLedger.record_step(
+                        run_id, seq, "Source_Conflict",
+                        f"Deterministic source conflict detected on {c['fact']}: showing both values without choosing",
+                        ok=True, ms=2
+                    )
+                    warn_msg = (
+                        "Your discharge papers and your active medical record do not match. Please confirm with your care team."
+                        if lang == "en"
+                        else "आपके डिस्चार्ज पेपर्स और आपकी सक्रिय मेडिकल रिकॉर्ड में अंतर है। कृपया अपनी केयर टीम से पुष्टि करें।"
+                    )
+                    bullets = [
+                        f"Discharge papers state: {c['papers_val']} ({c['source_papers']})",
+                        f"Active clinical record states: {c['record_val']} ({c['source_record']})"
+                    ]
+                    AgentLedger.finish_run(
+                        run_id, status="Done", result_type="source_conflict_warning",
+                        latency_ms=int((time.time() - start_ts) * 1000)
+                    )
+                    return {
+                        "answer_type": "source_conflict",
+                        "answer": warn_msg,
+                        "bullets": bullets,
+                        "sources": [
+                            {"label": c["source_papers"], "snippet": c["papers_val"], "text": c["papers_val"]},
+                            {"label": c["source_record"], "snippet": c["record_val"], "text": c["record_val"]}
+                        ],
+                        "suggestions": ["Ask care team to verify", "View active medicines"],
+                        "can_ask_care_team": True,
+                        "is_grounded": True,
+                        "evidence_strength": "Combined from your papers and care record",
+                        "response": warn_msg,
+                        "citations": [
+                            {"label": c["source_papers"], "snippet": c["papers_val"]},
+                            {"label": c["source_record"], "snippet": c["record_val"]}
+                        ],
+                        "retrieval_debug": {"intent": "source_conflict", "conflict": c},
+                        "run_id": run_id
+                    }
 
         # ─── Step 2: Dispatcher Intake Check ─────────────────────────────────
         decision = AgentDispatcher.check_intake("papers_question_sourced", patient_id=patient_id)
@@ -330,7 +514,7 @@ class PapersAgent:
 
         # ─── Step 2: Intent Label and Plan Template Selection ─────────────────
         seq += 1
-        intent = route_intent_v2(clean_q)
+        intent = route_intent_v2(effective_q)
         template_name = cls._map_intent_to_plan_template(intent)
 
         AgentLedger.record_step(
@@ -343,7 +527,7 @@ class PapersAgent:
         seq += 1
         rag_res = answer_patient_query(
             patient_id=patient_id,
-            question=clean_q,
+            question=effective_q,
             conversation_id=conversation_id,
             language=lang,
             history=history,
@@ -426,6 +610,28 @@ class PapersAgent:
             llm_calls=1 if rag_res.get("is_grounded") else 0,
             latency_ms=elapsed_ms
         )
+
+        # Resolve relative dates & 12h times on final answer
+        if rag_res.get("answer"):
+            rag_res["answer"] = resolve_relative_dates(rag_res["answer"], patient_id)
+            rag_res["response"] = rag_res["answer"]
+        if rag_res.get("bullets"):
+            rag_res["bullets"] = [resolve_relative_dates(b, patient_id) for b in rag_res["bullets"]]
+
+        # Evidence strength label (Directly stated in your papers / Combined / Not enough evidence)
+        evidence_label = compute_evidence_strength(
+            rag_res.get("sources", []),
+            rag_res.get("answer_type", ""),
+            rag_res.get("is_grounded", False)
+        )
+        rag_res["evidence_strength"] = evidence_label
+
+        # Ephemeral conversation state update
+        ConversationStateManager.update_state(conversation_id or str(patient_id), {
+            "topic": intent,
+            "last_sources": rag_res.get("sources", []),
+            "pending_clarification": None
+        })
 
         rag_res["run_id"] = run_id
         return rag_res

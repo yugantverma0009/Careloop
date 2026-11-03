@@ -421,13 +421,18 @@ def hybrid_retrieval(
     debug_info["threshold_passed"] = True
     debug_info["best_score"] = sorted_vids[0][1]
 
-    # 5. Take top 3 or 4 chunks after diversity
-    chosen = []
-    for vid, score in sorted_vids[:top_k]:
+    # 5. Retrieve top 8 candidates and rerank to top 3 (CareLoop Agents v2 Phase 2)
+    top_8 = []
+    for vid, score in sorted_vids[:8]:
         if vid in all_chunks:
             c = dict(all_chunks[vid])
             c["score"] = score
-            chosen.append(c)
+            top_8.append(c)
+
+    from backend.app.agents.rag_v2_service import rerank_candidates
+    chosen = rerank_candidates(query, top_8, top_k=top_k)
+    debug_info["top_8_count"] = len(top_8)
+    debug_info["reranked_count"] = len(chosen)
 
     return chosen, debug_info
 

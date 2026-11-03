@@ -195,3 +195,4 @@ export default function ReportIncidentModal({ runId, itemTitle, onClose, onRepor
     </div>
   );
 }
+
