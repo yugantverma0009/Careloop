@@ -199,7 +199,8 @@ def test_shadow_mode_records_without_acting():
 
 def test_ledger_run_and_trace():
     """Every agent run records plan, steps, and produces a complete trace."""
-    run_id = "test-run-trace-01"
+    import uuid
+    run_id = f"test-run-trace-{uuid.uuid4().hex[:8]}"
     AgentLedger.start_run(
         run_id=run_id,
         agent_name="case_prep_agent",

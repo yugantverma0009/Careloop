@@ -206,8 +206,9 @@ INSERT INTO document_chunks (chunk_id, document_id, chunk_index, chunk_text, sec
 (1, 1, 1, 'MEDICATIONS: CardioPulse-XR 1 tablet morning (08:00) and evening (20:00). VasculoNorm-5 1 tablet afternoon (13:00) with water. Do not modify or double doses without doctor review.', 'Medication Plan', 'medications', 1),
 (2, 1, 2, 'FOLLOW-UP: Your next scheduled cardiology appointment is on post-discharge day 7 at 10:30 AM with Dr. Ananya Sharma at OPD Clinic Room 302.', 'Appointments & Follow-up', 'follow_up', 2),
 (3, 1, 3, 'WARNING SIGNS: Watch for severe chest tightness, sudden shortness of breath, SpO2 dropping below 94%, or heart rate above 100 bpm. Call 112 immediately if chest pain is severe or radiating.', 'Warning Signs & Red Flags', 'warning_signs', 2),
-(4, 1, 4, 'ACTIVITY: Walk indoors for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg. Sleep on your back with upper torso elevated.', 'Activity Guidelines', 'activity', 3),
-(5, 1, 5, 'WOUND CARE: Keep sternal incision dry and clean. Do not apply unauthorized ointments. Check daily for redness, warmth, or unusual drainage.', 'Sternal Wound Management', 'wound_care', 3);
+(4, 1, 4, 'ACTIVITY: Walk indoors for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg. Avoid climbing steep stairs without assistance. Sleep on your back with upper torso elevated.', 'Activity Guidelines', 'activity', 3),
+(5, 1, 5, 'WOUND CARE: Keep sternal incision dry and clean. Do not apply unauthorized ointments. Check daily for redness, warmth, or unusual drainage.', 'Sternal Wound Management', 'wound_care', 3),
+(60, 1, 6, 'DIET: Follow a low-sodium, heart-healthy diet. Limit salt intake to less than 2 grams daily. Consume light, easily digestible meals and maintain adequate fluid hydration (1.5 to 2 liters daily).', 'Diet & Nutrition Guidelines', 'diet', 3);
 
 -- Chunks for other patients (5 chunks each)
 INSERT INTO document_chunks (chunk_id, document_id, chunk_index, chunk_text, section_title, section_type, page_no) VALUES

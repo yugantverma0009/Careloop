@@ -24,6 +24,8 @@ from .rag_config import (
     INTENT_DIET,
     INTENT_WOUND_CARE,
     INTENT_GENERAL_DOCS,
+    INTENT_CONTACTS,
+    INTENT_PLAN_ITEMS,
 )
 
 INTENT_SMALL_TALK = "small_talk"
@@ -243,9 +245,25 @@ def route_intent_v2(question: str) -> str:
             return INTENT_OUT_OF_SCOPE
 
     # 6. Read-Only Structured SQL Tools
+    # Care Team Contacts
+    contacts_keywords = [
+        "contact", "helpline", "support desk", "phone number", "hospital helpline",
+        "अस्पताल केयर टीम", "केयर टीम का नंबर", "हेल्पलाइन", "सम्पर्क", "संपर्क", "फोन नंबर", "फ़ोन नंबर"
+    ]
+    if any(k in q for k in contacts_keywords):
+        return INTENT_CONTACTS
+
+    # Care / Recovery Plan Items
+    plan_items_keywords = [
+        "recovery milestone", "milestones", "exercise items in my plan", "walking goal",
+        "plan items", "recovery plan", "approved exercise", "लक्ष्य", "केयर प्लान में क्या लक्ष्य"
+    ]
+    if any(k in q for k in plan_items_keywords) and not any(k in q for k in ["medicine", "tablet", "दवा"]):
+        return INTENT_PLAN_ITEMS
+
     # Appointments
     appointment_keywords = [
-        "appointment", "visit", "doctor", "follow up", "follow-up", "whom", "next visit",
+        "appointment", "visit", "doctor", "follow up", "follow-up", "whom", "next visit", "physician", "clinic in",
         "मिलना", "विज़िट", "डॉक्टर", "अपॉइंटमेंट", "कब आना है", "अगली विज़िट", "मुलाक़ात", "मुलाकात", "अगली मुलाक़ात"
     ]
     if any(k in q for k in appointment_keywords) and not any(k in q for k in ["medicine", "tablet", "दवा"]):
@@ -264,7 +282,7 @@ def route_intent_v2(question: str) -> str:
     # Active Prescription Courses / Plan End
     medicine_plan_keywords = [
         "until when", "how long do i take", "course end", "finish medicine", "finish",
-        "last date of medicine", "कब तक लेनी है", "दवा कब तक", "कोर्स कब खत्म", "कब तक दवा",
+        "last date of medicine", "course duration", "कब तक लेनी है", "दवा कब तक", "कोर्स कब खत्म", "कब तक दवा",
         "कब तक दवाइयाँ", "दवा कब समाप्त होगी", "कब खत्म होगी", "कोर्स कब"
     ]
     if any(k in q for k in medicine_plan_keywords):
@@ -273,7 +291,7 @@ def route_intent_v2(question: str) -> str:
     # Device Readings / Vitals
     vitals_keywords = [
         "oxygen", "pulse", "heart rate", "spo2", "reading", "sensor", "blood pressure", "vitals",
-        "ऑक्सीजन", "हार्ट रेट", "पल्स", "रीडिंग", "बीपी", "दिल की धड़कन", "ब्लड प्रेशर", "रक्तचाप"
+        "ऑक्सीजन", "हार्ट रेट", "पल्स", "रीडिंग", "बीपी", "दिल की धड़कन", "ब्लड प्रेशर", "रक्तचाप", "ताज़ा पल्स"
     ]
     if any(k in q for k in vitals_keywords):
         return INTENT_VITALS
@@ -281,8 +299,8 @@ def route_intent_v2(question: str) -> str:
     # 7. Document Question Categories
     # Warning signs
     warning_signs_keywords = [
-        "warning sign", "warning signs", "red flag", "danger", "emergency sign", "watch for", "when to call", "call the hospital",
-        "खतरे के लक्षण", "ख़तरे के लक्षण", "चेतावनी", "सावधानी", "खतरा", "अस्पताल को सूचना"
+        "warning sign", "warning signs", "red flag", "danger", "emergency sign", "watch for", "when to call", "call the hospital", "threshold",
+        "खतरे के लक्षण", "ख़तरे के लक्षण", "चेतावनी", "सावधानी", "खतरा", "अस्पताल को सूचना", "खतरे का संकेत"
     ]
     if any(k in q for k in warning_signs_keywords):
         return INTENT_WARNING_SIGNS
@@ -290,15 +308,15 @@ def route_intent_v2(question: str) -> str:
     # Activity & Restrictions
     activity_keywords = [
         "shower", "bath", "exercise", "walk", "walking", "lift", "heavy lifting", "heavy objects", "stairs", "bending", "physical activity",
-        "सीढ़ियां", "नहाना", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने"
+        "सीढ़ियां", "सीढ़ी", "नहाना", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने", "चल-फिर"
     ]
     if any(k in q for k in activity_keywords):
         return INTENT_ACTIVITY
 
     # Diet & Nutrition
     diet_keywords = [
-        "diet", "food", "eat", "drink", "water", "meal", "eat and drink",
-        "खाना", "आहार", "भोजन", "पानी", "डाइट", "पानी पीना"
+        "diet", "food", "eat", "drink", "water", "meal", "eat and drink", "salt", "sodium", "fluid", "fluids",
+        "खाना", "आहार", "भोजन", "पानी", "डाइट", "पानी पीना", "नमक", "सोडियम", "सुपाच्य"
     ]
     if any(k in q for k in diet_keywords):
         return INTENT_DIET

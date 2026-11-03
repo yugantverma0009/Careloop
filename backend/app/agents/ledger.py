@@ -57,6 +57,27 @@ class AgentLedger:
         ms: int = 0
     ) -> None:
         """Records an individual execution step within an agent run."""
+        enum_map = {
+            "gate": "Gate",
+            "safety_gate": "Gate",
+            "plan": "Plan",
+            "plan_template": "Plan",
+            "retrieve": "Retrieve",
+            "retrieval": "Retrieve",
+            "tool": "Tool",
+            "grade": "Grade",
+            "grade_evidence": "Grade",
+            "draft": "Draft",
+            "verify": "Verify",
+            "guard": "Guard",
+            "policy_guard": "Guard",
+            "deliver": "Deliver",
+            "abstain": "Abstain"
+        }
+        clean_step_type = enum_map.get(
+            step_type.lower(),
+            step_type if step_type in ("Gate", "Plan", "Retrieve", "Tool", "Grade", "Draft", "Verify", "Guard", "Deliver", "Abstain") else "Gate"
+        )
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -66,7 +87,7 @@ class AgentLedger:
                         %s, %s, %s, %s, %s, %s, %s, NOW()
                     );
                 """, (
-                    run_id, seq, step_type, summary[:255],
+                    run_id, seq, clean_step_type, summary[:255],
                     json.dumps(ids) if ids else None,
                     1 if ok else 0, ms
                 ))
@@ -177,3 +198,4 @@ class AgentLedger:
                     "run": run_row,
                     "steps": steps
                 }
+

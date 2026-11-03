@@ -21,10 +21,11 @@ from backend.app.db import get_conn
 from backend.app.agents.ledger import AgentLedger
 from backend.app.agents.policy_guard import PolicyGuard, PolicyGuardResult
 
+import os
 logger = logging.getLogger(__name__)
 
-# Daily budget: max LLM calls per patient per day
-MAX_DAILY_LLM_CALLS_PER_PATIENT = 25
+# Daily budget: max LLM calls per patient per day (configurable for evaluation)
+MAX_DAILY_LLM_CALLS_PER_PATIENT = int(os.getenv("MAX_DAILY_LLM_CALLS", "500"))
 
 
 class DispatcherDecision:

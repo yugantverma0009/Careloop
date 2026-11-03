@@ -3526,9 +3526,10 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
             raw_hist = cur.fetchall()
             history = [{"role": "user" if r["role"] == "Patient" else "assistant", "content": r["content"]} for r in reversed(raw_hist)]
 
-        # 2. Compute answer
+        # 2. Compute answer via Papers Agent (CareLoop Care Agents Phase 2)
         if USE_UPGRADED_RAG:
-            rag_res = answer_patient_query(
+            from .agents.papers_agent import PapersAgent
+            rag_res = PapersAgent.process_query(
                 patient_id=pid,
                 question=effective_q,
                 conversation_id=body.conversation_id,
@@ -3545,6 +3546,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
             citations = rag_res.get("citations", [])
             answer_type = rag_res.get("answer_type", "grounded")
             debug_data = rag_res.get("retrieval_debug", {})
+            run_id = rag_res.get("run_id")
         else:
             # Legacy fallback
             ans, is_grounded, citations = rag_answer(pid, effective_q, body.language or "en", conn=conn)
@@ -3604,8 +3606,8 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
             cur.execute(
                 """INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
                    VALUES ('Patient', %s, 'CHAT_QUERY', 'chat_message', %s,
-                           JSON_OBJECT('answer_type', %s, 'is_grounded', %s, 'citations_count', %s))""",
-                (str(user["account_id"]), ai_msg_id, answer_type, is_grounded, len(citations)),
+                           JSON_OBJECT('answer_type', %s, 'is_grounded', %s, 'citations_count', %s, 'run_id', %s))""",
+                (str(user["account_id"]), ai_msg_id, answer_type, is_grounded, len(citations), run_id),
             )
 
     return {
@@ -3618,6 +3620,7 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
         "suggestions": suggestions,
         "can_ask_care_team": can_ask,
         "actions": actions,
+        "run_id": run_id,
         # Backward compatibility fields:
         "response": ans,
         "is_grounded": is_grounded,

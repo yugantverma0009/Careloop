@@ -197,33 +197,33 @@ def get_care_team_contacts(patient_id: int) -> Dict[str, Any]:
     """Returns assigned attending doctor, assigned nurse, and clinic support desk contacts."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT s.staff_id, s.full_name, s.role, s.phone_number, s.specialization
+            """SELECT s.staff_id, s.full_name, s.staff_role, s.phone, s.specialization
                FROM discharge_records d
                JOIN care_staff s ON s.staff_id = d.attending_staff_id
                WHERE d.patient_id = %s
                ORDER BY d.discharge_date DESC LIMIT 1""",
             (patient_id,),
         )
-        doc = cur.fetchone() or {"full_name": "Dr. Ananya Sharma", "role": "Doctor", "phone_number": "+91-98765-00001", "specialization": "Cardiology"}
+        doc = cur.fetchone() or {"full_name": "Dr. Ananya Sharma", "staff_role": "Doctor", "phone": "+91-98765-00001", "specialization": "Cardiology"}
 
-        # Find assigned nurse (staff with role Nurse)
+        # Find assigned nurse (staff with staff_role Nurse)
         cur.execute(
-            "SELECT staff_id, full_name, role, phone_number FROM care_staff WHERE role = 'Nurse' LIMIT 1"
+            "SELECT staff_id, full_name, staff_role, phone FROM care_staff WHERE staff_role = 'Nurse' LIMIT 1"
         )
-        nurse = cur.fetchone() or {"full_name": "Priya Nair", "role": "Nurse", "phone_number": "+91-98765-00002"}
+        nurse = cur.fetchone() or {"full_name": "Priya Nair", "staff_role": "Nurse", "phone": "+91-98765-00002"}
 
         return {
             "found": True,
             "doctor": {
                 "name": doc["full_name"],
-                "role": doc.get("role", "Doctor"),
+                "role": doc.get("staff_role", "Doctor"),
                 "specialization": doc.get("specialization", "Physician"),
-                "phone": doc.get("phone_number", "+91-98765-00001"),
+                "phone": doc.get("phone", "+91-98765-00001"),
             },
             "nurse": {
                 "name": nurse["full_name"],
-                "role": nurse.get("role", "Nurse"),
-                "phone": nurse.get("phone_number", "+91-98765-00002"),
+                "role": nurse.get("staff_role", "Nurse"),
+                "phone": nurse.get("phone", "+91-98765-00002"),
             },
             "clinic_support": {
                 "name": "CareLoop Clinic Support Desk",
@@ -238,7 +238,7 @@ def get_plan_items(patient_id: int) -> Dict[str, Any]:
     """Returns doctor-approved recovery plan items (medication, activity, wound care, checkins)."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT plan_id, status, version, approved_at, notes
+            """SELECT plan_id, status, version, approved_at
                FROM recovery_plans
                WHERE patient_id = %s AND status = 'Approved'
                ORDER BY approved_at DESC LIMIT 1""",
@@ -249,10 +249,10 @@ def get_plan_items(patient_id: int) -> Dict[str, Any]:
             return {"found": False, "items": [], "message": "No active approved recovery plan found."}
 
         cur.execute(
-            """SELECT item_id, item_category, title, instructions, frequency_type, time_of_day, source_section
+            """SELECT item_id, item_type, title, detail, schedule_text, source_chunk_id
                FROM recovery_plan_items
                WHERE plan_id = %s
-               ORDER BY item_category, item_id ASC""",
+               ORDER BY display_order ASC, item_id ASC""",
             (plan["plan_id"],),
         )
         items = cur.fetchall()
@@ -263,11 +263,11 @@ def get_plan_items(patient_id: int) -> Dict[str, Any]:
             "items_count": len(items),
             "items": [
                 {
-                    "category": it["item_category"],
+                    "category": it["item_type"],
                     "title": it["title"],
-                    "instructions": it["instructions"],
-                    "timing": it.get("time_of_day") or it.get("frequency_type"),
-                    "source": it.get("source_section") or "Care Plan",
+                    "instructions": it["detail"],
+                    "timing": it.get("schedule_text") or "Daily",
+                    "source": f"Section {it.get('source_chunk_id') or 'Care Plan'}",
                 }
                 for it in items
             ],

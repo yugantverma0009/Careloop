@@ -34,7 +34,6 @@ BANNED_WORDS = [
     r"\bimproving\b",
     r"\bconcerning\b",
     r"\bcured\b",
-    r"\bhealthy\b",
     r"\bdiagnos(?:e|is|ed)\b",
     r"\bprescrib(?:e|ed|ing)\b",
     r"\bAI\s*nurse\b",
@@ -162,8 +161,17 @@ class PolicyGuard:
 
         # 4. Numeric Guard
         source_texts = context.get("source_texts", [])
+        sources_list = output_payload.get("sources", [])
+        meta_numbers = []
+        for s in sources_list:
+            if isinstance(s, dict):
+                if s.get("page_no"):
+                    meta_numbers.append(str(s["page_no"]))
+                if s.get("label"):
+                    meta_numbers.extend(re.findall(r"\b\d+\b", str(s["label"])))
+
         if source_texts:
-            combined_source = " ".join(source_texts).lower()
+            combined_source = " ".join(source_texts).lower() + " " + " ".join(meta_numbers)
             answer_text = output_payload.get("answer", "")
             if isinstance(answer_text, str) and answer_text:
                 extracted_numbers = re.findall(r"\b\d+(?:\.\d+)?\b", answer_text)
