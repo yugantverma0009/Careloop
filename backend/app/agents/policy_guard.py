@@ -159,7 +159,7 @@ class PolicyGuard:
                 if not f.get("source"):
                     reasons.append(f"Fact missing required source citation: '{f.get('fact', '')[:40]}'")
 
-        # 4. Numeric Guard
+        # 4. Numeric & Grounded Fact Guard
         source_texts = context.get("source_texts", [])
         sources_list = output_payload.get("sources", [])
         meta_numbers = []
@@ -178,6 +178,26 @@ class PolicyGuard:
                 for num in extracted_numbers:
                     if num not in combined_source:
                         reasons.append(f"Numeric hallucination detected: '{num}' not present in source text")
+
+        # Specific check for Call Notes Agent: No facts beyond nurse's input (Phase 4 Task 3)
+        nurse_input = context.get("nurse_input", "")
+        if agent_name == "call_notes_agent" and nurse_input:
+            combined_draft = " ".join([
+                str(output_payload.get("note_text", "")),
+                str(output_payload.get("summary", "")),
+                str(output_payload.get("task_description", "")),
+                str(output_payload.get("patient_message", ""))
+            ]).lower()
+            input_lower = nurse_input.lower()
+            draft_numbers = re.findall(r"\b\d+(?:\.\d+)?\b", combined_draft)
+            for num in draft_numbers:
+                if num not in input_lower:
+                    reasons.append(f"Unprovided fact/number in call draft: '{num}' not present in nurse input")
+            
+            critical_clinical_terms = ["fever", "infection", "hypertension", "edema", "nausea", "vomiting", "bleeding", "rash"]
+            for term in critical_clinical_terms:
+                if term in combined_draft and term not in input_lower:
+                    reasons.append(f"Unprovided clinical symptom in draft: '{term}' not reported by nurse")
 
         # 5. Fixed Menu Check
         next_step = output_payload.get("next_step")
@@ -239,3 +259,13 @@ class PolicyGuard:
         passed = len(reasons) == 0
         sanitized = output_payload if passed else None
         return PolicyGuardResult(passed=passed, reasons=reasons, sanitized_output=sanitized)
+
+    @classmethod
+    def check_call_notes_grounding(cls, draft_text: str, nurse_input: str) -> Tuple[bool, List[str]]:
+        """Direct check that call notes draft contains NO facts, numbers, or symptoms beyond nurse input."""
+        res = cls.inspect(
+            agent_name="call_notes_agent",
+            output_payload={"note_text": draft_text},
+            context={"nurse_input": nurse_input}
+        )
+        return res.passed, res.reasons

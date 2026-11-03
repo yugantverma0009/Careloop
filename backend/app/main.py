@@ -7937,6 +7937,22 @@ def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"
         runs_raw = cur.fetchall()
         done_for_you = []
         for r in runs_raw:
+            action_id = None
+            if r.get("trigger_ref") and str(r["trigger_ref"]).startswith("action:"):
+                try:
+                    action_id = int(str(r["trigger_ref"]).split(":")[1])
+                except Exception:
+                    pass
+            elif r.get("plan"):
+                plan_obj = r["plan"]
+                if isinstance(plan_obj, str):
+                    try:
+                        plan_obj = json.loads(plan_obj)
+                    except Exception:
+                        pass
+                if isinstance(plan_obj, dict):
+                    action_id = plan_obj.get("action_id")
+
             done_for_you.append({
                 "run_id": r["run_id"],
                 "agent_name": r["agent_name"],
@@ -7947,7 +7963,8 @@ def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"
                 "result_type": r["result_type"] or "automated_action",
                 "time": r["started_at"].strftime("%I:%M %p") if r.get("started_at") else "",
                 "latency_ms": r["latency_ms"],
-                "can_undo": r["trigger_type"] in ("duplicate_alert_merging", "scheduled_retry")
+                "can_undo": bool(action_id) or r["trigger_type"] in ("duplicate_alert_merging", "scheduled_retry", "outreach_action", "outreach_retry"),
+                "action_id": action_id
             })
 
         # 3. Needs a decision: Guard-blocked or escalation items
@@ -8068,8 +8085,28 @@ def act_on_agent_draft(
 
         cur.execute("""
             INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-            VALUES (%s, %s, %s, 'agent_draft', %s, JSON_OBJECT('action', %s, 'edit_chars', %s));
-        """, (user["account_role"], str(user["account_id"]), f"AGENT_DRAFT_{status.upper()}", str(draft_id), status, edit_chars))
+            VALUES ('Staff', %s, %s, 'agent_draft', %s, JSON_OBJECT('action', %s, 'edit_chars', %s));
+        """, (str(user["account_id"]), f"AGENT_DRAFT_{status.upper()}", str(draft_id), status, edit_chars))
+
+        if draft.get("draft_type") == "Call_Note" and status in ("Accepted", "Edited"):
+            from .agents.call_notes_agent import CallNotesAgent
+            try:
+                note_text = None
+                task_text = None
+                msg_text = None
+                if isinstance(final_body, dict):
+                    note_text = final_body.get("note") or final_body.get("patient_reported")
+                    task_text = final_body.get("task")
+                    msg_text = final_body.get("patient_message")
+                CallNotesAgent.commit_call_records(
+                    draft_id=draft_id,
+                    staff_id=staff_id,
+                    edited_note=note_text,
+                    edited_task=task_text,
+                    edited_message=msg_text,
+                )
+            except Exception as e:
+                logger.warning(f"Auto-commit call records on draft #{draft_id} approval failed/skipped: {e}")
 
     return {
         "status": "ok",
@@ -8355,4 +8392,123 @@ def decide_case_action(
         "agent_suggested": agent_step.get("key"),
         "agreed": (agent_step.get("key") == payload.action)
     }
+
+
+# ─── CareLoop Call Notes & Outreach Agent Endpoints (Phase 4) ───────────────
+
+class CallNoteDraftIn(BaseModel):
+    patient_id: int
+    reached: bool = True
+    patient_reports: Optional[List[str]] = None
+    actions_agreed: Optional[List[str]] = None
+    voice_transcript: Optional[str] = None
+    needs_doctor: bool = False
+    call_script_id: Optional[int] = None
+
+
+class CallNoteApproveIn(BaseModel):
+    draft_id: int
+    edited_body: Optional[Dict[str, Any]] = None
+
+
+class OutreachEvaluateIn(BaseModel):
+    patient_id: int
+    action_type: str = "automated_reminder"
+    message_text: str
+    is_emergency: bool = False
+
+
+@app.post("/agent/call-notes/draft")
+def draft_call_notes_endpoint(
+    body: CallNoteDraftIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Call Notes Agent: Drafts structured note, follow-up task, and post-call patient message.
+    Strictly forbids facts not provided in nurse quick picks or voice transcript.
+    """
+    from .agents.call_notes_agent import CallNotesAgent
+
+    staff_id = user.get("staff_id", 1)
+    staff_name = user.get("full_name") or user.get("account_role", "Nurse Priya")
+
+    try:
+        draft = CallNotesAgent.draft_call_records(
+            patient_id=body.patient_id,
+            staff_id=staff_id,
+            staff_name=staff_name,
+            reached=body.reached,
+            patient_reports=body.patient_reports,
+            actions_agreed=body.actions_agreed,
+            voice_transcript=body.voice_transcript,
+            needs_doctor=body.needs_doctor,
+            call_script_id=body.call_script_id
+        )
+        return draft
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
+
+
+@app.post("/agent/call-notes/approve")
+def approve_call_notes_endpoint(
+    body: CallNoteApproveIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Approves the drafted call note:
+    In one atomic transaction, creates clinician_notes, follow_up_tasks, patient_updates,
+    contact_log, updates agent_drafts, stores edit_chars, and logs audit record.
+    """
+    from .agents.call_notes_agent import CallNotesAgent
+
+    staff_id = user.get("staff_id", 1)
+    staff_name = user.get("full_name") or user.get("account_role", "Nurse Priya")
+
+    try:
+        res = CallNotesAgent.commit_call_records(
+            draft_id=body.draft_id,
+            staff_id=staff_id,
+            staff_name=staff_name,
+            edited_body=body.edited_body
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(404, detail=str(e))
+
+
+@app.post("/agent/undo/{action_id}")
+def undo_agent_action_endpoint(
+    action_id: int,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Reverts an automated action where possible (e.g. cancelling a scheduled retry).
+    """
+    from .agents.outreach_agent import OutreachAgent
+
+    staff_id = user.get("staff_id", 1)
+    try:
+        res = OutreachAgent.undo_action(action_id, staff_id)
+        return res
+    except ValueError as e:
+        raise HTTPException(404, detail=str(e))
+
+
+@app.post("/agent/outreach/evaluate")
+def evaluate_outreach_endpoint(
+    body: OutreachEvaluateIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """
+    Evaluates automated outreach policy: quiet hours, daily caps, STOP opt-out, and pause switches.
+    """
+    from .agents.outreach_agent import OutreachAgent
+
+    res = OutreachAgent.evaluate_outreach(
+        patient_id=body.patient_id,
+        action_type=body.action_type,
+        message_text=body.message_text,
+        is_emergency=body.is_emergency
+    )
+    return res
 

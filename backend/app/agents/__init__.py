@@ -9,6 +9,8 @@ from .dispatcher import AgentDispatcher
 from .policy_guard import PolicyGuard, PolicyGuardResult
 from .papers_agent import PapersAgent
 from .case_prep_agent import CasePrepAgent
+from .call_notes_agent import CallNotesAgent
+from .outreach_agent import OutreachAgent
 
 __all__ = [
     "AgentLedger",
@@ -17,4 +19,6 @@ __all__ = [
     "PolicyGuardResult",
     "PapersAgent",
     "CasePrepAgent",
+    "CallNotesAgent",
+    "OutreachAgent",
 ]

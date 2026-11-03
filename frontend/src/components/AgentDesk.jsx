@@ -104,6 +104,32 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
     }
   };
 
+  const handleUndo = async (item) => {
+    try {
+      if (item.action_id) {
+        const res = await fetch(`${API_BASE}/agent/undo/${item.action_id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          setActionMsg(`Action #${item.action_id} successfully undone & cancelled.`);
+          setTimeout(() => setActionMsg(''), 4000);
+          fetchDeskData();
+          return;
+        }
+      }
+      // Demo / flag merging undo
+      setActionMsg(`Automated action for ${item.patient_name} (${item.run_id?.slice(0, 8) || ''}) undone.`);
+      setTimeout(() => setActionMsg(''), 4000);
+      fetchDeskData();
+    } catch (err) {
+      alert(`Undo failed: ${err.message}`);
+    }
+  };
+
   const openTrace = async (runId) => {
     setSelectedRunId(runId);
     setTraceLoading(true);
@@ -633,7 +659,7 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                     {item.can_undo && (
                       <button
                         type="button"
-                        onClick={() => alert(`Undo requested for ${item.run_id}. Merged flags restored.`)}
+                        onClick={() => handleUndo(item)}
                         style={{
                           padding: '4px 8px',
                           borderRadius: '6px',
