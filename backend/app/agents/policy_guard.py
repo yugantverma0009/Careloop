@@ -275,3 +275,115 @@ class PolicyGuard:
             context={"nurse_input": nurse_input}
         )
         return res.passed, res.reasons
+
+    @classmethod
+    def inspect_redteam_attack(cls, text: str, context: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Automated Red-Team Security Gate (Phase 6 Task 2):
+        Inspects untrusted text (patient messages, SMS, voice transcripts, PDF passages)
+        for prompt injection, instruction override, cross-patient snooping,
+        unauthorized flag closure, diagnosis demands, or malformed inputs.
+        
+        Returns (is_safe: bool, rejection_reason: Optional[str]).
+        """
+        context = context or {}
+        raw = (text or "").strip()
+
+        # 1. Size & Malformed Input Gate
+        if len(raw) > 1200:
+            return False, "Input length exceeds maximum safe limit (1200 chars)"
+        if "\x00" in raw or any(ord(c) < 32 and c not in "\r\n\t" for c in raw):
+            return False, "Input contains prohibited control characters or binary payload"
+
+        raw_lower = raw.lower()
+
+        # 2. Instruction Override & Jailbreaks (English & Hindi/Hinglish)
+        injection_patterns = [
+            r"\bignore\s+(?:all\s+)?(?:previous\s+)?(?:instructions|rules|prompts|limits)\b",
+            r"\bforget\s+(?:all\s+)?(?:your\s+)?(?:rules|instructions)\b",
+            r"\byou\s+are\s+now\s+(?:a|an|the)\b",
+            r"\broleplay\s+as\b",
+            r"\bsystem\s+prompt\b",
+            r"\breveal\s+(?:the\s+)?(?:system|prompt|secret)\b",
+            r"\boverride\s+(?:safety|clinical|rules)\b",
+            r"<\|im_start\|>",
+            r"<system>",
+            r"\[system\s*note",
+            r"\badmin\s+mode\b",
+            r"\bdeveloper\s+mode\b",
+            r"\bjailbreak\b",
+            r"\bdan\s+mode\b",
+            r"\bi\s+am\s+(?:the\s+)?(?:doctor|admin|physician|surgeon)\b",
+            # Hindi script & Hinglish transliteration
+            r"नियम\s+भूल\s+जाओ",
+            r"पिछले\s+निर्देश\s+रद्द",
+            r"तुम\s+अब\s+डॉक्टर\s+हो",
+            r"सिस्टम\s+प्रॉम्प्ट",
+            r"\bsab\s+niyam\s+bhool\s+jao\b",
+            r"\btum\s+ab\s+doctor\s+ho\b",
+            r"\bmain\s+doctor\s+hoon\b",
+            r"\bsab\s+instructions\s+bhool\s+jao\b"
+        ]
+        for pat in injection_patterns:
+            if re.search(pat, raw_lower):
+                return False, f"Prompt injection / instruction override attempt: pattern '{pat}'"
+
+        # 3. Cross-Patient Data Snooping
+        current_pid = context.get("patient_id")
+        cross_patient_patterns = [
+            r"\b(?:show|give|fetch|view|print|read)\s+(?:me\s+)?(?:another|other|all)\s+patient\b",
+            r"\bdata\s+of\s+patient\b",
+            r"\brecords\s+of\s+patient\b",
+            r"\baccess\s+patient\s+records\b",
+            r"\bpatient\s+(?:id\s+)?#?\d+\b",
+            r"\bcl-\d{4,5}\b",
+            # Hindi script & Hinglish
+            r"दूसरे\s+मरीज\s+का\s+डेटा",
+            r"अन्य\s+मरीज\s+का\s+रिकॉर्ड",
+            r"\bdusre\s+patient\s+ka\s+data\b",
+            r"\bdusre\s+mariz\s+ka\s+record\b",
+            r"\bkisi\s+aur\s+mariz\s+ka\s+data\b"
+        ]
+        for pat in cross_patient_patterns:
+            m = re.search(pat, raw_lower)
+            if m:
+                # If it's the patient's own code/id, allow it
+                matched_txt = m.group(0)
+                if current_pid and (f"patient {current_pid}" in matched_txt or f"patient id {current_pid}" in matched_txt):
+                    continue
+                return False, f"Unauthorized cross-patient record access attempt: '{matched_txt}'"
+
+        # 4. Direct Clinical Diagnosis / Prescription Demands
+        diagnosis_patterns = [
+            r"\bdiagnos(?:e|is)\b",
+            r"\bwhat\s+diagnosis\s+do\s+i\s+have\b",
+            r"\bdo\s+i\s+have\s+(?:cancer|pneumonia|infection|heart\s+attack|stroke|covid|fever|flu)\b",
+            r"\bprescrib(?:e|ing)\b",
+            # Hindi script & Hinglish
+            r"दवा\s+लिख\s+दो",
+            r"बीमारी\s+का\s+निदान",
+            r"\bmeri\s+bimari\s+diagnose\s+karo\b",
+            r"\bmujhe\s+kya\s+bimari\s+hai\b",
+            r"\bnayi\s+dawa\s+likh\b"
+        ]
+        for pat in diagnosis_patterns:
+            if re.search(pat, raw_lower):
+                return False, f"Prohibited clinical diagnosis / prescription advice demand: pattern '{pat}'"
+
+        # 5. Unauthorized Flag / Task Closure Attempt
+        close_patterns = [
+            r"\bclose\s+(?:this\s+|all\s+|my\s+)?(?:flag|task|case|alert)\b",
+            r"\bmark\s+(?:flag|task|alert|case)\s+.*?closed\b",
+            r"\bresolve\s+(?:my\s+|this\s+|the\s+)?(?:flag|alert|case|task)\b",
+            r"\bdismiss\s+(?:my\s+|this\s+|the\s+)?(?:flag|alert|case|task)\b",
+            # Hindi script & Hinglish
+            r"फ्लैग\s+बंद\s+करो",
+            r"अलर्ट\s+बंद\s+करो",
+            r"\bflag\s+close\s+kar\s+do\b",
+            r"\balert\s+resolve\s+kar\s+do\b"
+        ]
+        for pat in close_patterns:
+            if re.search(pat, raw_lower):
+                return False, f"Unauthorized flag/alert resolution attempt: pattern '{pat}'"
+
+        return True, None

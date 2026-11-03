@@ -8700,3 +8700,127 @@ def reopen_flag_endpoint(
         raise HTTPException(404, str(e))
 
 
+# ─── CareLoop Care Agents Phase 6: Evaluation, Replay & Work-Saved Metrics ───
+
+class AssumptionsUpdateIn(BaseModel):
+    assumptions: Dict[str, Any]
+
+
+@app.get("/agent/metrics")
+def get_agent_metrics(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """
+    Phase 6 Work-Saved Panel & System Performance Metrics:
+    Returns live counters of routine answers, reminders, duplicates merged,
+    drafts accepted/edited/rejected, auto-closes, pre-briefed calls,
+    estimated minutes saved ("Estimated from editable assumptions"),
+    and per-agent latency & token usage.
+    """
+    from .agents.workload_replay import WorkloadReplayService
+    from .agents.dispatcher import AgentDispatcher, MAX_DAILY_LLM_CALLS_PER_PATIENT
+
+    assumptions = WorkloadReplayService.get_assumptions()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # 1. Real-time work counters
+        cur.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM agent_runs WHERE trigger_type = 'papers_question' AND status = 'Done') as routine_answers,
+                (SELECT COUNT(*) FROM scheduled_actions WHERE status = 'Executed') as reminders_sent,
+                (SELECT COALESCE(SUM(GREATEST(merged_count - 1, 0)), 0) FROM cases) as duplicates_merged,
+                (SELECT COUNT(*) FROM agent_drafts WHERE status = 'Accepted') as drafts_accepted_unchanged,
+                (SELECT COUNT(*) FROM agent_drafts WHERE status = 'Edited') as drafts_edited,
+                (SELECT COUNT(*) FROM agent_drafts WHERE status = 'Rejected') as drafts_rejected,
+                (SELECT COUNT(*) FROM flags WHERE resolution_note LIKE '%Closed by approved rule%') as auto_closes,
+                (SELECT COUNT(*) FROM cases) as calls_prebriefed;
+        """)
+        counts = cur.fetchone() or {}
+
+        # 2. Per-Agent Latency and Token Usage Counters
+        cur.execute("""
+            SELECT
+                agent_name,
+                COUNT(*) as total_runs,
+                COALESCE(SUM(tokens_in), 0) as tokens_prompt,
+                COALESCE(SUM(tokens_out), 0) as tokens_completion,
+                ROUND(AVG(COALESCE(latency_ms, 0)), 1) as avg_latency_ms,
+                MAX(COALESCE(latency_ms, 0)) as max_latency_ms,
+                SUM(CASE WHEN status = 'Blocked_By_Guard' THEN 1 ELSE 0 END) as blocked_by_guard_count
+            FROM agent_runs
+            GROUP BY agent_name
+            ORDER BY total_runs DESC;
+        """)
+        agent_perf = cur.fetchall() or []
+
+        # 3. Patient Daily Budget Utilization
+        cur.execute("""
+            SELECT
+                p.patient_id, p.full_name, p.patient_code,
+                COUNT(r.run_id) as today_calls,
+                %s as daily_budget,
+                ROUND((COUNT(r.run_id) / %s) * 100, 1) as budget_used_pct
+            FROM patients p
+            LEFT JOIN agent_runs r ON r.patient_id = p.patient_id AND DATE(r.started_at) = CURDATE()
+            GROUP BY p.patient_id, p.full_name, p.patient_code
+            ORDER BY today_calls DESC;
+        """, (MAX_DAILY_LLM_CALLS_PER_PATIENT, MAX_DAILY_LLM_CALLS_PER_PATIENT))
+        patient_budgets = cur.fetchall() or []
+
+        # 4. Cached Replay Benchmark Result
+        cur.execute("SELECT state_val FROM agent_system_state WHERE state_key = 'last_replay_result';")
+        last_replay_row = cur.fetchone()
+        last_replay = json.loads(last_replay_row["state_val"]) if last_replay_row and last_replay_row.get("state_val") else None
+
+    # Calculate estimated minutes saved from assumptions
+    q_rule = assumptions.get("routine_question", {})
+    rem_rule = assumptions.get("reminder_followup", {})
+    dup_rule = assumptions.get("duplicate_alert", {})
+    call_rule = assumptions.get("call_documentation", {})
+    sum_rule = assumptions.get("shift_summary", {})
+
+    mins_q = float(counts.get("routine_answers") or 0) * (float(q_rule.get("manual_minutes", 4.0)) - float(q_rule.get("agents_minutes", 0.5)))
+    mins_rem = float(counts.get("reminders_sent") or 0) * (float(rem_rule.get("manual_minutes", 2.5)) - float(rem_rule.get("agents_minutes", 0.0)))
+    mins_dup = float(counts.get("duplicates_merged") or 0) * (float(dup_rule.get("manual_minutes", 2.0)) - float(dup_rule.get("agents_minutes", 0.0)))
+    mins_call = float((counts.get("drafts_accepted_unchanged") or 0) + (counts.get("drafts_edited") or 0)) * (float(call_rule.get("manual_minutes", 6.0)) - float(call_rule.get("agents_minutes", 1.0)))
+    mins_sum = float(counts.get("calls_prebriefed") or 0) * 2.0
+
+    total_est_minutes = round(max(0.0, mins_q + mins_rem + mins_dup + mins_call + mins_sum), 1)
+
+    return {
+        "disclaimer": "Estimated from editable assumptions",
+        "counts": counts,
+        "estimated_minutes_saved": total_est_minutes,
+        "estimated_hours_saved": round(total_est_minutes / 60.0, 1),
+        "assumptions": assumptions,
+        "agent_performance": agent_perf,
+        "patient_budgets": patient_budgets,
+        "last_replay": last_replay
+    }
+
+
+@app.get("/agent/assumptions")
+def get_assumptions_endpoint(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Returns the current configurable step and minute assumptions."""
+    from .agents.workload_replay import WorkloadReplayService
+    return WorkloadReplayService.get_assumptions()
+
+
+@app.put("/agent/assumptions")
+def update_assumptions_endpoint(
+    body: AssumptionsUpdateIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor-only: Updates configurable clinical step and time assumptions."""
+    from .agents.workload_replay import WorkloadReplayService
+    saved = WorkloadReplayService.save_assumptions(body.assumptions)
+    return {"status": "ok", "assumptions": saved}
+
+
+@app.post("/agent/replay")
+def trigger_workload_replay_endpoint(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"))):
+    """Executes the scripted 40-event shift workload replay and returns benchmark comparison."""
+    from .agents.workload_replay import WorkloadReplayService
+    res = WorkloadReplayService.run_replay(update_shadow_table=True)
+    return res
+
+
+

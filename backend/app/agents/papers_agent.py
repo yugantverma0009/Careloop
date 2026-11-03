@@ -278,39 +278,39 @@ class PapersAgent:
                 "run_id": run_id
             }
 
-        # Gate 1.3: Prompt Injection & Red-Team Attack Check
-        for pat in PROMPT_INJECTION_PATTERNS:
-            if re.search(pat, clean_q, re.IGNORECASE):
-                block_msg = (
-                    "I am an assistant for your hospital discharge papers. "
-                    "I cannot execute administrative commands, override safety rules, or share data from other patients."
-                    if lang == "en"
-                    else "मैं आपके डिस्चार्ज पेपर्स के लिए एक असिस्टेंट हूँ। "
-                         "मैं सिस्टम कमांड निष्पादित नहीं कर सकता या नियमों को ओवरराइड नहीं कर सकता।"
-                )
-                AgentLedger.record_step(
-                    run_id, seq, "Gate",
-                    f"Prompt injection or unauthorized instruction intercepted: pattern '{pat}'",
-                    ok=False, ms=2
-                )
-                AgentLedger.finish_run(
-                    run_id, status="Blocked_By_Guard", result_type="injection_blocked",
-                    latency_ms=int((time.time() - start_ts) * 1000),
-                    guard_reasons=[f"Untrusted instruction attempt intercepted (pattern: {pat})"]
-                )
-                return {
-                    "answer_type": "refusal_injection",
-                    "answer": block_msg,
-                    "bullets": [],
-                    "sources": [],
-                    "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
-                    "can_ask_care_team": False,
-                    "is_grounded": False,
-                    "response": block_msg,
-                    "citations": [],
-                    "retrieval_debug": {"intent": "refusal_injection", "blocked": True},
-                    "run_id": run_id
-                }
+        # Gate 1.3: Red-Team & Injection Safety Gate (Phase 6 Task 2)
+        is_safe, attack_reason = PolicyGuard.inspect_redteam_attack(clean_q, context={"patient_id": patient_id})
+        if not is_safe:
+            block_msg = (
+                "I am an assistant for your hospital discharge papers. "
+                "I cannot execute administrative commands, diagnose conditions, override safety rules, or share data from other patients."
+                if lang == "en"
+                else "मैं आपके डिस्चार्ज पेपर्स के लिए एक असिस्टेंट हूँ। "
+                     "मैं सिस्टम कमांड निष्पादित नहीं कर सकता, चिकित्सा निदान नहीं कर सकता, या नियमों को ओवरराइड नहीं कर सकता।"
+            )
+            AgentLedger.record_step(
+                run_id, seq, "Gate",
+                f"Red-team attack intercepted by Policy Guard: {attack_reason}",
+                ok=False, ms=2
+            )
+            AgentLedger.finish_run(
+                run_id, status="Blocked_By_Guard", result_type="injection_blocked",
+                latency_ms=int((time.time() - start_ts) * 1000),
+                guard_reasons=[f"Red-team safety violation: {attack_reason}"]
+            )
+            return {
+                "answer_type": "refusal_injection",
+                "answer": block_msg,
+                "bullets": [],
+                "sources": [],
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": False,
+                "is_grounded": False,
+                "response": block_msg,
+                "citations": [],
+                "retrieval_debug": {"intent": "refusal_injection", "blocked": True, "reason": attack_reason},
+                "run_id": run_id
+            }
 
         # Gate 1.4: Small Talk Check (Fixed reply, no LLM, no sources, name by code)
         small_talk_type = detect_small_talk(clean_q)

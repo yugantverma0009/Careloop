@@ -25,7 +25,7 @@ import os
 logger = logging.getLogger(__name__)
 
 # Daily budget: max LLM calls per patient per day (configurable for evaluation)
-MAX_DAILY_LLM_CALLS_PER_PATIENT = int(os.getenv("MAX_DAILY_LLM_CALLS", "500"))
+MAX_DAILY_LLM_CALLS_PER_PATIENT = int(os.getenv("MAX_DAILY_LLM_CALLS", "15"))
 
 
 class DispatcherDecision:

@@ -33,6 +33,7 @@ import RoundsView from './RoundsView';
 import AdmitPatientWizard from './AdmitPatientWizard';
 import AgentDesk from './AgentDesk';
 import AgentSettingsView from './AgentSettingsView';
+import WorkSavedPanel from './WorkSavedPanel';
 import AgentTraceModal from './AgentTraceModal';
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
@@ -519,6 +520,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 ? [
                     { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
                     { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
+                    { id: 'work_saved', label: 'Work saved', Icon: IconActivity },
                     { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
@@ -532,6 +534,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
                     { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
+                    { id: 'work_saved', label: 'Work saved', Icon: IconActivity },
                     { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
@@ -1447,6 +1450,11 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
           {/* TAB: AGENT SETTINGS (CareLoop Care Agents Phase 5) */}
           {activeNav === 'agent_settings' && (
             <AgentSettingsView currentUser={user} />
+          )}
+
+          {/* TAB: WORK SAVED & PERFORMANCE (CareLoop Care Agents Phase 6) */}
+          {activeNav === 'work_saved' && (
+            <WorkSavedPanel currentUser={user} />
           )}
 
           {/* TAB: PATIENT CLINICAL CHART (Phase 2, D-05, D-06, D-12, D-18) */}
