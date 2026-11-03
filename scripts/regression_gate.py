@@ -219,7 +219,96 @@ def main():
     copilot_dev_acc, copilot_dev_val = eval_copilot_split("COPILOT DEV (80%)", DEV_COPILOT)
     copilot_ho_acc, copilot_ho_val = eval_copilot_split("COPILOT HELD-OUT (20%)", HELDOUT_COPILOT)
 
-    failures = []
+    # Phase 4 Case Workflow & Prioritisation Evaluation
+    print("\n" + "=" * 70)
+    print("📋 EVALUATING CASE WORKFLOW & EXPLAINABLE QUEUE (PHASE 4)")
+    print("=" * 70)
+
+    from backend.app.agents.case_workflow_service import (
+        CaseWorkflowService,
+        ExplainableQueueService,
+        RoutineDraftReviewService
+    )
+
+    phase4_failures = []
+
+    # 1. Test state machine & SLA timers on temporary case
+    test_case_id = "case-gate-p4-check-001"
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM case_workflow_transitions WHERE case_id = %s;", (test_case_id,))
+            cur.execute("DELETE FROM case_workflows WHERE case_id = %s;", (test_case_id,))
+            cur.execute("DELETE FROM cases WHERE case_id = %s;", (test_case_id,))
+            cur.execute("""
+                INSERT INTO cases (case_id, patient_id, primary_flag_id, status, merged_count, created_at, updated_at)
+                VALUES (%s, 1, 1, 'Open', 1, NOW(), NOW());
+            """, (test_case_id,))
+            conn.commit()
+
+        base_time = datetime(2026, 11, 4, 12, 0, 0)
+        st_init = CaseWorkflowService.initialize_case_workflow(test_case_id, fake_clock=base_time)
+        if st_init["state"] != "Raised":
+            phase4_failures.append("Case initial state is not 'Raised'")
+
+        # Overdue check at +20m
+        clock_20m = base_time + timedelta(minutes=20)
+        st_20m = CaseWorkflowService.get_case_state(test_case_id, fake_clock=clock_20m)
+        if not st_20m["is_overdue"]:
+            phase4_failures.append("SLA overdue calculation failed at +20m")
+
+        # Valid transitions: Raised -> Briefed -> Decided -> Closed
+        CaseWorkflowService.transition_case(test_case_id, "Briefed", actor_type="Agent", fake_clock=clock_20m)
+        CaseWorkflowService.transition_case(test_case_id, "Decided", actor_type="Staff", actor_id=1)
+        st_closed = CaseWorkflowService.transition_case(test_case_id, "Closed", actor_type="Staff", actor_id=1)
+        if st_closed["state"] != "Closed":
+            phase4_failures.append("Case failed to transition to 'Closed'")
+
+        # Closed case protection check
+        try:
+            CaseWorkflowService.attach_agent_step(test_case_id, "run-gate-test", "StepCheck", {})
+            phase4_failures.append("SAFETY FAILURE: Agent step was allowed on a Closed case!")
+        except ValueError:
+            pass  # Expected
+
+        # State skipping check
+        try:
+            CaseWorkflowService.transition_case(test_case_id, "Briefed", actor_type="Agent")
+            phase4_failures.append("SAFETY FAILURE: Closed case was transitioned without reopening!")
+        except ValueError:
+            pass  # Expected
+
+        print("  ✓ Case state machine & SLA timers validated with fake clock")
+        print("  ✓ State skipping prevention & Closed case boundaries strictly verified")
+    finally:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM case_workflow_transitions WHERE case_id = %s;", (test_case_id,))
+            cur.execute("DELETE FROM case_workflows WHERE case_id = %s;", (test_case_id,))
+            cur.execute("DELETE FROM cases WHERE case_id = %s;", (test_case_id,))
+            conn.commit()
+
+    # 2. Test explainable queue scoring matches fixed weights
+    sc_sos, _ = ExplainableQueueService.compute_explainable_score({
+        "tier": "Immediate", "minutes_overdue": 140, "has_sos": True
+    })
+    sc_urg, _ = ExplainableQueueService.compute_explainable_score({
+        "tier": "Urgent", "minutes_overdue": 45, "no_answers_count": 2
+    })
+    sc_pen, _ = ExplainableQueueService.compute_explainable_score({
+        "tier": "Routine", "consent_missing": True
+    })
+    if sc_sos != 290 or sc_urg != 95 or sc_pen != -20:
+        phase4_failures.append(f"Queue score mismatch with factor table: got {sc_sos}, {sc_urg}, {sc_pen} (expected 290, 95, -20)")
+    else:
+        print("  ✓ Queue order matches factor table: SOS/Immediate(290) > Urgent(95) > Routine(-20)")
+
+    # 3. Test batch approval safety threshold
+    try:
+        RoutineDraftReviewService.batch_approve_drafts_of_type("Handoff", staff_id=1, staff_account_id=1)
+        phase4_failures.append("SAFETY FAILURE: Batch approval allowed on unapproved draft type!")
+    except ValueError:
+        print("  ✓ Batch approval safety gate verified (rejected unapproved types below 95% threshold)")
+
+    failures = list(phase4_failures)
 
     if copilot_dev_acc < 90.0:
         failures.append(f"COPILOT QUALITY FAILURE in DEV: Mapping accuracy is {copilot_dev_acc:.1f}% (target >= 90.0%)")
@@ -251,7 +340,7 @@ def main():
             print(f"  - {f}")
         sys.exit(1)
     else:
-        print("✅ REGRESSION GATE PASSED (All Phase 1, 2 & 3 safety, quality & copilot gates met on DEV & HELD-OUT)")
+        print("✅ REGRESSION GATE PASSED (All Phase 1, 2, 3 & 4 safety, quality, copilot & workflow gates met on DEV & HELD-OUT)")
         sys.exit(0)
 
 

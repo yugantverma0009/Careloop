@@ -118,6 +118,13 @@ class CasePrepAgent:
                 """, (case_id, flag_id))
                 conn.commit()
 
+                # Phase 4 CaseWorkflow initialization
+                try:
+                    from backend.app.agents.case_workflow_service import CaseWorkflowService
+                    CaseWorkflowService.initialize_case_workflow(case_id)
+                except Exception as e:
+                    logger.warning(f"Case workflow initialization skipped: {e}")
+
                 logger.info(f"New case {case_id} created for patient #{patient_id} with primary flag #{flag_id}")
                 return {
                     "case_id": case_id,
@@ -731,6 +738,29 @@ class CasePrepAgent:
             llm_calls=0 if force_deterministic else 1,
             latency_ms=elapsed_ms
         )
+
+        # Phase 4: State Machine transition to 'Briefed' & attach agent step
+        try:
+            from backend.app.agents.case_workflow_service import CaseWorkflowService
+            # Ensure workflow is initialized if not present
+            CaseWorkflowService.initialize_case_workflow(case_id)
+            # Only transition if in Raised state
+            curr_wf = CaseWorkflowService.get_case_state(case_id)
+            if curr_wf["state"] == "Raised":
+                CaseWorkflowService.transition_case(
+                    case_id=case_id,
+                    to_state="Briefed",
+                    actor_type="Agent",
+                    reason="CasePrepAgent synthesized 5-part brief"
+                )
+            CaseWorkflowService.attach_agent_step(
+                case_id=case_id,
+                run_id=run_id,
+                step_name="CasePrepBriefSynthesized",
+                details={"recommended_step": next_step.get("key"), "draft_id": draft_id}
+            )
+        except Exception as e:
+            logger.warning(f"Case workflow step attachment skipped: {e}")
 
         logger.info(f"Case brief generated successfully for {case_id} (run_id={run_id}, draft_id={draft_id})")
         return brief_payload

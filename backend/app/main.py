@@ -8106,11 +8106,20 @@ def act_on_agent_draft(
         edit_chars = 0
         final_body = draft["body"]
         if body.action == "edit" and body.edited_body:
-            orig_str = json.dumps(draft["body"])
-            new_str = json.dumps(body.edited_body)
-            edit_chars = abs(len(new_str) - len(orig_str))
-            final_body = body.edited_body
-            status = "Edited"
+            from .agents.case_workflow_service import RoutineDraftReviewService
+            res = RoutineDraftReviewService.record_draft_edit(
+                draft_id=draft_id,
+                edited_body=body.edited_body,
+                staff_id=staff_id,
+                staff_account_id=user.get("account_id", staff_id)
+            )
+            return {
+                "status": "ok",
+                "draft_id": draft_id,
+                "new_status": "Edited",
+                "edit_chars": res["edit_chars"],
+                "diff_summary": res.get("diff_summary")
+            }
         elif body.action == "accept":
             status = "Accepted"
         else:
@@ -8462,6 +8471,17 @@ def decide_case_action(
 
         conn.commit()
 
+    # Synchronize Phase 4 CaseWorkflow state machine
+    try:
+        from .agents.case_workflow_service import CaseWorkflowService
+        wf = CaseWorkflowService.get_case_state(case_id)
+        target_wf = "Closed" if payload.action in ("close_rule", "merge_duplicate") else "Decided"
+        if wf["state"] == "Raised":
+            CaseWorkflowService.transition_case(case_id, "Briefed", actor_type="System", reason="Auto-briefed prior to clinical decision")
+        CaseWorkflowService.transition_case(case_id, target_wf, actor_type="Staff", actor_id=staff_id, reason=payload.note or f"Clinician decision: {payload.action}")
+    except Exception as e:
+        logger.warning(f"CaseWorkflowService sync in decide_case_action skipped/error: {e}")
+
     return {
         "status": "ok",
         "case_id": case_id,
@@ -8470,6 +8490,158 @@ def decide_case_action(
         "agent_suggested": agent_step.get("key"),
         "agreed": (agent_step.get("key") == payload.action)
     }
+
+
+# ─── CareLoop Case Workflow & Explainable Queue Endpoints (Agents v2 Phase 4) ─
+
+class CaseTransitionIn(BaseModel):
+    to_state: str
+    reason: Optional[str] = None
+
+
+class CaseAgentStepIn(BaseModel):
+    run_id: str
+    step_name: str
+    details: Dict[str, Any] = {}
+
+
+class BatchApproveDraftsIn(BaseModel):
+    draft_type: str
+
+
+@app.get("/cases/{case_id}/workflow")
+def get_case_workflow_endpoint(
+    case_id: str,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Phase 4: Returns case workflow state, live SLA timers, and transition audit log."""
+    from .agents.case_workflow_service import CaseWorkflowService
+    try:
+        return CaseWorkflowService.get_case_state(case_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/cases/{case_id}/workflow/transition")
+def transition_case_workflow_endpoint(
+    case_id: str,
+    payload: CaseTransitionIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Phase 4: Transitions case to new state adhering to strict state machine and SLA timers."""
+    from .agents.case_workflow_service import CaseWorkflowService
+    staff_id = user.get("staff_id", 1)
+    try:
+        return CaseWorkflowService.transition_case(
+            case_id=case_id,
+            to_state=payload.to_state,
+            actor_type="Staff",
+            actor_id=staff_id,
+            reason=payload.reason
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/cases/{case_id}/agent-step")
+def attach_case_agent_step_endpoint(
+    case_id: str,
+    payload: CaseAgentStepIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Phase 4: Agents attach steps to case. Strictly forbidden on Closed cases."""
+    from .agents.case_workflow_service import CaseWorkflowService
+    try:
+        return CaseWorkflowService.attach_agent_step(
+            case_id=case_id,
+            run_id=payload.run_id,
+            step_name=payload.step_name,
+            details=payload.details
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/staff/worklist/prioritised")
+def get_prioritised_worklist_endpoint(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Phase 4: Explainable queue order from fixed rule-based weights with 'Why this position' breakdown."""
+    import re
+    from .agents.case_workflow_service import ExplainableQueueService
+    from .agents.config import CASE_QUEUE_WEIGHTS
+
+    # Fetch base worklist
+    worklist_res = get_staff_worklist(scope="mine", user=user)
+    patients = worklist_res.get("patients", [])
+
+    scored_patients = []
+    for p in patients:
+        mins_od = 0
+        od_disp = p.get("overdue_display") or ""
+        if "Overdue by" in od_disp:
+            m_match = re.search(r"(\d+)m", od_disp)
+            h_match = re.search(r"(\d+)h", od_disp)
+            d_match = re.search(r"(\d+)d", od_disp)
+            if d_match:
+                mins_od += int(d_match.group(1)) * 1440
+            if h_match:
+                mins_od += int(h_match.group(1)) * 60
+            if m_match:
+                mins_od += int(m_match.group(1))
+
+        score, factors = ExplainableQueueService.compute_explainable_score({
+            "tier": p.get("sla_tier") or ("Immediate" if p.get("has_emergency") else "Routine"),
+            "minutes_overdue": mins_od,
+            "no_answers_count": 1 if p.get("not_yet_seen") else 0,
+            "device_silent_hours": 24 if any("device" in (f.get("reason", "").lower()) for f in p.get("flags", [])) else 0,
+            "consent_missing": any("consent" in (f.get("reason", "").lower()) for f in p.get("flags", [])),
+            "has_sos": p.get("has_emergency", False),
+            "photo_pending": any("photo" in (f.get("reason", "").lower()) for f in p.get("flags", [])),
+        })
+        p_copy = dict(p)
+        p_copy["explainable_score"] = score
+        p_copy["why_this_position"] = factors
+        scored_patients.append(p_copy)
+
+    # Sort strictly by explainable score descending
+    scored_patients.sort(key=lambda x: x["explainable_score"], reverse=True)
+    for rank, sp in enumerate(scored_patients, 1):
+        sp["queue_rank"] = rank
+
+    return {
+        "prioritised_patients": scored_patients,
+        "count": len(scored_patients),
+        "weights_configuration": CASE_QUEUE_WEIGHTS
+    }
+
+
+@app.get("/agent/drafts/routine")
+def get_routine_drafts_endpoint(
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Phase 4: Returns routine drafts with diff views, shortcuts, and batch-approval eligibility."""
+    from .agents.case_workflow_service import RoutineDraftReviewService
+    return RoutineDraftReviewService.get_routine_drafts_with_diff()
+
+
+@app.post("/agent/drafts/batch-approve")
+def batch_approve_drafts_endpoint(
+    payload: BatchApproveDraftsIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
+):
+    """Phase 4: Batch approve all passing drafts of a type. Strictly requires shadow agreement >= 95%."""
+    from .agents.case_workflow_service import RoutineDraftReviewService
+    staff_id = user.get("staff_id", 1)
+    staff_acct = user.get("account_id", staff_id)
+    try:
+        return RoutineDraftReviewService.batch_approve_drafts_of_type(
+            draft_type=payload.draft_type,
+            staff_id=staff_id,
+            staff_account_id=staff_acct
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 # ─── CareLoop Call Notes & Outreach Agent Endpoints (Phase 4) ───────────────

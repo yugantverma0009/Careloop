@@ -34,6 +34,12 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
   const [actionMsg, setActionMsg] = useState('');
   const [incidentModalRun, setIncidentModalRun] = useState(null);
 
+  // Phase 4 Routine Draft Review & Diff State
+  const [reviewMode, setReviewMode] = useState('standard'); // 'standard' | 'routine_diff'
+  const [routineData, setRoutineData] = useState({ drafts: [], type_eligibility: {}, batch_threshold_required: 95.0 });
+  const [activeDraftIndex, setActiveDraftIndex] = useState(0);
+  const [batchLoading, setBatchLoading] = useState(false);
+
   const token = localStorage.getItem('careloop_token');
 
   const fetchDeskData = async () => {
@@ -53,9 +59,87 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
     }
   };
 
+  const fetchRoutineDrafts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/agent/drafts/routine`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoutineData(data);
+      }
+    } catch (err) {
+      console.error('Failed to load routine drafts:', err);
+    }
+  };
+
   useEffect(() => {
     fetchDeskData();
+    fetchRoutineDrafts();
   }, []);
+
+  // Phase 4: Keyboard shortcuts (j/k move, a approve, e edit, r reject)
+  useEffect(() => {
+    if (reviewMode !== 'routine_diff') return;
+
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+
+      const drafts = routineData.drafts || [];
+      if (!drafts.length) return;
+
+      const activeDraft = drafts[activeDraftIndex];
+
+      if (e.key === 'j') {
+        e.preventDefault();
+        setActiveDraftIndex((prev) => Math.min(prev + 1, drafts.length - 1));
+      } else if (e.key === 'k') {
+        e.preventDefault();
+        setActiveDraftIndex((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === 'a' && activeDraft) {
+        e.preventDefault();
+        handleDraftAction(activeDraft.draft_id, 'accept');
+      } else if (e.key === 'e' && activeDraft) {
+        e.preventDefault();
+        setEditingDraftId(activeDraft.draft_id);
+        setEditText(activeDraft.draft_text);
+      } else if (e.key === 'r' && activeDraft) {
+        e.preventDefault();
+        handleDraftAction(activeDraft.draft_id, 'reject');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [reviewMode, activeDraftIndex, routineData]);
+
+  const handleBatchApprove = async (draftType) => {
+    if (!window.confirm(`Approve all passing drafts of type '${draftType}'? Every item will be individually audited.`)) return;
+    try {
+      setBatchLoading(true);
+      const res = await fetch(`${API_BASE}/agent/drafts/batch-approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ draft_type: draftType })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionMsg(`✓ Batch approved ${data.approved_count} '${draftType}' drafts with individual audit.`);
+        setTimeout(() => setActionMsg(''), 4000);
+        fetchDeskData();
+        fetchRoutineDrafts();
+      } else {
+        alert(data.detail || 'Batch approval failed');
+      }
+    } catch (err) {
+      alert('Batch approval request error: ' + err.message);
+    } finally {
+      setBatchLoading(false);
+    }
+  };
 
   const handleGlobalPauseToggle = async (pauseVal) => {
     if (!window.confirm(pauseVal 
@@ -328,26 +412,264 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
             </span>
           </div>
 
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-            Call notes, patient replies, and shift handoffs prepared by agents. Requires licensed human sign-off.
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+              Call notes, patient replies, and shift handoffs prepared by agents. Requires licensed human sign-off.
+            </p>
+            {/* View Mode Toggle */}
+            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setReviewMode('standard')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: reviewMode === 'standard' ? '#ffffff' : 'transparent',
+                  color: reviewMode === 'standard' ? 'var(--text-primary)' : 'var(--text-muted)',
+                  boxShadow: reviewMode === 'standard' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                Standard View
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReviewMode('routine_diff');
+                  fetchRoutineDrafts();
+                }}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: reviewMode === 'routine_diff' ? '#0284c7' : 'transparent',
+                  color: reviewMode === 'routine_diff' ? '#ffffff' : 'var(--text-muted)',
+                  boxShadow: reviewMode === 'routine_diff' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
+                }}
+              >
+                ⚡ Diff &amp; Batch
+              </button>
+            </div>
+          </div>
+
+          {/* Phase 4: Batch Approval Bar & Shortcuts (in routine_diff mode) */}
+          {reviewMode === 'routine_diff' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', borderRadius: '8px', background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1' }}>
+                  ⌨️ Keyboard Shortcuts: <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>j</kbd>/<kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>k</kbd> navigate · <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>a</kbd> approve · <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>e</kbd> edit · <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>r</kbd> reject
+                </span>
+                <span style={{ fontSize: '11px', color: '#0284c7' }}>
+                  Batch Gate: $\ge 95\%$ agreement
+                </span>
+              </div>
+
+              {/* Batch Approval Buttons for passing draft types */}
+              {Object.entries(routineData.type_eligibility || {}).map(([dType, elig]) => {
+                const countOfType = (routineData.drafts || []).filter(d => d.draft_type === dType).length;
+                if (countOfType === 0) return null;
+                return (
+                  <div key={dType} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
+                      <strong>{dType.replace('_', ' ')}</strong> ({countOfType} pending)
+                      <span style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        background: elig.shadow_agreement_pct >= 95.0 ? '#dcfce7' : '#fee2e2',
+                        color: elig.shadow_agreement_pct >= 95.0 ? '#15803d' : '#b91c1c'
+                      }}>
+                        Shadow Agreement: {elig.shadow_agreement_pct}%
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!elig.batch_eligible || batchLoading}
+                      onClick={() => handleBatchApprove(dType)}
+                      title={elig.reason}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: elig.batch_eligible && !batchLoading ? 'pointer' : 'not-allowed',
+                        background: elig.batch_eligible ? '#0284c7' : '#cbd5e1',
+                        color: '#ffffff'
+                      }}
+                    >
+                      {batchLoading ? 'Approving...' : `Approve all passing ${dType} (${countOfType})`}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {deskData.waiting_for_you.length === 0 ? (
-              <div style={{
-                padding: '28px',
-                textAlign: 'center',
-                background: 'var(--bg-base, #f8fafc)',
-                borderRadius: '8px',
-                border: '1px dashed var(--border-subtle, #e2e8f0)',
-                color: 'var(--text-muted)'
-              }}>
-                <IconCheck style={{ width: '24px', height: '24px', margin: '0 auto 6px auto', color: '#059669' }} />
-                <div style={{ fontSize: '13px', fontWeight: 600 }}>All drafts reviewed</div>
-                <div style={{ fontSize: '11px', marginTop: '2px' }}>No pending items waiting for signature.</div>
-              </div>
+            {reviewMode === 'routine_diff' ? (
+              /* Routine Drafts Diff Mode View */
+              (routineData.drafts || []).length === 0 ? (
+                <div style={{
+                  padding: '28px',
+                  textAlign: 'center',
+                  background: 'var(--bg-base, #f8fafc)',
+                  borderRadius: '8px',
+                  border: '1px dashed var(--border-subtle, #e2e8f0)',
+                  color: 'var(--text-muted)'
+                }}>
+                  <IconCheck style={{ width: '24px', height: '24px', margin: '0 auto 6px auto', color: '#059669' }} />
+                  <div style={{ fontSize: '13px', fontWeight: 600 }}>All routine drafts reviewed</div>
+                  <div style={{ fontSize: '11px', marginTop: '2px' }}>No drafts awaiting signature.</div>
+                </div>
+              ) : (
+                routineData.drafts.map((d, idx) => (
+                  <div
+                    key={d.draft_id}
+                    onClick={() => setActiveDraftIndex(idx)}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '8px',
+                      background: idx === activeDraftIndex ? '#f0fdf4' : 'var(--bg-base, #f8fafc)',
+                      border: idx === activeDraftIndex ? '2px solid #16a34a' : '1px solid var(--border-subtle, #e2e8f0)',
+                      boxShadow: idx === activeDraftIndex ? '0 0 0 2px rgba(22, 163, 74, 0.2)' : 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {idx === activeDraftIndex && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: '#16a34a', color: '#ffffff' }}>
+                            ACTIVE [j/k/a/e/r]
+                          </span>
+                        )}
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          background: '#e0e7ff',
+                          color: '#3730a3'
+                        }}>
+                          {d.draft_type.replace('_', ' ')}
+                        </span>
+                        <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
+                          {d.two_identifiers}
+                        </strong>
+                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{d.created_at}</span>
+                    </div>
+
+                    {/* Diff View: Agent Draft vs Template */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '11px' }}>
+                      <div style={{ background: '#f8fafc', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Standard Template Baseline</div>
+                        <div style={{ color: '#475569', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>
+                          {d.template_reference.slice(0, 150)}...
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                        <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: '4px' }}>
+                          Agent Draft ({d.diff?.edit_chars || 0} chars diff)
+                        </div>
+                        <div style={{ color: '#0f172a', whiteSpace: 'pre-wrap' }}>
+                          {d.draft_text}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingDraftId(d.draft_id);
+                          setEditText(d.draft_text);
+                        }}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          background: '#ffffff',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Edit (e)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDraftAction(d.draft_id, 'accept');
+                        }}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: '#0284c7',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Sign &amp; Deliver (a)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDraftAction(d.draft_id, 'reject');
+                        }}
+                        style={{
+                          padding: '5px 8px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: '#fee2e2',
+                          color: '#991b1b',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Reject (r)
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )
             ) : (
-              deskData.waiting_for_you.map((d) => (
+              /* Standard View */
+              deskData.waiting_for_you.length === 0 ? (
+                <div style={{
+                  padding: '28px',
+                  textAlign: 'center',
+                  background: 'var(--bg-base, #f8fafc)',
+                  borderRadius: '8px',
+                  border: '1px dashed var(--border-subtle, #e2e8f0)',
+                  color: 'var(--text-muted)'
+                }}>
+                  <IconCheck style={{ width: '24px', height: '24px', margin: '0 auto 6px auto', color: '#059669' }} />
+                  <div style={{ fontSize: '13px', fontWeight: 600 }}>All drafts reviewed</div>
+                  <div style={{ fontSize: '11px', marginTop: '2px' }}>No pending items waiting for signature.</div>
+                </div>
+              ) : (
+                deskData.waiting_for_you.map((d) => (
                 <div
                   key={d.draft_id}
                   style={{
@@ -558,7 +880,7 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                   </div>
                 </div>
               ))
-            )}
+            ))}
           </div>
         </div>
 
