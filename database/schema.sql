@@ -1,14 +1,8 @@
--- database/schema.sql — CareLoop Consolidated Database Schema
--- Consolidates base schema + care team upgrade + patient portal upgrade.
--- Contains 32 base tables, 8 views, 16 stored procedures, and 3 triggers.
-
-CREATE DATABASE IF NOT EXISTS careloop CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-USE careloop;
-
--- Ensure API user exists with necessary least-privilege permissions
-CREATE USER IF NOT EXISTS 'careloop_api'@'localhost' IDENTIFIED BY 'careloop_dev_pass';
-GRANT SELECT, INSERT, UPDATE, EXECUTE ON careloop.* TO 'careloop_api'@'localhost';
-FLUSH PRIVILEGES;
+-- MySQL dump 10.13  Distrib 9.7.1, for macos26.4 (arm64)
+--
+-- Host: localhost    Database: careloop
+-- ------------------------------------------------------
+-- Server version	9.7.1
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -20,6 +14,234 @@ FLUSH PRIVILEGES;
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `agent_autonomy`
+--
+
+DROP TABLE IF EXISTS `agent_autonomy`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_autonomy` (
+  `action_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `level` enum('Suggest','Draft','Auto','Never') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Suggest',
+  `mode` enum('Shadow','Live') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Shadow',
+  `set_by_staff_id` int DEFAULT NULL,
+  `set_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`action_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_candidate_tests`
+--
+
+DROP TABLE IF EXISTS `agent_candidate_tests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_candidate_tests` (
+  `candidate_id` int NOT NULL AUTO_INCREMENT,
+  `incident_id` int DEFAULT NULL,
+  `agent_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `test_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `input_payload` json NOT NULL,
+  `expected_behavior` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('Pending_Review','Approved','Rejected') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Pending_Review',
+  `reviewed_by_staff_id` int DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`candidate_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_drafts`
+--
+
+DROP TABLE IF EXISTS `agent_drafts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_drafts` (
+  `draft_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `patient_id` int NOT NULL,
+  `draft_type` enum('Case_Brief','Call_Script','Call_Note','Patient_Message','Summary','Handoff','Plan','Reply') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` json NOT NULL,
+  `sources` json DEFAULT NULL,
+  `status` enum('Pending','Accepted','Edited','Rejected','Auto_Sent','Expired') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Pending',
+  `reviewed_by_staff_id` int DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `edit_chars` int DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`draft_id`),
+  KEY `idx_drafts_patient` (`patient_id`),
+  KEY `idx_drafts_status` (`status`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_exemplars`
+--
+
+DROP TABLE IF EXISTS `agent_exemplars`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_exemplars` (
+  `exemplar_id` int NOT NULL AUTO_INCREMENT,
+  `draft_type` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source_draft_id` int DEFAULT NULL,
+  `original_text` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `edited_text` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `deidentified_text` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tags` json DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`exemplar_id`),
+  KEY `idx_exemplar_type` (`draft_type`)
+) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_incidents`
+--
+
+DROP TABLE IF EXISTS `agent_incidents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_incidents` (
+  `incident_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reported_by_staff_id` int NOT NULL,
+  `category` enum('Wrong fact','Unsafe','Tone','Other') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('Open','Reviewed','Closed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Open',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `candidate_test_id` int DEFAULT NULL,
+  PRIMARY KEY (`incident_id`),
+  KEY `idx_incidents_run` (`run_id`),
+  KEY `idx_incidents_status` (`status`)
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_proposals`
+--
+
+DROP TABLE IF EXISTS `agent_proposals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_proposals` (
+  `proposal_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `agent_name` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Rounds',
+  `proposal_type` enum('Suggest_Call','Suggest_Plan_Review') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `evidence` json DEFAULT NULL,
+  `status` enum('Pending','Accepted','Dismissed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Pending',
+  `decided_by_staff_id` int DEFAULT NULL,
+  `decided_at` datetime DEFAULT NULL,
+  `dismiss_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`proposal_id`),
+  KEY `idx_prop_status` (`status`,`created_at`),
+  KEY `fk_prop_patient` (`patient_id`),
+  KEY `fk_prop_staff` (`decided_by_staff_id`),
+  CONSTRAINT `fk_prop_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_prop_staff` FOREIGN KEY (`decided_by_staff_id`) REFERENCES `care_staff` (`staff_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_runs`
+--
+
+DROP TABLE IF EXISTS `agent_runs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_runs` (
+  `run_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agent_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `trigger_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `trigger_ref` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `patient_id` int DEFAULT NULL,
+  `case_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `started_at` datetime NOT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `status` enum('Done','Abstained','Failed','Blocked_By_Guard','Paused') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Done',
+  `autonomy_level` enum('Suggest','Draft','Auto','Never') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Suggest',
+  `mode` enum('Shadow','Live') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Shadow',
+  `plan` json DEFAULT NULL,
+  `result_type` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `llm_calls` int NOT NULL DEFAULT '0',
+  `tokens_in` int NOT NULL DEFAULT '0',
+  `tokens_out` int NOT NULL DEFAULT '0',
+  `latency_ms` int NOT NULL DEFAULT '0',
+  `guard_reasons` json DEFAULT NULL,
+  `version_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`run_id`),
+  KEY `idx_agent_runs_patient` (`patient_id`),
+  KEY `idx_agent_runs_created` (`started_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_steps`
+--
+
+DROP TABLE IF EXISTS `agent_steps`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_steps` (
+  `step_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `seq` int NOT NULL,
+  `step_type` enum('Gate','Plan','Retrieve','Tool','Grade','Draft','Verify','Guard','Deliver','Abstain') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `summary` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ids` json DEFAULT NULL,
+  `ok` tinyint(1) NOT NULL DEFAULT '1',
+  `ms` int NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`step_id`),
+  KEY `idx_steps_run` (`run_id`),
+  CONSTRAINT `fk_steps_run` FOREIGN KEY (`run_id`) REFERENCES `agent_runs` (`run_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=51 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_system_state`
+--
+
+DROP TABLE IF EXISTS `agent_system_state`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_system_state` (
+  `state_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `state_val` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `updated_by_staff_id` int DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`state_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `agent_versions`
+--
+
+DROP TABLE IF EXISTS `agent_versions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_versions` (
+  `version_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agent_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `prompt_version` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `params` json DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT 'system',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  PRIMARY KEY (`version_id`),
+  KEY `idx_agent_versions_name` (`agent_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `ai_summaries`
@@ -212,6 +434,110 @@ CREATE TABLE `caregivers` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `case_flags`
+--
+
+DROP TABLE IF EXISTS `case_flags`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `case_flags` (
+  `case_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `flag_id` int NOT NULL,
+  `added_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`case_id`,`flag_id`),
+  KEY `idx_cf_flag` (`flag_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `case_workflow_transitions`
+--
+
+DROP TABLE IF EXISTS `case_workflow_transitions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `case_workflow_transitions` (
+  `transition_id` int NOT NULL AUTO_INCREMENT,
+  `case_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `from_state` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `to_state` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_type` enum('Staff','Agent','System') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_id` int DEFAULT NULL,
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `time_in_previous_state_sec` int DEFAULT '0',
+  `was_overdue` tinyint(1) DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`transition_id`),
+  KEY `idx_cwt_case` (`case_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=148 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `case_workflows`
+--
+
+DROP TABLE IF EXISTS `case_workflows`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `case_workflows` (
+  `case_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `state` enum('Raised','Briefed','Contacting','Waiting_For_Doctor','Decided','Closed','Reopened') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Raised',
+  `sla_seconds` int NOT NULL DEFAULT '900',
+  `state_entered_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `is_overdue` tinyint(1) NOT NULL DEFAULT '0',
+  `last_actor_type` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_actor_id` int DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`case_id`),
+  CONSTRAINT `case_workflows_ibfk_1` FOREIGN KEY (`case_id`) REFERENCES `cases` (`case_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `cases`
+--
+
+DROP TABLE IF EXISTS `cases`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cases` (
+  `case_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `patient_id` int NOT NULL,
+  `primary_flag_id` int DEFAULT NULL,
+  `status` enum('Open','In_Progress','Resolved','Merged') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Open',
+  `merged_count` int NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`case_id`),
+  KEY `idx_cases_patient` (`patient_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `chat_actions`
+--
+
+DROP TABLE IF EXISTS `chat_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `chat_actions` (
+  `action_id` bigint NOT NULL AUTO_INCREMENT,
+  `message_id` bigint DEFAULT NULL,
+  `patient_id` int NOT NULL,
+  `action_type` varchar(50) NOT NULL,
+  `status` enum('Offered','Used','Dismissed') NOT NULL DEFAULT 'Offered',
+  `used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`action_id`),
+  KEY `idx_chat_actions_msg` (`message_id`),
+  KEY `idx_chat_actions_pat` (`patient_id`),
+  CONSTRAINT `fk_chat_actions_msg` FOREIGN KEY (`message_id`) REFERENCES `chat_messages` (`message_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_chat_actions_pat` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `chat_feedback`
 --
 
@@ -275,51 +601,97 @@ CREATE TABLE `chat_messages` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `chat_actions`
+-- Table structure for table `checkin_answers`
 --
 
-DROP TABLE IF EXISTS `chat_actions`;
+DROP TABLE IF EXISTS `checkin_answers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `chat_actions` (
-  `action_id` bigint NOT NULL AUTO_INCREMENT,
-  `message_id` bigint DEFAULT NULL,
-  `patient_id` int NOT NULL,
-  `action_type` varchar(50) NOT NULL,
-  `status` enum('Offered','Used','Dismissed') NOT NULL DEFAULT 'Offered',
-  `used_at` datetime DEFAULT NULL,
+CREATE TABLE `checkin_answers` (
+  `answer_id` bigint NOT NULL AUTO_INCREMENT,
+  `session_id` bigint NOT NULL,
+  `question_id` int NOT NULL,
+  `answer_value` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `raw_input` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`action_id`),
-  KEY `idx_chat_actions_msg` (`message_id`),
-  KEY `idx_chat_actions_pat` (`patient_id`),
-  CONSTRAINT `fk_chat_actions_msg` FOREIGN KEY (`message_id`) REFERENCES `chat_messages` (`message_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_chat_actions_pat` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  PRIMARY KEY (`answer_id`),
+  KEY `fk_answer_session` (`session_id`),
+  KEY `fk_answer_question` (`question_id`),
+  CONSTRAINT `fk_answer_question` FOREIGN KEY (`question_id`) REFERENCES `checkin_questions` (`question_id`),
+  CONSTRAINT `fk_answer_session` FOREIGN KEY (`session_id`) REFERENCES `checkin_sessions` (`session_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `patient_updates`
+-- Table structure for table `checkin_questions`
 --
 
-DROP TABLE IF EXISTS `patient_updates`;
+DROP TABLE IF EXISTS `checkin_questions`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `patient_updates` (
-  `update_id` bigint NOT NULL AUTO_INCREMENT,
+CREATE TABLE `checkin_questions` (
+  `question_id` int NOT NULL AUTO_INCREMENT,
+  `template_id` int NOT NULL,
+  `step_order` smallint NOT NULL,
+  `question_key` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `text_en` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `text_hi` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `response_type` enum('Scale_0_10','Yes_No','Choice','Text') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `choices` json DEFAULT NULL,
+  `is_emergency_trigger` tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`question_id`),
+  KEY `fk_question_template` (`template_id`),
+  CONSTRAINT `fk_question_template` FOREIGN KEY (`template_id`) REFERENCES `checkin_templates` (`template_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `checkin_sessions`
+--
+
+DROP TABLE IF EXISTS `checkin_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `checkin_sessions` (
+  `session_id` bigint NOT NULL AUTO_INCREMENT,
   `patient_id` int NOT NULL,
-  `update_type` varchar(50) NOT NULL,
-  `title` varchar(255) NOT NULL,
-  `body` text NOT NULL,
-  `action_type` varchar(50) DEFAULT NULL,
-  `action_payload` json DEFAULT NULL,
-  `source_action_id` bigint DEFAULT NULL,
-  `created_by` enum('System','Staff') NOT NULL DEFAULT 'System',
-  `seen_at` datetime DEFAULT NULL,
+  `template_id` int NOT NULL,
+  `channel` enum('App_Guided','SMS','Voice') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'App_Guided',
+  `status` enum('In_Progress','Completed','Abandoned','Missed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'In_Progress',
+  `current_step` smallint NOT NULL DEFAULT '1',
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at` datetime DEFAULT NULL,
+  `symptom_report_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`session_id`),
+  KEY `fk_checkin_patient` (`patient_id`),
+  KEY `fk_checkin_template` (`template_id`),
+  KEY `fk_checkin_report` (`symptom_report_id`),
+  CONSTRAINT `fk_checkin_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_checkin_report` FOREIGN KEY (`symptom_report_id`) REFERENCES `symptom_reports` (`symptom_report_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_checkin_template` FOREIGN KEY (`template_id`) REFERENCES `checkin_templates` (`template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `checkin_templates`
+--
+
+DROP TABLE IF EXISTS `checkin_templates`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `checkin_templates` (
+  `template_id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `version` smallint NOT NULL DEFAULT '1',
+  `status` enum('Draft','Approved','Archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `approved_by_staff_id` int DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`update_id`),
-  KEY `idx_patient_updates_patient` (`patient_id`,`created_at`),
-  CONSTRAINT `fk_patient_updates_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  PRIMARY KEY (`template_id`),
+  KEY `fk_template_staff` (`approved_by_staff_id`),
+  CONSTRAINT `fk_template_staff` FOREIGN KEY (`approved_by_staff_id`) REFERENCES `care_staff` (`staff_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -520,7 +892,7 @@ CREATE TABLE `flags` (
   `flag_id` bigint NOT NULL AUTO_INCREMENT,
   `patient_id` int NOT NULL,
   `rule_id` int DEFAULT NULL,
-  `source_type` enum('Sensor','Symptom','Medication','Device','Emergency','Photo','Fall','Checkin','SOS') NOT NULL,
+  `source_type` enum('Sensor','Symptom','Medication','Device','Emergency','Fall','Checkin','SOS') NOT NULL,
   `source_ref_id` bigint DEFAULT NULL,
   `reason` varchar(255) NOT NULL,
   `severity` enum('Info','Review_Soon','Urgent_Review') NOT NULL DEFAULT 'Review_Soon',
@@ -582,317 +954,6 @@ CREATE TABLE `follow_up_tasks` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `scheduled_actions`
---
-
-DROP TABLE IF EXISTS `scheduled_actions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `scheduled_actions` (
-  `action_id` bigint NOT NULL AUTO_INCREMENT,
-  `patient_id` int NOT NULL,
-  `action_type` enum('Dose_Reminder','Checkin_Prompt','Photo_Request','Fall_Prompt','Plan_Prompt','Welcome_Call_Task','SOS_Repeat') NOT NULL,
-  `channel` enum('App','SMS','Voice','Task') NOT NULL DEFAULT 'App',
-  `run_at` datetime NOT NULL,
-  `status` enum('Scheduled','Done','Skipped','Cancelled','Failed') NOT NULL DEFAULT 'Scheduled',
-  `reason` varchar(255) NOT NULL,
-  `payload` json DEFAULT NULL,
-  `attempts` tinyint NOT NULL DEFAULT '0',
-  `done_at` datetime DEFAULT NULL,
-  `result` varchar(255) DEFAULT NULL,
-  `dedupe_key` varchar(120) NOT NULL,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`action_id`),
-  UNIQUE KEY `uq_sched_dedupe` (`dedupe_key`),
-  KEY `idx_sched_due` (`status`,`run_at`),
-  KEY `fk_sched_patient` (`patient_id`),
-  CONSTRAINT `fk_sched_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `agent_proposals`
---
-
-DROP TABLE IF EXISTS `agent_proposals`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `agent_proposals` (
-  `proposal_id` bigint NOT NULL AUTO_INCREMENT,
-  `patient_id` int NOT NULL,
-  `agent_name` varchar(40) NOT NULL DEFAULT 'Rounds',
-  `proposal_type` enum('Suggest_Call','Suggest_Photo','Suggest_Plan_Review') NOT NULL,
-  `reason` varchar(255) NOT NULL,
-  `evidence` json DEFAULT NULL,
-  `status` enum('Pending','Accepted','Dismissed') NOT NULL DEFAULT 'Pending',
-  `decided_by_staff_id` int DEFAULT NULL,
-  `decided_at` datetime DEFAULT NULL,
-  `dismiss_reason` varchar(255) DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`proposal_id`),
-  KEY `idx_prop_status` (`status`,`created_at`),
-  KEY `fk_prop_patient` (`patient_id`),
-  KEY `fk_prop_staff` (`decided_by_staff_id`),
-  CONSTRAINT `fk_prop_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_prop_staff` FOREIGN KEY (`decided_by_staff_id`) REFERENCES `care_staff` (`staff_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `checkin_templates`
---
-
-DROP TABLE IF EXISTS `checkin_templates`;
-CREATE TABLE `checkin_templates` (
-  `template_id` int NOT NULL AUTO_INCREMENT,
-  `name` varchar(80) NOT NULL,
-  `version` smallint NOT NULL DEFAULT '1',
-  `status` enum('Draft','Approved','Archived') NOT NULL DEFAULT 'Draft',
-  `approved_by_staff_id` int DEFAULT NULL,
-  `approved_at` datetime DEFAULT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT '0',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`template_id`),
-  KEY `fk_template_staff` (`approved_by_staff_id`),
-  CONSTRAINT `fk_template_staff` FOREIGN KEY (`approved_by_staff_id`) REFERENCES `care_staff` (`staff_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Table structure for table `checkin_questions`
---
-
-DROP TABLE IF EXISTS `checkin_questions`;
-CREATE TABLE `checkin_questions` (
-  `question_id` int NOT NULL AUTO_INCREMENT,
-  `template_id` int NOT NULL,
-  `step_order` smallint NOT NULL,
-  `question_key` varchar(40) NOT NULL,
-  `text_en` varchar(255) NOT NULL,
-  `text_hi` varchar(255) NOT NULL,
-  `response_type` enum('Scale_0_10','Yes_No','Choice','Text') NOT NULL,
-  `choices` json DEFAULT NULL,
-  `is_emergency_trigger` tinyint(1) NOT NULL DEFAULT '0',
-  PRIMARY KEY (`question_id`),
-  KEY `fk_question_template` (`template_id`),
-  CONSTRAINT `fk_question_template` FOREIGN KEY (`template_id`) REFERENCES `checkin_templates` (`template_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Table structure for table `checkin_sessions`
---
-
-DROP TABLE IF EXISTS `checkin_sessions`;
-CREATE TABLE `checkin_sessions` (
-  `session_id` bigint NOT NULL AUTO_INCREMENT,
-  `patient_id` int NOT NULL,
-  `template_id` int NOT NULL,
-  `channel` enum('App_Guided','SMS','Voice') NOT NULL DEFAULT 'App_Guided',
-  `status` enum('In_Progress','Completed','Abandoned','Missed') NOT NULL DEFAULT 'In_Progress',
-  `current_step` smallint NOT NULL DEFAULT '1',
-  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `completed_at` datetime DEFAULT NULL,
-  `symptom_report_id` bigint DEFAULT NULL,
-  PRIMARY KEY (`session_id`),
-  KEY `fk_checkin_patient` (`patient_id`),
-  KEY `fk_checkin_template` (`template_id`),
-  KEY `fk_checkin_report` (`symptom_report_id`),
-  CONSTRAINT `fk_checkin_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_checkin_report` FOREIGN KEY (`symptom_report_id`) REFERENCES `symptom_reports` (`symptom_report_id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_checkin_template` FOREIGN KEY (`template_id`) REFERENCES `checkin_templates` (`template_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Table structure for table `checkin_answers`
---
-
-DROP TABLE IF EXISTS `checkin_answers`;
-CREATE TABLE `checkin_answers` (
-  `answer_id` bigint NOT NULL AUTO_INCREMENT,
-  `session_id` bigint NOT NULL,
-  `question_id` int NOT NULL,
-  `answer_value` varchar(255) NOT NULL,
-  `raw_input` varchar(500) DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`answer_id`),
-  KEY `fk_answer_session` (`session_id`),
-  KEY `fk_answer_question` (`question_id`),
-  CONSTRAINT `fk_answer_question` FOREIGN KEY (`question_id`) REFERENCES `checkin_questions` (`question_id`),
-  CONSTRAINT `fk_answer_session` FOREIGN KEY (`session_id`) REFERENCES `checkin_sessions` (`session_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Table structure for table `sms_messages`
---
-
-DROP TABLE IF EXISTS `sms_messages`;
-CREATE TABLE `sms_messages` (
-  `sms_id` bigint NOT NULL AUTO_INCREMENT,
-  `direction` enum('Outbound','Inbound') NOT NULL,
-  `patient_id` int DEFAULT NULL,
-  `caregiver_id` int DEFAULT NULL,
-  `phone` varchar(20) NOT NULL,
-  `body` varchar(480) NOT NULL,
-  `template_key` varchar(60) DEFAULT NULL,
-  `related_type` varchar(30) DEFAULT NULL,
-  `related_id` bigint DEFAULT NULL,
-  `status` enum('Logged','Sent','Delivered','Failed','Received') NOT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`sms_id`),
-  KEY `idx_sms_patient_time` (`patient_id`,`created_at`),
-  KEY `fk_sms_caregiver` (`caregiver_id`),
-  CONSTRAINT `fk_sms_caregiver` FOREIGN KEY (`caregiver_id`) REFERENCES `caregivers` (`caregiver_id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_sms_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `wound_photos`
---
-
-DROP TABLE IF EXISTS `wound_photos`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `wound_photos` (
-  `photo_id` bigint NOT NULL AUTO_INCREMENT,
-  `patient_id` int NOT NULL,
-  `session_id` bigint DEFAULT NULL,
-  `taken_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `file_path` varchar(255) NOT NULL,
-  `thumb_path` varchar(255) DEFAULT NULL,
-  `sha256` char(64) NOT NULL,
-  `quality_status` enum('Usable','Too_Dark','Blurry','Too_Small','Used_Anyway') NOT NULL,
-  `quality_details` json DEFAULT NULL,
-  `patient_note` varchar(255) DEFAULT NULL,
-  `review_status` enum('Pending','Reviewed','Needs_Doctor') NOT NULL DEFAULT 'Pending',
-  `finding` enum('No_Concern_Seen','Concern_Noted','Retake_Needed') DEFAULT NULL,
-  `review_note` varchar(500) DEFAULT NULL,
-  `reviewed_by_staff_id` int DEFAULT NULL,
-  `reviewed_at` datetime DEFAULT NULL,
-  `flag_id` bigint DEFAULT NULL,
-  PRIMARY KEY (`photo_id`),
-  KEY `fk_photo_patient` (`patient_id`),
-  KEY `fk_photo_staff` (`reviewed_by_staff_id`),
-  KEY `fk_photo_flag` (`flag_id`),
-  KEY `idx_photo_review` (`review_status`,`taken_at`),
-  CONSTRAINT `fk_photo_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_photo_staff` FOREIGN KEY (`reviewed_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_photo_flag` FOREIGN KEY (`flag_id`) REFERENCES `flags` (`flag_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `recovery_plans` (Phase 4)
---
-
-DROP TABLE IF EXISTS `recovery_plans`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `recovery_plans` (
-  `plan_id` int NOT NULL AUTO_INCREMENT,
-  `patient_id` int NOT NULL,
-  `version` smallint NOT NULL,
-  `status` enum('Draft','Approved','Rejected','Superseded') NOT NULL DEFAULT 'Draft',
-  `source_document_id` int DEFAULT NULL,
-  `drafted_by` enum('Agent','Staff') NOT NULL,
-  `drafted_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `approved_by_staff_id` int DEFAULT NULL,
-  `approved_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`plan_id`),
-  UNIQUE KEY `uq_plan_version` (`patient_id`, `version`),
-  KEY `fk_plan_patient` (`patient_id`),
-  KEY `fk_plan_doc` (`source_document_id`),
-  KEY `fk_plan_staff` (`approved_by_staff_id`),
-  CONSTRAINT `fk_plan_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_plan_doc` FOREIGN KEY (`source_document_id`) REFERENCES `discharge_documents` (`document_id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_plan_staff` FOREIGN KEY (`approved_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `recovery_plan_items` (Phase 4)
---
-
-DROP TABLE IF EXISTS `recovery_plan_items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `recovery_plan_items` (
-  `item_id` bigint NOT NULL AUTO_INCREMENT,
-  `plan_id` int NOT NULL,
-  `item_type` enum('Medicine','Appointment','Activity','Wound_Care','Warning_Sign','Diet','Other') NOT NULL,
-  `title` varchar(120) NOT NULL,
-  `detail` varchar(500) NOT NULL,
-  `schedule_text` varchar(120) DEFAULT NULL,
-  `source_chunk_id` bigint DEFAULT NULL,
-  `reconcile_status` enum('Matches','Mismatch','Not_Applicable') NOT NULL DEFAULT 'Not_Applicable',
-  `verified_by_staff_id` int DEFAULT NULL,
-  `verified_at` datetime DEFAULT NULL,
-  `display_order` smallint NOT NULL DEFAULT 0,
-  PRIMARY KEY (`item_id`),
-  KEY `fk_item_plan` (`plan_id`),
-  KEY `fk_item_chunk` (`source_chunk_id`),
-  KEY `fk_item_staff` (`verified_by_staff_id`),
-  CONSTRAINT `fk_item_plan` FOREIGN KEY (`plan_id`) REFERENCES `recovery_plans` (`plan_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_item_chunk` FOREIGN KEY (`source_chunk_id`) REFERENCES `document_chunks` (`chunk_id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_item_staff` FOREIGN KEY (`verified_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `plan_understanding_checks` (Phase 4)
---
-
-DROP TABLE IF EXISTS `plan_understanding_checks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `plan_understanding_checks` (
-  `check_id` bigint NOT NULL AUTO_INCREMENT,
-  `patient_id` int NOT NULL,
-  `plan_id` int NOT NULL,
-  `question_text` varchar(255) NOT NULL,
-  `options` json NOT NULL,
-  `correct_option_index` tinyint NOT NULL,
-  `selected_option_index` tinyint DEFAULT NULL,
-  `is_correct` tinyint(1) DEFAULT NULL,
-  `answered_at` datetime DEFAULT NULL,
-  `proposal_id` bigint DEFAULT NULL,
-  PRIMARY KEY (`check_id`),
-  KEY `fk_puc_patient` (`patient_id`),
-  KEY `fk_puc_plan` (`plan_id`),
-  KEY `fk_puc_prop` (`proposal_id`),
-  CONSTRAINT `fk_puc_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_puc_plan` FOREIGN KEY (`plan_id`) REFERENCES `recovery_plans` (`plan_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_puc_prop` FOREIGN KEY (`proposal_id`) REFERENCES `agent_proposals` (`proposal_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `device_events` (Phase 5)
---
-
-DROP TABLE IF EXISTS `device_events`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `device_events` (
-  `event_id` bigint NOT NULL AUTO_INCREMENT,
-  `device_id` varchar(60) NOT NULL,
-  `patient_id` int NOT NULL,
-  `event_type` enum('Possible_Fall','Low_Battery','Reconnected') NOT NULL,
-  `occurred_at` datetime NOT NULL,
-  `details` json DEFAULT NULL,
-  `prompt_sent_at` datetime DEFAULT NULL,
-  `patient_response` enum('Ok','Need_Help','No_Response') DEFAULT NULL,
-  `responded_at` datetime DEFAULT NULL,
-  `flag_id` bigint DEFAULT NULL,
-  PRIMARY KEY (`event_id`),
-  KEY `fk_devev_device` (`device_id`,`patient_id`),
-  KEY `fk_devev_flag` (`flag_id`),
-  UNIQUE KEY `uq_devev` (`device_id`,`event_type`,`occurred_at`),
-  CONSTRAINT `fk_devev_device` FOREIGN KEY (`device_id`, `patient_id`) REFERENCES `devices` (`device_id`, `patient_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_devev_flag` FOREIGN KEY (`flag_id`) REFERENCES `flags` (`flag_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
 -- Table structure for table `medication_logs`
 --
 
@@ -913,7 +974,7 @@ CREATE TABLE `medication_logs` (
   KEY `idx_medlog_status_time` (`status`,`scheduled_for`),
   CONSTRAINT `fk_medlog_rx` FOREIGN KEY (`prescription_id`) REFERENCES `prescriptions` (`prescription_id`) ON DELETE CASCADE,
   CONSTRAINT `chk_confirmed_has_time` CHECK (((`status` not in (_utf8mb4'Taken_Confirmed',_utf8mb4'Skipped')) or (`recorded_at` is not null)))
-) ENGINE=InnoDB AUTO_INCREMENT=71 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=47 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -929,6 +990,51 @@ CREATE TABLE `medicines` (
   `general_notes` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`medicine_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `patient_ai_consents`
+--
+
+DROP TABLE IF EXISTS `patient_ai_consents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `patient_ai_consents` (
+  `consent_id` int NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `notice_version` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `consented_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `consent_granted` tinyint(1) NOT NULL DEFAULT '1',
+  `actor_id` int DEFAULT NULL,
+  PRIMARY KEY (`consent_id`),
+  KEY `idx_pac_patient` (`patient_id`),
+  CONSTRAINT `patient_ai_consents_ibfk_1` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `patient_updates`
+--
+
+DROP TABLE IF EXISTS `patient_updates`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `patient_updates` (
+  `update_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `update_type` varchar(50) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  `action_type` varchar(50) DEFAULT NULL,
+  `action_payload` json DEFAULT NULL,
+  `source_action_id` bigint DEFAULT NULL,
+  `created_by` enum('System','Staff') NOT NULL DEFAULT 'System',
+  `seen_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`update_id`),
+  KEY `idx_patient_updates_patient` (`patient_id`,`created_at`),
+  CONSTRAINT `fk_patient_updates_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -951,9 +1057,38 @@ CREATE TABLE `patients` (
   `rounds_pause_reason` varchar(120) DEFAULT NULL,
   `sms_opt_out` tinyint(1) NOT NULL DEFAULT '0',
   `voice_autoplay` tinyint(1) NOT NULL DEFAULT '0',
+  `ai_help_enabled` tinyint(1) NOT NULL DEFAULT '1',
   PRIMARY KEY (`patient_id`),
   UNIQUE KEY `uq_patient_code` (`patient_code`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `plan_understanding_checks`
+--
+
+DROP TABLE IF EXISTS `plan_understanding_checks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `plan_understanding_checks` (
+  `check_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `plan_id` int NOT NULL,
+  `question_text` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options` json NOT NULL,
+  `correct_option_index` tinyint NOT NULL,
+  `selected_option_index` tinyint DEFAULT NULL,
+  `is_correct` tinyint(1) DEFAULT NULL,
+  `answered_at` datetime DEFAULT NULL,
+  `proposal_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`check_id`),
+  KEY `fk_puc_patient` (`patient_id`),
+  KEY `fk_puc_plan` (`plan_id`),
+  KEY `fk_puc_prop` (`proposal_id`),
+  CONSTRAINT `fk_puc_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_puc_plan` FOREIGN KEY (`plan_id`) REFERENCES `recovery_plans` (`plan_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_puc_prop` FOREIGN KEY (`proposal_id`) REFERENCES `agent_proposals` (`proposal_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1001,6 +1136,63 @@ CREATE TABLE `prescriptions` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `recovery_plan_items`
+--
+
+DROP TABLE IF EXISTS `recovery_plan_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `recovery_plan_items` (
+  `item_id` bigint NOT NULL AUTO_INCREMENT,
+  `plan_id` int NOT NULL,
+  `item_type` enum('Medicine','Appointment','Activity','Wound_Care','Warning_Sign','Diet','Other') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `detail` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `schedule_text` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_chunk_id` bigint DEFAULT NULL,
+  `reconcile_status` enum('Matches','Mismatch','Not_Applicable') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Not_Applicable',
+  `verified_by_staff_id` int DEFAULT NULL,
+  `verified_at` datetime DEFAULT NULL,
+  `display_order` smallint NOT NULL DEFAULT '0',
+  PRIMARY KEY (`item_id`),
+  KEY `fk_item_plan` (`plan_id`),
+  KEY `fk_item_chunk` (`source_chunk_id`),
+  KEY `fk_item_staff` (`verified_by_staff_id`),
+  CONSTRAINT `fk_item_chunk` FOREIGN KEY (`source_chunk_id`) REFERENCES `document_chunks` (`chunk_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_item_plan` FOREIGN KEY (`plan_id`) REFERENCES `recovery_plans` (`plan_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_item_staff` FOREIGN KEY (`verified_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `recovery_plans`
+--
+
+DROP TABLE IF EXISTS `recovery_plans`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `recovery_plans` (
+  `plan_id` int NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `version` smallint NOT NULL,
+  `status` enum('Draft','Approved','Rejected','Superseded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `source_document_id` int DEFAULT NULL,
+  `drafted_by` enum('Agent','Staff') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `drafted_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `approved_by_staff_id` int DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`plan_id`),
+  UNIQUE KEY `uq_plan_version` (`patient_id`,`version`),
+  KEY `fk_plan_patient` (`patient_id`),
+  KEY `fk_plan_doc` (`source_document_id`),
+  KEY `fk_plan_staff` (`approved_by_staff_id`),
+  CONSTRAINT `fk_plan_doc` FOREIGN KEY (`source_document_id`) REFERENCES `discharge_documents` (`document_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_plan_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_plan_staff` FOREIGN KEY (`approved_by_staff_id`) REFERENCES `care_staff` (`staff_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `risk_context`
 --
 
@@ -1042,7 +1234,36 @@ CREATE TABLE `risk_snapshots` (
   KEY `idx_risk_patient_time` (`patient_id`,`computed_at`),
   CONSTRAINT `fk_risk_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE,
   CONSTRAINT `chk_risk_score` CHECK ((`risk_score` between 0 and 100))
-) ENGINE=InnoDB AUTO_INCREMENT=126 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `scheduled_actions`
+--
+
+DROP TABLE IF EXISTS `scheduled_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `scheduled_actions` (
+  `action_id` bigint NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `action_type` enum('Dose_Reminder','Checkin_Prompt','Fall_Prompt','Plan_Prompt','Welcome_Call_Task','SOS_Repeat') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `channel` enum('App','SMS','Voice','Task') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'App',
+  `run_at` datetime NOT NULL,
+  `status` enum('Scheduled','Done','Skipped','Cancelled','Failed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Scheduled',
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` json DEFAULT NULL,
+  `attempts` tinyint NOT NULL DEFAULT '0',
+  `done_at` datetime DEFAULT NULL,
+  `result` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `dedupe_key` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`action_id`),
+  UNIQUE KEY `uq_sched_dedupe` (`dedupe_key`),
+  KEY `idx_sched_due` (`status`,`run_at`),
+  KEY `fk_sched_patient` (`patient_id`),
+  CONSTRAINT `fk_sched_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1125,6 +1346,53 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+
+--
+-- Table structure for table `shadow_decisions`
+--
+
+DROP TABLE IF EXISTS `shadow_decisions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shadow_decisions` (
+  `shadow_id` int NOT NULL AUTO_INCREMENT,
+  `run_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `action_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agent_decision` json NOT NULL,
+  `human_decision` json DEFAULT NULL,
+  `agreed` tinyint(1) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`shadow_id`),
+  KEY `idx_shadow_action` (`action_type`)
+) ENGINE=InnoDB AUTO_INCREMENT=66 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `sms_messages`
+--
+
+DROP TABLE IF EXISTS `sms_messages`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sms_messages` (
+  `sms_id` bigint NOT NULL AUTO_INCREMENT,
+  `direction` enum('Outbound','Inbound') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `patient_id` int DEFAULT NULL,
+  `caregiver_id` int DEFAULT NULL,
+  `phone` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` varchar(480) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `template_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `related_type` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `related_id` bigint DEFAULT NULL,
+  `status` enum('Logged','Sent','Delivered','Failed','Received') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`sms_id`),
+  KEY `idx_sms_patient_time` (`patient_id`,`created_at`),
+  KEY `fk_sms_caregiver` (`caregiver_id`),
+  CONSTRAINT `fk_sms_caregiver` FOREIGN KEY (`caregiver_id`) REFERENCES `caregivers` (`caregiver_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_sms_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `symptom_report_tags`
@@ -1386,657 +1654,6 @@ SET @saved_cs_client     = @@character_set_client;
 SET character_set_client = @saved_cs_client;
 
 --
--- Dumping routines for database 'careloop'
---
-/*!50003 DROP PROCEDURE IF EXISTS `sp_acknowledge_flag` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_acknowledge_flag`(
-    IN p_flag_id BIGINT,
-    IN p_staff_id INT,
-    IN p_note VARCHAR(255),
-    IN p_create_task BOOLEAN
-)
-BEGIN
-    DECLARE v_patient  INT DEFAULT NULL;
-    DECLARE v_severity VARCHAR(20) DEFAULT NULL;
-    DECLARE v_reason   VARCHAR(255) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT patient_id, severity, reason INTO v_patient, v_severity, v_reason
-    FROM flags WHERE flag_id = p_flag_id AND status = 'Open' FOR UPDATE;
-    
-    IF v_patient IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Flag not found or already acknowledged';
-    END IF;
-
-    UPDATE flags
-    SET status = 'Acknowledged',
-        owner_staff_id = p_staff_id,
-        acknowledged_by_staff_id = p_staff_id,
-        acknowledged_at = NOW()
-    WHERE flag_id = p_flag_id;
-
-    UPDATE escalations
-    SET delivery_status = 'Acknowledged', responded_at = NOW()
-    WHERE flag_id = p_flag_id AND delivery_status IN ('Queued','Sent');
-
-    INSERT INTO flag_events (flag_id, event_type, staff_id, note)
-    VALUES (p_flag_id, 'Acknowledged', p_staff_id, p_note);
-
-    IF p_create_task THEN
-        INSERT INTO follow_up_tasks (patient_id, flag_id, assigned_staff_id, reason, priority, due_at)
-        VALUES (v_patient, p_flag_id, p_staff_id, v_reason,
-                CASE v_severity WHEN 'Urgent_Review' THEN 'Urgent_Review' WHEN 'Review_Soon' THEN 'Review_Soon' ELSE 'Routine' END,
-                NOW() + INTERVAL CASE v_severity WHEN 'Urgent_Review' THEN 2 WHEN 'Review_Soon' THEN 24 ELSE 72 END HOUR);
-    END IF;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'ACK_FLAG', 'flag', p_flag_id,
-            JSON_OBJECT('note', p_note, 'task', p_create_task));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_approve_summary` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_approve_summary`(
-    IN p_summary_id BIGINT,
-    IN p_doctor_staff_id INT,
-    IN p_edited_text MEDIUMTEXT
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM ai_summaries WHERE summary_id = p_summary_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Summary not found';
-    END IF;
-
-    UPDATE ai_summaries
-    SET status = 'Approved',
-        reviewed_by_staff_id = p_doctor_staff_id,
-        reviewed_at = NOW(),
-        edited_text = p_edited_text
-    WHERE summary_id = p_summary_id;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_doctor_staff_id AS CHAR), 'APPROVE_SUMMARY', 'summary', p_summary_id,
-            JSON_OBJECT('edited', p_edited_text IS NOT NULL));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_assign_flag` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_assign_flag`(
-    IN p_flag_id BIGINT,
-    IN p_assigned_by_staff_id INT,
-    IN p_target_staff_id INT,
-    IN p_note VARCHAR(255)
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM flags WHERE flag_id = p_flag_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Flag not found';
-    END IF;
-
-    UPDATE flags SET owner_staff_id = p_target_staff_id WHERE flag_id = p_flag_id;
-
-    INSERT INTO flag_events (flag_id, event_type, staff_id, note)
-    VALUES (p_flag_id, 'Assigned', p_target_staff_id, p_note);
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_assigned_by_staff_id AS CHAR), 'ASSIGN_FLAG', 'flag', p_flag_id,
-            JSON_OBJECT('target_staff_id', p_target_staff_id, 'note', p_note));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_assign_task` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_assign_task`(
-    IN p_task_id BIGINT,
-    IN p_staff_id INT,
-    IN p_target_staff_id INT,
-    IN p_note VARCHAR(255)
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
-    END IF;
-
-    UPDATE follow_up_tasks
-    SET assigned_staff_id = p_target_staff_id
-    WHERE followup_id = p_task_id;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'ASSIGN_TASK', 'task', p_task_id,
-            JSON_OBJECT('target_staff_id', p_target_staff_id, 'note', p_note));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_claim_task` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_claim_task`(
-    IN p_task_id BIGINT,
-    IN p_staff_id INT
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
-    END IF;
-
-    UPDATE follow_up_tasks
-    SET assigned_staff_id = p_staff_id
-    WHERE followup_id = p_task_id;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'CLAIM_TASK', 'task', p_task_id, JSON_OBJECT('assigned_staff_id', p_staff_id));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_complete_task` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_complete_task`(
-    IN p_task_id BIGINT,
-    IN p_staff_id INT,
-    IN p_outcome_code VARCHAR(50),
-    IN p_outcome_notes VARCHAR(500)
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
-    END IF;
-    IF v_status = 'Resolved' THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task is already resolved';
-    END IF;
-
-    UPDATE follow_up_tasks
-    SET status = 'Resolved',
-        completed_at = NOW(),
-        outcome_code = p_outcome_code,
-        outcome_notes = p_outcome_notes
-    WHERE followup_id = p_task_id;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'COMPLETE_TASK', 'task', p_task_id,
-            JSON_OBJECT('outcome_code', p_outcome_code, 'notes', p_outcome_notes));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_compute_all_risk_snapshots` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_compute_all_risk_snapshots`(IN p_now DATETIME)
-BEGIN
-    DECLARE v_done INT DEFAULT 0;
-    DECLARE v_pid  INT;
-    DECLARE cur CURSOR FOR SELECT patient_id FROM patients WHERE consent_status = 'Granted';
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
-
-    OPEN cur;
-    read_loop: LOOP
-        FETCH cur INTO v_pid;
-        IF v_done = 1 THEN
-            LEAVE read_loop;
-        END IF;
-        CALL sp_compute_risk_snapshot(v_pid, p_now);
-    END LOOP;
-    CLOSE cur;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_compute_risk_snapshot` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_compute_risk_snapshot`(IN p_patient_id INT, IN p_now DATETIME)
-BEGIN
-    DECLARE v_urgent INT DEFAULT 0;
-    DECLARE v_soon   INT DEFAULT 0;
-    DECLARE v_missed INT DEFAULT 0;
-    DECLARE v_pain   INT DEFAULT 0;
-    DECLARE v_score  INT DEFAULT 0;
-
-    SELECT COALESCE(SUM(severity = 'Urgent_Review'), 0), COALESCE(SUM(severity = 'Review_Soon'), 0)
-      INTO v_urgent, v_soon
-    FROM flags
-    WHERE patient_id = p_patient_id AND status IN ('Open','Acknowledged');
-
-    SELECT COUNT(*) INTO v_missed
-    FROM medication_logs ml
-    JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
-    WHERE pr.patient_id = p_patient_id AND ml.status = 'Missed'
-      AND ml.scheduled_for >= p_now - INTERVAL 72 HOUR;
-
-    SELECT COALESCE(MAX(pain_level), 0) INTO v_pain
-    FROM symptom_reports
-    WHERE patient_id = p_patient_id AND reported_at >= p_now - INTERVAL 72 HOUR;
-
-    SET v_score = LEAST(100, v_urgent * 40 + v_soon * 20 + LEAST(v_missed * 10, 30) + IF(v_pain >= 7, 15, 0));
-
-    INSERT INTO risk_snapshots (patient_id, computed_at, risk_score, contributing_factors)
-    VALUES (p_patient_id, p_now, v_score,
-            JSON_OBJECT('open_urgent_flags', v_urgent, 'open_review_soon_flags', v_soon,
-                        'missed_doses_72h', v_missed, 'max_pain_72h', v_pain));
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_daily_report` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_daily_report`(IN p_patient_id INT, IN p_day DATE)
-BEGIN
-    SELECT p.patient_id, p.full_name, p_day AS report_date
-    FROM patients p WHERE p.patient_id = p_patient_id;
-
-    SELECT m.medicine_name, ml.scheduled_for, ml.status, ml.recorded_at
-    FROM medication_logs ml
-    JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
-    JOIN medicines m ON m.medicine_id = pr.medicine_id
-    WHERE pr.patient_id = p_patient_id
-      AND ml.scheduled_for >= p_day AND ml.scheduled_for < p_day + INTERVAL 1 DAY
-    ORDER BY ml.scheduled_for;
-
-    SELECT sr.measurement_type, COUNT(*) AS readings_used,
-           MIN(sr.measurement_value) AS min_value, MAX(sr.measurement_value) AS max_value,
-           ROUND(AVG(sr.measurement_value), 1) AS avg_value
-    FROM sensor_readings sr
-    WHERE sr.patient_id = p_patient_id
-      AND sr.quality_status IN ('Good','Simulated')
-      AND sr.measured_at >= p_day AND sr.measured_at < p_day + INTERVAL 1 DAY
-    GROUP BY sr.measurement_type;
-
-    SELECT s.reported_at, s.pain_level, s.input_method, s.language, s.symptom_text
-    FROM symptom_reports s
-    WHERE s.patient_id = p_patient_id
-      AND s.reported_at >= p_day AND s.reported_at < p_day + INTERVAL 1 DAY
-    ORDER BY s.reported_at;
-
-    SELECT f.created_at, f.severity, f.source_type, f.reason, f.status
-    FROM flags f
-    WHERE f.patient_id = p_patient_id
-      AND f.created_at >= p_day AND f.created_at < p_day + INTERVAL 1 DAY
-    ORDER BY f.created_at;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_evaluate_missed_dose_rules` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_evaluate_missed_dose_rules`(IN p_now DATETIME)
-BEGIN
-    INSERT INTO flags (patient_id, rule_id, source_type, reason, severity)
-    SELECT r.patient_id, r.rule_id, 'Medication',
-           CONCAT(r.missed, ' dose(s) with no confirmation in the last ', r.window_hours,
-                  ' hours (clinician-approved limit: ', r.threshold_value, ')'),
-           r.severity
-    FROM (
-        SELECT r2.rule_id, r2.patient_id, r2.severity, r2.window_hours, r2.threshold_value,
-               (SELECT COUNT(*)
-                FROM medication_logs ml
-                JOIN prescriptions pr ON pr.prescription_id = ml.prescription_id
-                WHERE pr.patient_id = r2.patient_id
-                  AND ml.status = 'Missed'
-                  AND ml.scheduled_for >= p_now - INTERVAL r2.window_hours HOUR) AS missed
-        FROM alert_rules r2
-        WHERE r2.rule_type = 'Missed_Doses' AND r2.is_active = TRUE
-    ) r
-    WHERE r.missed >= r.threshold_value
-      AND NOT EXISTS (SELECT 1 FROM flags f
-                      WHERE f.rule_id = r.rule_id AND f.status IN ('Open','Acknowledged'));
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_evaluate_no_data_rules` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_evaluate_no_data_rules`(IN p_now DATETIME)
-BEGIN
-    INSERT INTO flags (patient_id, rule_id, source_type, reason, severity)
-    SELECT r.patient_id, r.rule_id, 'Device',
-           CONCAT('No data from device ', d.device_id, ' for more than ', r.threshold_value,
-                  ' hour(s). Missing data is not a normal reading.'),
-           r.severity
-    FROM alert_rules r
-    JOIN devices d ON d.patient_id = r.patient_id
-    WHERE r.rule_type = 'No_Data_Hours' AND r.is_active = TRUE
-      AND (d.last_seen_at IS NULL OR d.last_seen_at < p_now - INTERVAL r.threshold_value HOUR)
-      AND NOT EXISTS (SELECT 1 FROM flags f
-                      WHERE f.rule_id = r.rule_id AND f.status IN ('Open','Acknowledged'));
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_generate_daily_doses` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_daily_doses`(IN p_date DATE)
-BEGIN
-    INSERT IGNORE INTO medication_logs (prescription_id, scheduled_for)
-    SELECT pr.prescription_id, TIMESTAMP(p_date, pt.dose_time)
-    FROM prescriptions pr
-    JOIN prescription_times pt ON pt.prescription_id = pr.prescription_id
-    WHERE pr.active_status = TRUE
-      AND p_date >= pr.start_date
-      AND (pr.end_date IS NULL OR p_date <= pr.end_date);
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_mark_overdue_doses_missed` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_mark_overdue_doses_missed`(IN p_now DATETIME, IN p_grace_minutes INT)
-BEGIN
-    UPDATE medication_logs
-    SET status = 'Missed', recorded_by = 'System'
-    WHERE status = 'Unconfirmed'
-      AND scheduled_for < p_now - INTERVAL p_grace_minutes MINUTE;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_reject_summary` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_reject_summary`(
-    IN p_summary_id BIGINT,
-    IN p_doctor_staff_id INT,
-    IN p_reason VARCHAR(255)
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM ai_summaries WHERE summary_id = p_summary_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Summary not found';
-    END IF;
-
-    IF p_reason IS NULL OR CHAR_LENGTH(TRIM(p_reason)) < 3 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A reason of at least 3 characters is required to reject a summary';
-    END IF;
-
-    UPDATE ai_summaries
-    SET status = 'Rejected',
-        reviewed_by_staff_id = p_doctor_staff_id,
-        reviewed_at = NOW(),
-        reject_reason = p_reason
-    WHERE summary_id = p_summary_id;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_doctor_staff_id AS CHAR), 'REJECT_SUMMARY', 'summary', p_summary_id,
-            JSON_OBJECT('reason', p_reason));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_resolve_flag` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_resolve_flag`(
-    IN p_flag_id BIGINT,
-    IN p_staff_id INT,
-    IN p_code VARCHAR(30),
-    IN p_note VARCHAR(500),
-    IN p_dismiss BOOLEAN
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE v_sev    VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status, severity INTO v_status, v_sev FROM flags WHERE flag_id = p_flag_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Flag not found';
-    END IF;
-    IF v_status IN ('Resolved','Dismissed') THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Flag is already closed';
-    END IF;
-    IF v_sev = 'Urgent_Review' AND (p_note IS NULL OR CHAR_LENGTH(TRIM(p_note)) < 5) THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A note of at least 5 characters is required to close an urgent flag';
-    END IF;
-
-    UPDATE flags
-    SET status = IF(p_dismiss, 'Dismissed', 'Resolved'),
-        resolved_at = NOW(),
-        resolved_by_staff_id = p_staff_id,
-        resolution_code = p_code,
-        resolution_note = p_note
-    WHERE flag_id = p_flag_id;
-
-    INSERT INTO flag_events (flag_id, event_type, staff_id, note)
-    VALUES (p_flag_id, IF(p_dismiss, 'Dismissed', 'Resolved'), p_staff_id, p_note);
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_staff_id AS CHAR), IF(p_dismiss, 'DISMISS_FLAG', 'RESOLVE_FLAG'), 'flag', p_flag_id,
-            JSON_OBJECT('code', p_code, 'note', p_note));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-/*!50003 DROP PROCEDURE IF EXISTS `sp_snooze_task` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_snooze_task`(
-    IN p_task_id BIGINT,
-    IN p_staff_id INT,
-    IN p_hours INT,
-    IN p_reason VARCHAR(255)
-)
-BEGIN
-    DECLARE v_status VARCHAR(20) DEFAULT NULL;
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
-
-    START TRANSACTION;
-    SELECT status INTO v_status FROM follow_up_tasks WHERE followup_id = p_task_id FOR UPDATE;
-    IF v_status IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Task not found';
-    END IF;
-
-    UPDATE follow_up_tasks
-    SET due_at = NOW() + INTERVAL p_hours HOUR
-    WHERE followup_id = p_task_id;
-
-    INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id, details)
-    VALUES ('Staff', CAST(p_staff_id AS CHAR), 'SNOOZE_TASK', 'task', p_task_id,
-            JSON_OBJECT('hours', p_hours, 'reason', p_reason));
-    COMMIT;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
-
---
 -- Final view structure for view `v_device_status`
 --
 
@@ -2102,7 +1719,7 @@ DELIMITER ;
 /*!50001 SET character_set_results     = utf8mb4 */;
 /*!50001 SET collation_connection      = utf8mb4_0900_ai_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50013 DEFINER=`careloop_api`@`localhost` SQL SECURITY DEFINER */
 /*!50001 VIEW `v_medication_adherence` AS select `p`.`patient_id` AS `patient_id`,`p`.`full_name` AS `patient_name`,count(`ml`.`medication_log_id`) AS `scheduled_events`,coalesce(sum((`ml`.`status` = 'Taken_Confirmed')),0) AS `taken_confirmed`,coalesce(sum((`ml`.`status` = 'Skipped')),0) AS `marked_skipped`,coalesce(sum((`ml`.`status` = 'Missed')),0) AS `no_confirmation_missed`,coalesce(sum((`ml`.`status` = 'Unconfirmed')),0) AS `still_pending`,round(((100 * sum((`ml`.`status` = 'Taken_Confirmed'))) / nullif(count(`ml`.`medication_log_id`),0)),1) AS `self_reported_taken_pct` from ((`patients` `p` join `prescriptions` `pr` on((`pr`.`patient_id` = `p`.`patient_id`))) left join `medication_logs` `ml` on((`ml`.`prescription_id` = `pr`.`prescription_id`))) group by `p`.`patient_id`,`p`.`full_name` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
@@ -2189,156 +1806,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-30 13:10:27
-
-
--- -----------------------------------------------------
--- CareLoop Agents Schema Additions (Phase 1)
--- -----------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS `agent_system_state` (
-  `state_key` varchar(64) NOT NULL,
-  `state_val` varchar(255) NOT NULL,
-  `updated_by_staff_id` int DEFAULT NULL,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`state_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_autonomy` (
-  `action_type` varchar(64) NOT NULL,
-  `level` enum('Suggest','Draft','Auto','Never') NOT NULL DEFAULT 'Suggest',
-  `mode` enum('Shadow','Live') NOT NULL DEFAULT 'Shadow',
-  `set_by_staff_id` int DEFAULT NULL,
-  `set_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`action_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `cases` (
-  `case_id` varchar(64) NOT NULL,
-  `patient_id` int NOT NULL,
-  `primary_flag_id` int DEFAULT NULL,
-  `status` enum('Open','In_Progress','Resolved','Merged') NOT NULL DEFAULT 'Open',
-  `merged_count` int NOT NULL DEFAULT '1',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`case_id`),
-  KEY `idx_cases_patient` (`patient_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `case_flags` (
-  `case_id` varchar(64) NOT NULL,
-  `flag_id` int NOT NULL,
-  `added_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`case_id`,`flag_id`),
-  KEY `idx_cf_flag` (`flag_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_runs` (
-  `run_id` varchar(64) NOT NULL,
-  `agent_name` varchar(64) NOT NULL,
-  `trigger_type` varchar(64) NOT NULL,
-  `trigger_ref` varchar(128) DEFAULT NULL,
-  `patient_id` int DEFAULT NULL,
-  `case_id` varchar(64) DEFAULT NULL,
-  `started_at` datetime NOT NULL,
-  `finished_at` datetime DEFAULT NULL,
-  `status` enum('Done','Abstained','Failed','Blocked_By_Guard','Paused') NOT NULL DEFAULT 'Done',
-  `autonomy_level` enum('Suggest','Draft','Auto','Never') NOT NULL DEFAULT 'Suggest',
-  `mode` enum('Shadow','Live') NOT NULL DEFAULT 'Shadow',
-  `plan` json DEFAULT NULL,
-  `result_type` varchar(64) DEFAULT NULL,
-  `llm_calls` int NOT NULL DEFAULT '0',
-  `tokens_in` int NOT NULL DEFAULT '0',
-  `tokens_out` int NOT NULL DEFAULT '0',
-  `latency_ms` int NOT NULL DEFAULT '0',
-  `guard_reasons` json DEFAULT NULL,
-  `version_id` varchar(64) DEFAULT NULL,
-  PRIMARY KEY (`run_id`),
-  KEY `idx_agent_runs_patient` (`patient_id`),
-  KEY `idx_agent_runs_created` (`started_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_steps` (
-  `step_id` int NOT NULL AUTO_INCREMENT,
-  `run_id` varchar(64) NOT NULL,
-  `seq` int NOT NULL,
-  `step_type` enum('Gate','Plan','Retrieve','Tool','Grade','Draft','Verify','Guard','Deliver','Abstain') NOT NULL,
-  `summary` varchar(255) NOT NULL,
-  `ids` json DEFAULT NULL,
-  `ok` tinyint(1) NOT NULL DEFAULT '1',
-  `ms` int NOT NULL DEFAULT '0',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`step_id`),
-  KEY `idx_steps_run` (`run_id`),
-  CONSTRAINT `fk_steps_run` FOREIGN KEY (`run_id`) REFERENCES `agent_runs` (`run_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_drafts` (
-  `draft_id` int NOT NULL AUTO_INCREMENT,
-  `run_id` varchar(64) DEFAULT NULL,
-  `patient_id` int NOT NULL,
-  `draft_type` enum('Case_Brief','Call_Script','Call_Note','Patient_Message','Summary','Handoff','Plan','Reply') NOT NULL,
-  `body` json NOT NULL,
-  `sources` json DEFAULT NULL,
-  `status` enum('Pending','Accepted','Edited','Rejected','Auto_Sent','Expired') NOT NULL DEFAULT 'Pending',
-  `reviewed_by_staff_id` int DEFAULT NULL,
-  `reviewed_at` datetime DEFAULT NULL,
-  `edit_chars` int DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`draft_id`),
-  KEY `idx_drafts_patient` (`patient_id`),
-  KEY `idx_drafts_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `shadow_decisions` (
-  `shadow_id` int NOT NULL AUTO_INCREMENT,
-  `run_id` varchar(64) DEFAULT NULL,
-  `action_type` varchar(64) NOT NULL,
-  `agent_decision` json NOT NULL,
-  `human_decision` json DEFAULT NULL,
-  `agreed` tinyint(1) DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`shadow_id`),
-  KEY `idx_shadow_action` (`action_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_versions` (
-  `version_id` varchar(64) NOT NULL,
-  `agent_name` varchar(64) NOT NULL,
-  `prompt_version` varchar(32) NOT NULL,
-  `model_name` varchar(64) NOT NULL,
-  `params` json DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_by` varchar(64) DEFAULT 'system',
-  `is_active` tinyint(1) NOT NULL DEFAULT '1',
-  PRIMARY KEY (`version_id`),
-  KEY `idx_agent_versions_name` (`agent_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_incidents` (
-  `incident_id` int NOT NULL AUTO_INCREMENT,
-  `run_id` varchar(64) NOT NULL,
-  `reported_by_staff_id` int NOT NULL,
-  `category` enum('Wrong fact','Unsafe','Tone','Other') NOT NULL,
-  `note` text NOT NULL,
-  `status` enum('Open','Reviewed','Closed') NOT NULL DEFAULT 'Open',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `candidate_test_id` int DEFAULT NULL,
-  PRIMARY KEY (`incident_id`),
-  KEY `idx_incidents_run` (`run_id`),
-  KEY `idx_incidents_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `agent_candidate_tests` (
-  `candidate_id` int NOT NULL AUTO_INCREMENT,
-  `incident_id` int DEFAULT NULL,
-  `agent_name` varchar(64) NOT NULL,
-  `test_type` varchar(64) NOT NULL,
-  `input_payload` json NOT NULL,
-  `expected_behavior` text NOT NULL,
-  `status` enum('Pending_Review','Approved','Rejected') NOT NULL DEFAULT 'Pending_Review',
-  `reviewed_by_staff_id` int DEFAULT NULL,
-  `reviewed_at` datetime DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`candidate_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Dump completed on 2026-11-04 13:33:49

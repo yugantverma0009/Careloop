@@ -22,7 +22,6 @@ TRUNCATE TABLE checkin_questions;
 TRUNCATE TABLE checkin_templates;
 TRUNCATE TABLE device_events;
 TRUNCATE TABLE sms_messages;
-TRUNCATE TABLE wound_photos;
 TRUNCATE TABLE plan_understanding_checks;
 TRUNCATE TABLE recovery_plan_items;
 TRUNCATE TABLE recovery_plans;
@@ -245,7 +244,6 @@ ON DUPLICATE KEY UPDATE state_val = state_val;
 INSERT INTO agent_autonomy (action_type, level, mode, set_by_staff_id) VALUES
 ('dose_reminder', 'Auto', 'Live', 1),
 ('checkin_prompt', 'Auto', 'Live', 1),
-('photo_request', 'Auto', 'Live', 1),
 ('papers_question_sourced', 'Auto', 'Live', 1),
 ('not_found_care_team_request', 'Auto', 'Live', 1),
 ('dose_change_care_team_request', 'Auto', 'Live', 1),

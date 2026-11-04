@@ -467,7 +467,6 @@ def main():
                 # Meera Sharma (Patient 2)
                 (2, "Dose_Reminder", "SMS", now + timedelta(hours=17, minutes=50), "Scheduled", "Dose reminder: JointEase-XR scheduled for 09:00", json.dumps({"medicine": "JointEase-XR"}), f"seed_up_5_{now.strftime('%Y%m%d%H')}"),
                 (2, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_6_{now.strftime('%Y%m%d%H')}"),
-                (2, "Photo_Request", "App", now + timedelta(hours=4), "Scheduled", "Wound site visual check-in: Day 5 post-arthroplasty", json.dumps({"plan_item_id": 12}), f"seed_up_7_{now.strftime('%Y%m%d%H')}"),
                 # Rajesh Verma (Patient 3)
                 (3, "Dose_Reminder", "SMS", now + timedelta(hours=7, minutes=50), "Scheduled", "Dose reminder: BronchoClear-10 scheduled for 20:00", json.dumps({"medicine": "BronchoClear-10"}), f"seed_up_8_{now.strftime('%Y%m%d%H')}"),
                 (3, "Checkin_Prompt", "App", now + timedelta(hours=18), "Scheduled", "Scheduled daily post-discharge recovery check-in prompt", json.dumps({"date": str(today + timedelta(days=1))}), f"seed_up_9_{now.strftime('%Y%m%d%H')}"),
@@ -526,7 +525,7 @@ def main():
             print("  14. Seeding Rounds agent proposals...")
             proposals = [
                 (1, "Rounds", "Suggest_Call", "Call Aarav: 2 check-ins unanswered", json.dumps({"missed_checkins": 2, "last_completed": str(today - timedelta(days=1))})),
-                (2, "Rounds", "Suggest_Photo", "Ask for a photo today: Day 5 post-arthroplasty wound check due", json.dumps({"post_op_day": 5, "condition": "Total Knee Arthroplasty"})),
+                (2, "Rounds", "Suggest_Plan_Review", "Review recovery plan: Day 5 post-arthroplasty check due", json.dumps({"post_op_day": 5, "condition": "Total Knee Arthroplasty"})),
             ]
             for pid, aname, ptype, reas, evid in proposals:
                 cur.execute(
@@ -570,72 +569,8 @@ def main():
                     (direct, pid, cid, ph, body, tkey, rtype, rid, stat, cat)
                 )
 
-            # 16. Seed Synthetic Wound Photos (Phase 3 Feature F4)
-            print("  16. Seeding synthetic wound photos for Aarav and Meera...")
-            from PIL import Image, ImageDraw
-            import hashlib
-
-            photos_dir = os.path.join(PROJECT_ROOT, "data", "wound_photos")
-            thumbs_dir = os.path.join(photos_dir, "thumbs")
-            os.makedirs(thumbs_dir, exist_ok=True)
-
-            def make_synthetic_photo(label_text: str, filename_base: str, bg_color=(235, 230, 225)):
-                img = Image.new("RGB", (800, 800), color=bg_color)
-                draw = ImageDraw.Draw(img)
-                # Geometric markers to ensure high sharpness/contrast
-                for i in range(50, 750, 60):
-                    draw.line([(i, 50), (i, 750)], fill=(210, 205, 200), width=1)
-                    draw.line([(50, i), (750, i)], fill=(210, 205, 200), width=1)
-                # Synthetic wound incision marker
-                draw.rectangle([(390, 200), (410, 600)], fill=(180, 80, 80), outline=(140, 50, 50), width=2)
-                for s in range(240, 580, 40):
-                    draw.line([(370, s), (430, s)], fill=(60, 60, 60), width=2)
-
-                draw.rectangle([(60, 60), (740, 140)], fill=(15, 23, 42))
-                draw.text((80, 80), label_text, fill=(255, 255, 255))
-                draw.text((80, 105), "CareLoop Sample Image · Not a Real Patient · Synthetic Telemetry", fill=(148, 163, 184))
-
-                main_name = f"{filename_base}.jpg"
-                thumb_name = f"{filename_base}_thumb.jpg"
-                main_p = os.path.join(photos_dir, main_name)
-                thumb_p = os.path.join(thumbs_dir, thumb_name)
-
-                img.save(main_p, format="JPEG", quality=88)
-                thumb_img = img.copy()
-                thumb_img.thumbnail((320, 320))
-                thumb_img.save(thumb_p, format="JPEG", quality=80)
-
-                with open(main_p, "rb") as f:
-                    sha = hashlib.sha256(f.read()).hexdigest()
-
-                return os.path.join("data", "wound_photos", main_name), os.path.join("data", "wound_photos", "thumbs", thumb_name), sha
-
-            # Photo 1: Aarav Baseline (Day 1 - Reviewed)
-            p1_main, p1_thumb, p1_sha = make_synthetic_photo("Aarav Patel · Sternal Incision Baseline (Post-Op Day 1)", "aarav_day1_baseline")
-            cur.execute(
-                """INSERT INTO wound_photos (patient_id, file_path, thumb_path, sha256, quality_status, quality_details, patient_note, review_status, finding, review_note, reviewed_by_staff_id, reviewed_at, taken_at)
-                   VALUES (%s, %s, %s, %s, 'Usable', %s, %s, 'Reviewed', 'No_Concern_Seen', %s, 2, %s, %s)""",
-                (1, p1_main, p1_thumb, p1_sha, json.dumps({"width": 800, "height": 800, "sharpness": 1240.5, "brightness": 128.2}), "Incision site dry and intact on discharge day 1", "Clean sternal surgical incision, edges well-approximated, no exudate or erythema.", now - timedelta(days=2), now - timedelta(days=2, hours=1))
-            )
-
-            # Photo 2: Aarav Day 3 (Current - Pending Review)
-            p2_main, p2_thumb, p2_sha = make_synthetic_photo("Aarav Patel · Sternal Incision Recovery (Post-Op Day 3)", "aarav_day3_check")
-            cur.execute(
-                """INSERT INTO wound_photos (patient_id, file_path, thumb_path, sha256, quality_status, quality_details, patient_note, review_status, finding, taken_at)
-                   VALUES (%s, %s, %s, %s, 'Usable', %s, %s, 'Pending', NULL, %s)""",
-                (1, p2_main, p2_thumb, p2_sha, json.dumps({"width": 800, "height": 800, "sharpness": 1180.2, "brightness": 125.0}), "Suture line healing, mild tightness near top, no fever or drainage.", now - timedelta(hours=3, minutes=30))
-            )
-
-            # Photo 3: Meera Knee Portal (Day 4 - Reviewed)
-            p3_main, p3_thumb, p3_sha = make_synthetic_photo("Meera Sharma · Knee Arthroscopy Portal Check (Post-Op Day 4)", "meera_day4_knee")
-            cur.execute(
-                """INSERT INTO wound_photos (patient_id, file_path, thumb_path, sha256, quality_status, quality_details, patient_note, review_status, finding, review_note, reviewed_by_staff_id, reviewed_at, taken_at)
-                   VALUES (%s, %s, %s, %s, 'Usable', %s, %s, 'Reviewed', 'No_Concern_Seen', %s, 2, %s, %s)""",
-                (2, p3_main, p3_thumb, p3_sha, json.dumps({"width": 800, "height": 800, "sharpness": 1310.0, "brightness": 130.4}), "Portal dressing removed as instructed, light walking started.", "Arthroscopy portal healing normally, minimal expected post-op effusion, no signs of infection.", now - timedelta(days=1), now - timedelta(days=1, hours=2))
-            )
-
-            # 17. Seed Recovery Plans & Understanding Checks (Phase 4 Feature F5)
-            print("  17. Seeding recovery plans and understanding checks for cohort...")
+            # 16. Seed Recovery Plans & Understanding Checks (Phase 4 Feature F5)
+            print("  16. Seeding recovery plans and understanding checks for cohort...")
 
             # 17.1 Aarav Patel (Patient 1) — Plan v1 (Approved by Dr. Ananya Sharma)
             cur.execute(
@@ -809,7 +744,6 @@ def main():
             autonomy_seeds = [
                 ('dose_reminder', 'Auto', 'Live', 1),
                 ('checkin_prompt', 'Auto', 'Live', 1),
-                ('photo_request', 'Auto', 'Live', 1),
                 ('papers_question_sourced', 'Auto', 'Live', 1),
                 ('not_found_care_team_request', 'Auto', 'Live', 1),
                 ('dose_change_care_team_request', 'Auto', 'Live', 1),

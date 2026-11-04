@@ -252,33 +252,6 @@ def validate():
         else:
             print(f"  ✓ Two-Way SMS messages verified: {sms_row['total_sms']} messages ({sms_row['out_sms']} outbound, {sms_row['in_sms']} inbound)")
 
-        # Check 19: Wound Photos Integrity & Storage (Phase 3 Feature F4)
-        cur.execute(
-            """SELECT COUNT(*) AS total_photos,
-                      SUM(review_status = 'Pending') AS pending_photos,
-                      SUM(review_status = 'Reviewed') AS reviewed_photos
-               FROM wound_photos"""
-        )
-        photo_row = cur.fetchone()
-        if not photo_row or photo_row["total_photos"] != 3:
-            failures.append(f"❌ wound_photos count mismatch: {photo_row.get('total_photos') if photo_row else 0} (expected exactly 3)")
-        elif photo_row["pending_photos"] != 1 or photo_row["reviewed_photos"] != 2:
-            failures.append(f"❌ wound_photos status mismatch: {photo_row['pending_photos']} pending, {photo_row['reviewed_photos']} reviewed (expected 1 pending, 2 reviewed)")
-        else:
-            # Check disk file existence
-            cur.execute("SELECT file_path, thumb_path FROM wound_photos")
-            missing_files = []
-            for r in cur.fetchall():
-                for p in (r["file_path"], r["thumb_path"]):
-                    if p:
-                        full_p = os.path.join(os.path.dirname(__file__), "..", p)
-                        if not os.path.exists(full_p):
-                            missing_files.append(p)
-            if missing_files:
-                failures.append(f"❌ Missing wound photo files on disk: {missing_files}")
-            else:
-                print(f"  ✓ Wound photos verified: {photo_row['total_photos']} photos (1 pending review, 2 reviewed, all files intact on disk)")
-
         # Check 20: Recovery Plans & Items Integrity (Phase 4 Feature F5)
         cur.execute(
             """SELECT COUNT(*) AS total_plans,
@@ -345,8 +318,8 @@ def validate():
         cur.execute("SELECT COUNT(*) AS opt_in_cnt FROM patients WHERE ai_help_enabled = 1;")
         opt_in_row = cur.fetchone()
 
-        if not autonomy_row or autonomy_row["autonomy_cnt"] < 17:
-            failures.append(f"❌ agent_autonomy count mismatch: {autonomy_row.get('autonomy_cnt')} (expected >= 17)")
+        if not autonomy_row or autonomy_row["autonomy_cnt"] < 16:
+            failures.append(f"❌ agent_autonomy count mismatch: {autonomy_row.get('autonomy_cnt')} (expected >= 16)")
         elif not runs_row or runs_row["runs_cnt"] < 25:
             failures.append(f"❌ agent_runs count mismatch: {runs_row.get('runs_cnt')} (expected >= 25)")
         elif not drafts_row or drafts_row["drafts_cnt"] < 3:
