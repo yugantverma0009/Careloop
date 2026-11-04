@@ -718,8 +718,8 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                 <span style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1' }}>
                   ⌨️ Keyboard Shortcuts: <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>j</kbd>/<kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>k</kbd> navigate · <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>a</kbd> approve · <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>e</kbd> edit · <kbd style={{ background: '#ffffff', padding: '1px 5px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>r</kbd> reject
                 </span>
-                <span style={{ fontSize: '11px', color: '#0284c7' }}>
-                  Batch Gate: $\ge 95\%$ agreement
+                <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>
+                  Batch Gate: ≥ 95% shadow agreement
                 </span>
               </div>
 
@@ -826,20 +826,24 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
 
                     {/* Diff View: Agent Draft vs Template */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '11px' }}>
-                      <div style={{ background: '#f8fafc', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Standard Template Baseline</div>
-                        <div style={{ color: '#475569', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>
-                          {d.template_reference.slice(0, 150)}...
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>Standard Template Baseline</div>
+                        <div style={{ color: '#475569', fontStyle: 'italic', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                          {d.template_reference}
                         </div>
                       </div>
 
-                      <div style={{ background: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                        <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: '4px' }}>
+                      <div style={{ background: '#ffffff', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                        <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: '6px' }}>
                           Agent Draft ({d.diff?.edit_chars || 0} chars diff)
                         </div>
-                        <div style={{ color: '#0f172a', whiteSpace: 'pre-wrap' }}>
-                          {d.draft_text}
-                        </div>
+                        {d.body && typeof d.body === 'object' && Object.keys(d.body).length > 0 ? (
+                          renderReadableDraftBody(d)
+                        ) : (
+                          <div style={{ color: '#0f172a', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                            {d.draft_text}
+                          </div>
+                        )}
                       </div>
                     </div>
 

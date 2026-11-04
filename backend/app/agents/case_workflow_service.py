@@ -406,6 +406,88 @@ class RoutineDraftReviewService:
         return round(rate, 1)
 
     @classmethod
+    def format_draft_as_clinical_text(cls, draft_type: str, b: Dict[str, Any]) -> str:
+        """Transforms structured draft payload into human-readable clinical text (no raw JSON)."""
+        if not isinstance(b, dict):
+            return str(b)
+
+        if draft_type == "Case_Brief":
+            lines = []
+            headline = b.get("headline") or "Clinical Case Review"
+            lines.append(f"HEADLINE: {headline}")
+
+            next_step = b.get("next_step")
+            if next_step and isinstance(next_step, dict):
+                why = f" — {next_step.get('why')}" if next_step.get("why") else ""
+                lines.append(f"SUGGESTED ACTION: {next_step.get('label') or next_step.get('key')}{why}")
+            elif next_step:
+                lines.append(f"SUGGESTED ACTION: {next_step}")
+
+            what_happened = b.get("what_happened") or []
+            if what_happened:
+                lines.append("\nGROUNDED OBSERVATIONS:")
+                for item in what_happened:
+                    if isinstance(item, dict):
+                        src = f" [{item['source']}]" if item.get("source") else ""
+                        lines.append(f"• {item.get('fact', '')}{src}")
+                    else:
+                        lines.append(f"• {item}")
+
+            unknowns = b.get("unknowns") or []
+            if unknowns:
+                lines.append("\nMISSING / UNCONFIRMED:")
+                for u in unknowns:
+                    lines.append(f"• {u}")
+
+            prefilled = b.get("prefilled") or {}
+            call_script = prefilled.get("call_script") or b.get("call_script") or []
+            if call_script:
+                lines.append("\nSUGGESTED CALL SCRIPT:")
+                for q in call_script:
+                    if isinstance(q, dict):
+                        lines.append(f"• {q.get('question', '')}")
+                    else:
+                        lines.append(f"• {q}")
+
+            note_draft = prefilled.get("note_draft") or b.get("note_draft")
+            if note_draft:
+                lines.append(f"\nPREFILLED NOTE DRAFT:\n{note_draft}")
+
+            return "\n".join(lines).strip()
+
+        elif draft_type == "Patient_Message":
+            topic = b.get("topic")
+            msg = b.get("message") or b.get("reply") or b.get("message_text") or ""
+            if topic:
+                return f"TOPIC: {topic}\n\n{msg}".strip()
+            return str(msg).strip()
+
+        elif draft_type == "Summary":
+            lines = []
+            for k in ["situation", "background", "assessment", "recommendation", "summary"]:
+                if b.get(k):
+                    lines.append(f"{k.upper()}: {b[k]}")
+            return "\n\n".join(lines).strip() or str(b)
+
+        elif draft_type == "Call_Note":
+            lines = []
+            for k in ["patient_reported", "assessment", "plan", "summary"]:
+                if b.get(k):
+                    lines.append(f"{k.replace('_', ' ').upper()}: {b[k]}")
+            return "\n\n".join(lines).strip() or str(b)
+
+        # Fallback for other drafts: clean readable list without internal technical keys
+        clean_entries = []
+        for k, v in b.items():
+            if k in ("guard", "case_id", "run_id", "draft_id", "options", "sections", "prefilled"):
+                continue
+            if isinstance(v, (dict, list)):
+                clean_entries.append(f"{k.replace('_', ' ').title()}: {json.dumps(v, ensure_ascii=False)}")
+            else:
+                clean_entries.append(f"{k.replace('_', ' ').title()}: {v}")
+        return "\n".join(clean_entries).strip()
+
+    @classmethod
     def get_routine_drafts_with_diff(cls) -> Dict[str, Any]:
         """
         Returns all pending routine drafts with diff views and batch-approval eligibility.
@@ -451,18 +533,25 @@ class RoutineDraftReviewService:
                 except Exception:
                     b = {}
 
-            # Determine draft text and standard template reference
-            text_rep = ""
-            template_ref = ""
+            # Human-readable clinical draft representation (no raw JSON)
+            text_rep = cls.format_draft_as_clinical_text(d["draft_type"], b)
+
+            # Standard template reference for diff comparison
             if d["draft_type"] == "Patient_Message":
-                text_rep = b.get("message", "")
                 template_ref = "Hello [Name], this is your CareLoop care team. Please confirm your scheduled routine recovery intake."
             elif d["draft_type"] == "Case_Brief":
-                text_rep = json.dumps(b.get("sections") or b, indent=2)
-                template_ref = "1. Baseline Identifiers\n2. Trigger Event\n3. Vital Trends\n4. Adherence\n5. Recommended Next Step"
+                template_ref = (
+                    "STANDARD CASE BRIEF TEMPLATE:\n"
+                    "• Baseline Identifiers & Primary Flag\n"
+                    "• Grounded Clinical Observations with Sources\n"
+                    "• Missing / Unconfirmed Information\n"
+                    "• Suggested Action & Safety Rationale\n"
+                    "• Prefilled Note Draft (Nurse Review & Sign)"
+                )
+            elif d["draft_type"] == "Summary":
+                template_ref = "SITUATION: Patient post-discharge review.\nBACKGROUND: Routine surgical recovery monitoring.\nASSESSMENT: Clinical vitals and adherence summary.\nRECOMMENDATION: Scheduled follow-up visit."
             else:
-                text_rep = json.dumps(b, indent=2)
-                template_ref = text_rep
+                template_ref = "Standard Clinical Baseline Template"
 
             diff_info = cls.compute_text_diff(template_ref, text_rep)
             age = (datetime.now().date() - d["date_of_birth"]).days // 365 if d.get("date_of_birth") else 58
