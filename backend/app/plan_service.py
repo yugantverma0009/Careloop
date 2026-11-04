@@ -602,6 +602,8 @@ def approve_recovery_plan(plan_id: int, doctor_id: int) -> Dict[str, Any]:
             # Generate 3 deterministic understanding check questions
             generate_understanding_check_questions(patient_id, plan_id, items, cur)
 
+            has_wound_care = any(it["item_type"] == "Wound_Care" for it in items)
+
             # Audit row
             cur.execute(
                 """

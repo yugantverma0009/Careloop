@@ -13,7 +13,7 @@ Validates Phase 5 specifications in careloop_care_agents_plan.md:
    - Medication reconciliation ('Matches' vs 'Mismatch').
    - Doctor approval activates the plan and generates understanding checks.
 3. Approved Auto-Close Rules:
-   - Refuses Emergency, SOS, Urgent_Review, Symptom, and Photo flags.
+   - Refuses Emergency, SOS, Urgent_Review, and Symptom flags.
    - Closes low-risk routine flags when enabled with trigger label.
    - Permits reopening of auto-closed flags.
 4. Governance & Autonomy Matrix:
@@ -182,7 +182,7 @@ def test_plan_agent_draft_reconciliation_and_doctor_approval():
 
 
 def test_auto_close_rules_refuse_emergency_and_urgent_flags():
-    """Approved auto-close rules strictly REFUSE emergency, SOS, urgent, symptom, or photo flags."""
+    """Approved auto-close rules strictly REFUSE emergency, SOS, urgent, or symptom flags."""
     # Ensure auto-close rules are enabled
     AutoCloseService.set_auto_close_enabled(True, doctor_staff_id=1)
 

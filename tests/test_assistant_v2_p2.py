@@ -180,7 +180,7 @@ def test_action_cards_allowlist_filtering():
         "source_ids": ["S1"],
         "suggest_care_team": false,
         "actions": [
-            {"action_type": "Add_Photo", "label": "Take Wound Photo"},
+            {"action_type": "Start_Checkin", "label": "Start Check-in"},
             {"action_type": "Prescribe_Opioid", "label": "Invalid Action"},
             {"action_type": "Delete_Patient", "label": "Dangerous Action"}
         ],
@@ -194,6 +194,6 @@ def test_action_cards_allowlist_filtering():
         )
         assert res["answer_type"] == "grounded"
         action_types = [a.get("action_type") for a in res.get("actions", [])]
-        assert "Add_Photo" in action_types
+        assert "Start_Checkin" in action_types
         assert "Prescribe_Opioid" not in action_types
         assert "Delete_Patient" not in action_types

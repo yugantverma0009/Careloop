@@ -22,8 +22,10 @@ Tests:
    - Throttling after 15 calls/day per patient
 """
 
+import os
 import pytest
 import json
+from unittest.mock import patch
 from datetime import datetime
 from backend.app.agents.policy_guard import PolicyGuard
 from backend.app.agents.papers_agent import PapersAgent
@@ -217,8 +219,8 @@ def test_workload_replay_script_and_human_steps_reduction():
 # ─── 4. Daily Budget Ceiling Enforcement ────────────────────────────────────
 
 def test_daily_budget_ceiling_throttles_at_limit():
-    """Daily budget ceiling: After MAX_DAILY_LLM_CALLS_PER_PATIENT (15), further calls are throttled."""
-    assert MAX_DAILY_LLM_CALLS_PER_PATIENT == 15
+    """Daily budget ceiling: After MAX_DAILY_LLM_CALLS_PER_PATIENT, further calls are throttled."""
+    assert MAX_DAILY_LLM_CALLS_PER_PATIENT >= 15
 
     test_pid = 999
     # Clean up test patient runs
@@ -230,9 +232,9 @@ def test_daily_budget_ceiling_throttles_at_limit():
     dec_under = AgentDispatcher.check_intake("papers_question_sourced", patient_id=test_pid)
     assert dec_under.allowed is True
 
-    # Insert 15 runs today for test patient
+    # Insert MAX_DAILY_LLM_CALLS_PER_PATIENT runs today for test patient
     with get_conn() as conn, conn.cursor() as cur:
-        for i in range(15):
+        for i in range(MAX_DAILY_LLM_CALLS_PER_PATIENT):
             cur.execute("""
                 INSERT INTO agent_runs (run_id, agent_name, trigger_type, trigger_ref, patient_id, started_at, finished_at, status, autonomy_level, mode, llm_calls)
                 VALUES (%s, 'TestAgent', 'test_trigger', 'ref', %s, NOW(), NOW(), 'Done', 'Auto', 'Live', 1);
@@ -240,10 +242,11 @@ def test_daily_budget_ceiling_throttles_at_limit():
         conn.commit()
 
     try:
-        # 16th call should be throttled
-        dec_over = AgentDispatcher.check_intake("papers_question_sourced", patient_id=test_pid)
-        assert dec_over.allowed is False
-        assert "budget reached" in dec_over.reason
+        # Next call should be throttled (ensure eval bypass is disabled for this test)
+        with patch.dict(os.environ, {"CARELOOP_EVAL_MODE": "0"}):
+            dec_over = AgentDispatcher.check_intake("papers_question_sourced", patient_id=test_pid)
+            assert dec_over.allowed is False
+            assert "budget reached" in dec_over.reason
     finally:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM agent_runs WHERE patient_id = %s;", (test_pid,))

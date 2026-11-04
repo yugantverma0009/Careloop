@@ -214,8 +214,9 @@ def main():
             # Step 5: Insert Rajesh Verma's Emergency Symptom Check-in (fires trg_symptom_rules_after_insert)
             print("  5. Submitting Rajesh emergency symptom check-in...")
             cur.execute(
-                """INSERT INTO symptom_reports (patient_id, symptom_text, pain_level, reported_at, input_method, language, emergency_keyword_hit, review_status)
-                   VALUES (3, 'सीने में तेज दर्द और सांस लेने में कठिनाई', 5, NOW() - INTERVAL 20 MINUTE, 'Text', 'hi', 1, 'Follow_Up_Required')"""
+                """INSERT INTO symptom_reports (symptom_report_id, patient_id, symptom_text, pain_level, reported_at, input_method, language, emergency_keyword_hit, review_status)
+                   VALUES (1, 3, 'सीने में तेज दर्द और सांस लेने में कठिनाई', 5, NOW() - INTERVAL 20 MINUTE, 'Text', 'hi', 1, 'Follow_Up_Required')
+                   ON DUPLICATE KEY UPDATE symptom_text = VALUES(symptom_text)"""
             )
             # trg_symptom_rules_after_insert creates Flag 3 (Emergency, Urgent_Review)
 

@@ -204,7 +204,7 @@ def test_section10_landing_page_contract():
         content = f.read()
 
     assert "The doctor approves recovery plans, decides escalated alerts, and sets limits." in content
-    assert "The nurse runs Rounds, reviews recovery photos, calls patients, and starts follow-ups." in content
+    assert "The nurse runs Rounds, calls patients, and starts follow-ups." in content
     assert "The patient follows My Plan, completes voice or SMS check-ins, and asks their papers." in content
     assert "The family helper supports with consent, sees calm updates, and calls 112 if needed." in content
     assert "The LLM talks. Rules decide. Humans act." in content

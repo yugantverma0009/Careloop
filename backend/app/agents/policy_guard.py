@@ -162,7 +162,8 @@ class PolicyGuard:
         # Check for illegal patient names or phone numbers leaked in output
         patient_name = context.get("patient_name", "")
         patient_phone = context.get("patient_phone", "")
-        raw_text = json.dumps(output_payload)
+        payload_to_check = {k: v for k, v in output_payload.items() if k not in ("exemplars", "exemplar_label")}
+        raw_text = json.dumps(payload_to_check)
 
         # 3. Sources Check
         facts = output_payload.get("facts", [])

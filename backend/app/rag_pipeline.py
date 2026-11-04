@@ -356,8 +356,8 @@ def hybrid_retrieval(
             debug_info["dense_count"] = len(ids)
             for rank, vid in enumerate(ids):
                 dist = distances[rank] if rank < len(distances) else 0.0
-                # Distance <= 1.60 indicates semantic relevance for gemini-embedding (cosine distance)
-                if dist <= 1.60 or not distances:
+                # Cosine distance <= 0.32 indicates semantic relevance for gemini embeddings
+                if dist <= 0.32 or not distances:
                     dense_ranks[vid] = rank + 1
         else:
             debug_info["dense_count"] = 0

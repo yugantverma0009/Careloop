@@ -206,7 +206,6 @@ def test_phase4_explainable_queue_order_factor_table():
         "device_silent_hours": 0,
         "consent_missing": False,
         "has_sos": True,            # +150
-        "photo_pending": False
     }
     score1, f1 = ExplainableQueueService.compute_explainable_score(p1)
     assert score1 == 290
@@ -220,13 +219,12 @@ def test_phase4_explainable_queue_order_factor_table():
         "device_silent_hours": 0,
         "consent_missing": False,
         "has_sos": False,
-        "photo_pending": False
     }
     score2, f2 = ExplainableQueueService.compute_explainable_score(p2)
     assert score2 == 95
     assert len(f2) == 3
 
-    # Profile 3: Moderate (Review Soon + Device Silent 26h + Photo Pending)
+    # Profile 3: Moderate (Review Soon + Device Silent 26h)
     p3 = {
         "tier": "Review_Soon",      # +20
         "minutes_overdue": 10,      # <15m = +0
@@ -234,11 +232,10 @@ def test_phase4_explainable_queue_order_factor_table():
         "device_silent_hours": 26,  # >24h = +30
         "consent_missing": False,
         "has_sos": False,
-        "photo_pending": True       # +25
     }
     score3, f3 = ExplainableQueueService.compute_explainable_score(p3)
-    assert score3 == 75
-    assert len(f3) == 3
+    assert score3 == 50
+    assert len(f3) == 2
 
     # Profile 4: Routine with Consent Missing Penalty
     p4 = {
@@ -248,7 +245,6 @@ def test_phase4_explainable_queue_order_factor_table():
         "device_silent_hours": 0,
         "consent_missing": True,    # -20
         "has_sos": False,
-        "photo_pending": False
     }
     score4, f4 = ExplainableQueueService.compute_explainable_score(p4)
     assert score4 == -20

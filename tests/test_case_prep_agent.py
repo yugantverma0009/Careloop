@@ -128,7 +128,7 @@ def test_decision_table_all_rows():
     )
     assert r4b["next_step"]["key"] == "send_checkin"
 
-    # Row 5: Symptom report -> request_photo
+    # Row 5: Symptom report -> call_now
     r5 = CasePrepAgent.evaluate_decision_table(
         source_type="Symptom",
         severity="Review_Soon",
@@ -137,8 +137,8 @@ def test_decision_table_all_rows():
         time_since_last_contact_hours=1.0,
         no_answer_count=0
     )
-    assert r5["next_step"]["key"] == "request_photo"
-    assert "request_photo" in r5["options"]
+    assert r5["next_step"]["key"] == "call_now"
+    assert "call_now" in r5["options"]
 
     # Row 6: Duplicate alert merging support
     r6 = CasePrepAgent.evaluate_decision_table(

@@ -169,16 +169,16 @@ def test_max_dose_reminders_limit(base_patient, routine_dose_action):
 
 def test_max_daily_patient_messages_limit(base_patient):
     now = datetime(2026, 10, 30, 14, 0)
-    photo_prompt = {
-        "action_type": "Photo_Request",
+    checkin_prompt = {
+        "action_type": "Checkin_Prompt",
         "channel": "App",
-        "reason": "Wound healing photo check-in requested",
+        "reason": "Daily recovery check-in requested",
         "attempts": 0,
     }
     # When already reached 3 non-dose messages
     allowed, reason = can_send(
         base_patient,
-        photo_prompt,
+        checkin_prompt,
         current_time=now,
         daily_message_count=MAX_DAILY_PATIENT_MESSAGES,
     )

@@ -221,6 +221,6 @@ def test_landing_page_claims_clean():
 
     # Exactly four role pitches present
     assert "The doctor approves recovery plans, decides escalated alerts, and sets limits." in content
-    assert "The nurse runs Rounds, reviews recovery photos, calls patients, and starts follow-ups." in content
+    assert "The nurse runs Rounds, calls patients, and starts follow-ups." in content
     assert "The patient follows My Plan, completes voice or SMS check-ins, and asks their papers." in content
     assert "The family helper supports with consent, sees calm updates, and calls 112 if needed." in content
