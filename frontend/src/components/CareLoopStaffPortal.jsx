@@ -593,25 +593,17 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
               {(isDoctor
                 ? [
                     { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
-                    { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
-                    { id: 'work_saved', label: 'Work saved', Icon: IconActivity },
-                    { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
-                    { id: 'agent_health', label: 'Agent health', Icon: IconActivity },
-                    { id: 'patients', label: 'Patients', Icon: IconPatient },
-                    { id: 'admit', label: 'Admit patient', Icon: IconPatient },
-                    { id: 'rounds', label: 'Rounds', Icon: IconClock },
                     { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: (doctorDecisions.cards?.summaries_to_approve || 0) + (doctorDecisions.cards?.limit_change_requests || 0) + (doctorDecisions.cards?.plans_to_approve || 0) },
                     { id: 'limits', label: 'Patient limits', Icon: IconShieldCheck },
-                    { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
+                    { id: 'agent_health', label: 'Agent health', Icon: IconActivity },
+                    { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
+                    { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
                     { id: 'fhir', label: 'Export FHIR bundle', Icon: IconExternalLink },
                   ]
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
                     { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
-                    { id: 'work_saved', label: 'Work saved', Icon: IconActivity },
-                    { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
-                    { id: 'agent_health', label: 'Agent health', Icon: IconActivity },
                     { id: 'patients', label: 'Patients', Icon: IconPatient },
                     { id: 'admit', label: 'Admit patient', Icon: IconPatient },
                     { id: 'rounds', label: 'Rounds', Icon: IconClock },
@@ -726,7 +718,27 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
               {roleSectionKicker}
             </div>
             <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
-              {activeNav === 'triage' ? roleFirstScreenTitle : activeNav.toUpperCase()}
+              {(() => {
+                if (activeNav === 'triage') return roleFirstScreenTitle;
+                const titles = {
+                  agent_desk: 'Agent Desk',
+                  work_saved: 'Work Saved Overview',
+                  agent_settings: 'Agent Settings & Governance',
+                  agent_health: 'Agent Health & Circuit Breakers',
+                  patients: 'Patient Directory',
+                  patient_chart: 'Patient Clinical Chart',
+                  admit: 'Admit Patient',
+                  rounds: 'Patient Rounds',
+                  summaries: 'Approvals & Reviews',
+                  limits: 'Patient Limits & Thresholds',
+                  handoff: 'Shift Handoff (SBAR)',
+                  audit: 'Audit Log Viewer',
+                  fhir: 'Export FHIR Bundles',
+                  tasks: 'Clinical Tasks',
+                  timeline: 'Care Timeline'
+                };
+                return titles[activeNav] || activeNav.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+              })()}
             </div>
           </div>
 

@@ -563,14 +563,27 @@ export default function FlagDrawer({
                     borderRadius: '8px',
                     background: 'var(--bg-base, #f8fafc)',
                     border: '1px solid var(--border-subtle, #e2e8f0)',
-                    fontFamily: "'JetBrains Mono', monospace",
                     fontSize: '12px',
                     color: '#1e293b',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px'
                   }}
                 >
-                  {JSON.stringify(evidence.details, null, 2)}
+                  {typeof evidence.details === 'object' && evidence.details !== null ? (
+                    Object.entries(evidence.details).map(([key, value]) => (
+                      <div key={key} style={{ display: 'flex', gap: '8px' }}>
+                        <span style={{ fontWeight: 600, color: '#64748b', textTransform: 'capitalize' }}>
+                          {key.replace(/_/g, ' ')}:
+                        </span>
+                        <span style={{ color: '#0f172a', fontFamily: typeof value === 'number' ? 'monospace' : 'inherit' }}>
+                          {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div>{String(evidence.details)}</div>
+                  )}
                 </div>
               ) : (
                 <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>

@@ -12,6 +12,259 @@ import {
   IconRefresh
 } from './Icons';
 
+function getDraftInitialText(d) {
+  let body = d?.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      return body;
+    }
+  }
+  if (!body) return '';
+  return (
+    body.prefilled?.note_draft ||
+    body.note_draft ||
+    body.draft_text ||
+    body.patient_reported ||
+    body.reply ||
+    body.message_text ||
+    body.summary ||
+    body.situation ||
+    body.headline ||
+    ''
+  );
+}
+
+function renderReadableDraftBody(d) {
+  let body = d?.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      return <div style={{ fontSize: '12px', color: '#1e293b' }}>{body}</div>;
+    }
+  }
+  if (!body || typeof body !== 'object') {
+    return <div style={{ fontSize: '12px', color: '#1e293b' }}>{String(body || '')}</div>;
+  }
+
+  // 1. Case Brief
+  if (d.draft_type === 'Case_Brief' || body.headline || body.what_happened) {
+    const headline = body.headline || 'Clinical Case Review';
+    const nextStep = body.next_step;
+    const whatHappened = Array.isArray(body.what_happened) ? body.what_happened : [];
+    const unknowns = Array.isArray(body.unknowns) ? body.unknowns : [];
+    const callScript = body.prefilled?.call_script || body.call_script || [];
+    const noteDraft = body.prefilled?.note_draft || body.note_draft || body.draft_text;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {/* Headline & Recommendation Banner */}
+        <div style={{
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          padding: '8px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px'
+        }}>
+          <div style={{ fontWeight: 700, fontSize: '12px', color: '#0f172a' }}>
+            {headline}
+          </div>
+          {nextStep && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <span style={{
+                fontSize: '10px',
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: '#dbeafe',
+                color: '#1e40af'
+              }}>
+                Suggested Action: {nextStep.label || nextStep.key}
+              </span>
+              {nextStep.why && (
+                <span style={{ fontSize: '10px', color: '#64748b' }}>
+                  ({nextStep.why})
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Clinical Evidence Facts */}
+        {whatHappened.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Grounded Observations
+            </span>
+            <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', color: '#334155' }}>
+              {whatHappened.map((f, i) => (
+                <li key={i} style={{ marginBottom: '3px' }}>
+                  {typeof f === 'string' ? f : f.fact}{' '}
+                  {f.source && (
+                    <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', background: '#e2e8f0', color: '#475569', fontFamily: 'monospace' }}>
+                      {f.source}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Known Unknowns / Missing Info Callout */}
+        {unknowns.length > 0 && (
+          <div style={{
+            background: '#fffbeb',
+            border: '1px solid #fef3c7',
+            borderRadius: '6px',
+            padding: '6px 8px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '6px',
+            fontSize: '11px',
+            color: '#92400e'
+          }}>
+            <span style={{ fontWeight: 700 }}>Missing / Unconfirmed:</span>
+            <span>{unknowns.join(' · ')}</span>
+          </div>
+        )}
+
+        {/* Suggested Call Script */}
+        {Array.isArray(callScript) && callScript.length > 0 && (
+          <div style={{
+            background: '#f0fdf4',
+            border: '1px solid #bbf7d0',
+            borderRadius: '6px',
+            padding: '6px 8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '3px'
+          }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>
+              Check-in Questions
+            </span>
+            {callScript.map((q, qi) => (
+              <div key={qi} style={{ fontSize: '11px', color: '#14532d' }}>
+                • {typeof q === 'string' ? q : q.question}
+                {q.why && <span style={{ fontSize: '10px', color: '#15803d', fontStyle: 'italic' }}> — {q.why}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Prefilled Note Draft */}
+        {noteDraft && (
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            padding: '8px',
+            fontSize: '11px',
+            color: '#1e293b',
+            lineHeight: 1.45
+          }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', marginBottom: '2px' }}>
+              Prefilled Note Draft (Nurse Review):
+            </div>
+            {noteDraft}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 2. Patient Message / Outreach Draft
+  if (d.draft_type === 'Patient_Message' || body.reply || body.message_text) {
+    const text = body.reply || body.message_text || body.draft_text;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {body.topic && (
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#0369a1' }}>
+            Topic: {body.topic}
+          </div>
+        )}
+        <div style={{
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          padding: '8px',
+          fontSize: '12px',
+          color: '#0f172a',
+          lineHeight: 1.45
+        }}>
+          {text}
+        </div>
+        {body.evidence_label && (
+          <span style={{ fontSize: '10px', color: '#64748b' }}>
+            Evidence: {body.evidence_label}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // 3. Call Note / Clinical Summary
+  if (d.draft_type === 'Call_Note' || d.draft_type === 'Summary' || body.patient_reported || body.situation || body.summary) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {body.patient_reported && (
+          <div style={{ fontSize: '11px', color: '#334155' }}>
+            <strong>Patient Reported:</strong> {body.patient_reported}
+          </div>
+        )}
+        {body.situation && (
+          <div style={{ fontSize: '11px', color: '#334155' }}>
+            <strong>Situation:</strong> {body.situation}
+          </div>
+        )}
+        {body.background && (
+          <div style={{ fontSize: '11px', color: '#334155' }}>
+            <strong>Background:</strong> {body.background}
+          </div>
+        )}
+        {body.assessment && (
+          <div style={{ fontSize: '11px', color: '#334155' }}>
+            <strong>Assessment:</strong> {body.assessment}
+          </div>
+        )}
+        {body.recommendation && (
+          <div style={{ fontSize: '11px', color: '#334155' }}>
+            <strong>Recommendation:</strong> {body.recommendation}
+          </div>
+        )}
+        {body.summary && !body.situation && (
+          <div style={{ fontSize: '12px', color: '#0f172a', lineHeight: 1.45 }}>
+            {body.summary}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback: Clean key-value pairs (skipping internal keys like guard, case_id, run_id, options)
+  const readableEntries = Object.entries(body).filter(([k]) => !['guard', 'case_id', 'run_id', 'draft_id', 'options'].includes(k));
+  if (readableEntries.length > 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px' }}>
+        {readableEntries.map(([k, val]) => (
+          <div key={k}>
+            <strong style={{ color: '#475569', textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}: </strong>
+            <span style={{ color: '#0f172a' }}>
+              {typeof val === 'object' ? JSON.stringify(val) : String(val)}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <div style={{ fontSize: '12px', color: '#64748b' }}>No details available</div>;
+}
+
 export default function AgentDesk({ currentUser, onSelectPatient }) {
   const isDoctor = currentUser?.account_role === 'Doctor';
   const roleAccent = isDoctor ? 'var(--navy-deep, #0b1528)' : 'var(--accent-teal, #0d9488)';
@@ -706,17 +959,21 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                   {/* Body Preview */}
                   {editingDraftId === d.draft_id ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>
+                        Edit Note Draft:
+                      </div>
                       <textarea
                         value={editText}
                         onChange={(e) => setEditText(e.target.value)}
                         style={{
                           width: '100%',
-                          minHeight: '70px',
+                          minHeight: '90px',
                           padding: '8px',
                           borderRadius: '6px',
                           border: '1px solid var(--border-strong, #cbd5e1)',
                           fontSize: '12px',
-                          fontFamily: 'var(--font-sans)'
+                          fontFamily: 'var(--font-sans)',
+                          lineHeight: '1.4'
                         }}
                       />
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
@@ -736,7 +993,16 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDraftAction(d.draft_id, 'edit', { ...d.body, edited_text: editText })}
+                          onClick={() => {
+                            const updatedBody = {
+                              ...(typeof d.body === 'object' ? d.body : {}),
+                              edited_text: editText,
+                              note_draft: editText,
+                              reply: editText,
+                              prefilled: typeof d.body === 'object' && d.body?.prefilled ? { ...d.body.prefilled, note_draft: editText } : { note_draft: editText }
+                            };
+                            handleDraftAction(d.draft_id, 'edit', updatedBody);
+                          }}
                           style={{
                             padding: '4px 10px',
                             borderRadius: '6px',
@@ -758,11 +1024,11 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                       color: 'var(--text-secondary)',
                       lineHeight: '1.4',
                       background: '#ffffff',
-                      padding: '8px',
+                      padding: '10px',
                       borderRadius: '6px',
-                      border: '1px solid #f1f5f9'
+                      border: '1px solid #e2e8f0'
                     }}>
-                      {d.body?.patient_reported || d.body?.reply || d.body?.situation || JSON.stringify(d.body)}
+                      {renderReadableDraftBody(d)}
                     </div>
                   )}
 
@@ -813,7 +1079,7 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                         type="button"
                         onClick={() => {
                           setEditingDraftId(d.draft_id);
-                          setEditText(d.body?.patient_reported || d.body?.reply || JSON.stringify(d.body));
+                          setEditText(getDraftInitialText(d));
                         }}
                         style={{
                           padding: '5px 10px',
@@ -1388,7 +1654,11 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                     <div style={{ padding: '10px', background: '#fff1f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
                       <strong style={{ fontSize: '12px', color: '#991b1b' }}>Policy Guard Findings:</strong>
                       <div style={{ fontSize: '12px', color: '#7f1d1d', marginTop: '4px' }}>
-                        {JSON.stringify(traceData.run.guard_reasons)}
+                        {Array.isArray(traceData.run.guard_reasons)
+                          ? traceData.run.guard_reasons.join(' · ')
+                          : typeof traceData.run.guard_reasons === 'object'
+                          ? Object.entries(traceData.run.guard_reasons).map(([k, v]) => `${k}: ${v}`).join(' · ')
+                          : String(traceData.run.guard_reasons)}
                       </div>
                     </div>
                   )}

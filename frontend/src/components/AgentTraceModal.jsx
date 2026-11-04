@@ -184,7 +184,9 @@ export default function AgentTraceModal({ runId, isOpen, onClose }) {
                   <div style={{ fontSize: '12px', color: '#7f1d1d', marginTop: '4px' }}>
                     {typeof traceData.run.guard_reasons === 'string'
                       ? traceData.run.guard_reasons
-                      : JSON.stringify(traceData.run.guard_reasons)}
+                      : Array.isArray(traceData.run.guard_reasons)
+                      ? traceData.run.guard_reasons.join(' · ')
+                      : Object.entries(traceData.run.guard_reasons).map(([k, v]) => `${k}: ${v}`).join(' · ')}
                   </div>
                 </div>
               )}
