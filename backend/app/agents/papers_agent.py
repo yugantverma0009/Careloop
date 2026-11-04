@@ -385,24 +385,34 @@ class PapersAgent:
         conflicts = detect_source_conflicts(patient_id)
         if conflicts:
             q_lower = effective_q.lower()
+            is_schedule_query = any(w in q_lower for w in ["next", "today", "schedule", "all of them", "due", "now"])
             for c in conflicts:
                 f_lower = c["fact"].lower()
+
+                # For general schedule questions (e.g. 'when is my next medicine dose due?'), only trigger conflict if specific conflicting entity is named
+                if is_schedule_query:
+                    if "cardiopulse" in f_lower and "cardiopulse" not in q_lower:
+                        continue
+                    if "vasculonorm" in f_lower and "vasculonorm" not in q_lower:
+                        continue
+                    if "appointment" in f_lower and "appointment" not in q_lower and "visit" not in q_lower and "doctor" not in q_lower:
+                        continue
+
                 is_relevant = (
                     ("appointment" in q_lower and "appointment" in f_lower) or
                     ("cardiopulse" in q_lower and "cardiopulse" in f_lower) or
                     ("vasculonorm" in q_lower and "vasculonorm" in f_lower) or
-                    ("timing" in q_lower and "medication" in f_lower) or
-                    ("dose" in q_lower and "dosage" in f_lower) or
+                    ("timing" in q_lower and "medication" in f_lower and "cardiopulse" in q_lower) or
+                    (("dosage" in q_lower or "strength" in q_lower or "how many mg" in q_lower) and "dosage" in f_lower) or
                     ("oxygen" in q_lower and "spo2" in f_lower) or
                     ("dressing" in q_lower and "dressing" in f_lower) or
                     ("water" in q_lower and "water" in f_lower) or
-                    ("morning" in q_lower and "morning" in f_lower) or
+                    ("morning" in q_lower and "morning" in f_lower and "cardiopulse" in q_lower) or
                     ("ointment" in q_lower and "ointment" in f_lower) or
                     ("neosporin" in q_lower and "ointment" in f_lower) or
                     ("walk" in q_lower and "walking" in f_lower) or
                     ("salt" in q_lower and "salt" in f_lower) or
-                    ("sodium" in q_lower and "salt" in f_lower) or
-                    any(w in q_lower for w in f_lower.split() if len(w) > 4)
+                    ("sodium" in q_lower and "salt" in f_lower)
                 )
                 if is_relevant:
                     AgentLedger.record_step(
@@ -419,13 +429,14 @@ class PapersAgent:
                         f"Discharge papers state: {c['papers_val']} ({c['source_papers']})",
                         f"Active clinical record states: {c['record_val']} ({c['source_record']})"
                     ]
+                    full_answer = warn_msg + "\n\n" + "\n".join(f"• {b}" for b in bullets)
                     AgentLedger.finish_run(
                         run_id, status="Done", result_type="source_conflict_warning",
                         latency_ms=int((time.time() - start_ts) * 1000)
                     )
                     return {
                         "answer_type": "source_conflict",
-                        "answer": warn_msg,
+                        "answer": full_answer,
                         "bullets": bullets,
                         "sources": [
                             {"label": c["source_papers"], "snippet": c["papers_val"], "text": c["papers_val"]},
@@ -434,12 +445,9 @@ class PapersAgent:
                         "suggestions": ["Ask care team to verify", "View active medicines"],
                         "can_ask_care_team": True,
                         "is_grounded": True,
-                        "evidence_strength": "Combined from your papers and care record",
-                        "response": warn_msg,
-                        "citations": [
-                            {"label": c["source_papers"], "snippet": c["papers_val"]},
-                            {"label": c["source_record"], "snippet": c["record_val"]}
-                        ],
+                        "evidence_strength": "Directly stated in your papers",
+                        "response": full_answer,
+                        "citations": [c["source_papers"], c["source_record"]],
                         "retrieval_debug": {"intent": "source_conflict", "conflict": c},
                         "run_id": run_id
                     }

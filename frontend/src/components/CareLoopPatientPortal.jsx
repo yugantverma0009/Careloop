@@ -5749,6 +5749,17 @@ export default function CareLoopPatientPortal({ user }) {
                                 {msg.content || msg.message_text || msg.text}
                               </div>
 
+                              {/* Bullets Rendering */}
+                              {msg.bullets && msg.bullets.length > 0 && !(msg.content || msg.message_text || '').includes(typeof msg.bullets[0] === 'string' ? msg.bullets[0] : '') && (
+                                <ul style={{ marginTop: '8px', marginBottom: '4px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  {msg.bullets.map((b, bi) => (
+                                    <li key={bi} style={{ fontSize: '13px', lineHeight: 1.5 }}>
+                                      {typeof b === 'string' ? b : b.text || JSON.stringify(b)}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+
                               {/* Emergency Direct Call Button */}
                               {isEmergency && (
                                 <div style={{ marginTop: '12px' }}>

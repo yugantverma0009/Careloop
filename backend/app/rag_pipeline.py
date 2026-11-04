@@ -669,12 +669,23 @@ def answer_patient_query(
             )
         elif intent == INTENT_TODAY_DOSES:
             doses_list = tool_result.get("doses", [])
-            lines = [f"{d.get('medicine')} at {d.get('time')}: {d.get('instructions')} [{d.get('status')}]" for d in doses_list]
-            ans_text = (
-                f"You have {len(doses_list)} scheduled doses today:\n" + "\n".join(lines)
-                if lang == "en"
-                else f"आज आपके लिए {len(doses_list)} ख़ुराकें निर्धारित हैं:\n" + "\n".join(lines)
-            )
+            lines = [f"• {d.get('medicine')} at {d.get('time')}: {d.get('instructions')} [{d.get('status', '').replace('_', ' ')}]" for d in doses_list]
+            q_low = clean_q.lower()
+            next_dose = next((d for d in doses_list if d.get('status') != 'Taken_Confirmed'), doses_list[0] if doses_list else None)
+
+            if any(w in q_low for w in ["next", "due", "now", "upcoming"]) and next_dose:
+                lead = (
+                    f"Your next scheduled medicine dose is **{next_dose.get('medicine')} at {next_dose.get('time')}** ({next_dose.get('instructions')})."
+                    if lang == "en"
+                    else f"आपकी अगली निर्धारित दवा **{next_dose.get('medicine')} {next_dose.get('time')} बजे** है ({next_dose.get('instructions')})।"
+                )
+                ans_text = f"{lead}\n\nYour complete medication schedule for today:\n" + "\n".join(lines)
+            else:
+                ans_text = (
+                    f"You have {len(doses_list)} scheduled doses today:\n" + "\n".join(lines)
+                    if lang == "en"
+                    else f"आज आपके लिए {len(doses_list)} ख़ुराकें निर्धारित हैं:\n" + "\n".join(lines)
+                )
         elif intent == INTENT_MEDICINE_PLAN:
             prescriptions = tool_result.get("prescriptions", [])
             lines = [f"{p.get('medicine')}: {p.get('instructions')} (Course: {p.get('start_date')} to {p.get('end_date')})" for p in prescriptions]
