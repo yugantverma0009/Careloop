@@ -451,7 +451,7 @@ export default function AgentSettingsView({ currentUser }) {
             </div>
 
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-              Doctor-enabled for low-risk routine alerts only. <span style={{ color: '#dc2626', fontWeight: 700 }}>STRICT SAFETY GUARD:</span> Emergency, SOS, Urgent, Symptom, and Photo flags are never auto-closed.
+              Doctor-enabled for low-risk routine alerts only. <span style={{ color: '#dc2626', fontWeight: 700 }}>STRICT SAFETY GUARD:</span> Emergency, SOS, Urgent, and Symptom flags are never auto-closed.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

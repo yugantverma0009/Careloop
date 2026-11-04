@@ -392,33 +392,6 @@ export default function NurseCallListView({ onSelectPatient }) {
             In post-discharge recovery
           </div>
         </div>
-
-        {/* Card 5: Photos to review (Phase 3 Feature F4) */}
-        <div
-          onClick={() => {
-            if (onSelectPatient) onSelectPatient(1);
-          }}
-          style={{
-            background: 'var(--bg-surface, #ffffff)',
-            border: '1px solid var(--border-subtle, #e2e8f0)',
-            borderLeft: '4px solid #ec4899',
-            borderRadius: '12px',
-            padding: '18px 20px',
-            boxShadow: 'var(--shadow-card)',
-            cursor: 'pointer',
-          }}
-          title="Click to view recovery photos waiting for clinical review"
-        >
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Photos to review
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#db2777', marginTop: '6px' }}>
-            {cards.photos_to_review ?? 1}
-          </div>
-          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-            Incision check-ins
-          </div>
-        </div>
       </div>
 
       {/* Suggested by Rounds Strip (Feature F1) */}

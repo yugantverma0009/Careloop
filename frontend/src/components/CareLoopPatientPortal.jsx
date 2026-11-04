@@ -33,7 +33,6 @@ import {
 import SwitchDemoWorkspace from './SwitchDemoWorkspace';
 import ThemeToggle from './ThemeToggle';
 import CheckinGuide from './CheckinGuide';
-import WoundPhotoUpload from './WoundPhotoUpload';
 import PatientMyPlanView from './PatientMyPlanView';
 import {
   IconLogo,
@@ -1345,9 +1344,6 @@ export default function CareLoopPatientPortal({ user }) {
         setActiveNav(res.target_tab);
         setActionFeedbackMsg(res.message);
       } else if (res.ui_action === 'modal') {
-        if (res.target_modal === 'wound_photo') {
-          setActiveNav('checkin');
-        }
         setActionFeedbackMsg(res.message);
       } else if (res.ui_action === 'download') {
         if (res.download_url) {
@@ -4638,12 +4634,6 @@ export default function CareLoopPatientPortal({ user }) {
                         loadCheckinHistory();
                       }}
                     />
-
-                    {/* Phase 3 Feature F4: Wound Photo Check-in */}
-                    <WoundPhotoUpload
-                      lang={lang}
-                      onOpenDischargePapers={() => setActiveNav('chat')}
-                    />
                   </div>
                 ) : (
                   /* ACTIVE CHECK-IN FORM */
@@ -5952,7 +5942,6 @@ export default function CareLoopPatientPortal({ user }) {
                                   if (actType === 'Open_Medicines') { label = lang === 'hi' ? 'दवाएं देखें' : 'View Medications'; icon = '💊'; }
                                   else if (actType === 'Start_Checkin') { label = lang === 'hi' ? 'दैनिक चेक-इन शुरू करें' : 'Start Check-in'; icon = '📋'; }
                                   else if (actType === 'Log_Symptom') { label = lang === 'hi' ? 'लक्षण दर्ज करें' : 'Log Symptoms'; icon = '📝'; }
-                                  else if (actType === 'Photo_Check') { label = lang === 'hi' ? 'घाव फोटो चेक' : 'Photo Check'; icon = '📷'; }
                                   else if (actType === 'Emergency_Call') { label = lang === 'hi' ? '112 पर आपातकालीन कॉल' : 'Call 112 Emergency'; icon = '📞'; }
                                   else if (actType === 'Download_Summary') { label = lang === 'hi' ? 'डिस्चार्ज समरी डाउनलोड' : 'Download Summary'; icon = '📄'; }
                                   else if (actType === 'Ask_Care_Team') { label = lang === 'hi' ? 'केयर टीम से पूछें' : 'Ask My Care Team'; icon = '👨‍⚕️'; }

@@ -15,7 +15,6 @@ const QUICK_ACTIONS = [
   'Rest with legs elevated',
   'Continue scheduled medications',
   'Maintain hydration & rest',
-  'Submit wound incision photo',
   'Re-test vital signs in 2h',
   'Call clinic if symptoms change',
 ];
