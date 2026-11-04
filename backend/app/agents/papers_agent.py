@@ -180,6 +180,69 @@ class PapersAgent:
             elif "vasculonorm" in q_low:
                 effective_q = "When do I take VasculoNorm-5 and what are the instructions?"
 
+        # Check if AI Help is enabled for this patient (Phase 4 Task 5)
+        try:
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("SELECT ai_help_enabled FROM patients WHERE patient_id = %s", (patient_id,))
+                p_row = cur.fetchone()
+                if p_row and p_row.get("ai_help_enabled") == 0:
+                    disabled_msg = (
+                        "AI assistant features are currently turned off in your settings. "
+                        "You may still view your daily checklist, recovery plan, and request a call from your nurse anytime."
+                        if lang == "en"
+                        else "आपकी सेटिंग्स में एआई सहायक सुविधाएँ बंद हैं। आप अपनी दैनिक चेकलिस्ट देख सकते हैं और अपनी नर्स से कॉल का अनुरोध कर सकते हैं।"
+                    )
+                    AgentLedger.finish_run(
+                        run_id, status="Done", result_type="ai_disabled_response",
+                        latency_ms=int((time.time() - start_ts) * 1000)
+                    )
+                    return {
+                        "answer_type": "ai_disabled",
+                        "answer": disabled_msg,
+                        "bullets": [],
+                        "sources": [],
+                        "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                        "can_ask_care_team": True,
+                        "action_suggested": "ask_care_team",
+                        "is_grounded": False,
+                        "evidence_strength": "Not enough evidence",
+                        "response": disabled_msg,
+                        "citations": [],
+                        "run_id": run_id
+                    }
+        except Exception:
+            pass
+
+        # Gate 1.0: Distress Intercept Check (Phase 4 Task 4 - Plain Code, Zero LLM)
+        from backend.app.agents.trust_service import TrustService
+        if TrustService.check_distress(clean_q) or TrustService.check_distress(effective_q):
+            distress_res = TrustService.handle_distress(patient_id, clean_q, language=lang)
+            AgentLedger.record_step(
+                run_id, seq, "Gate",
+                f"Distress phrase detected — immediate triage call task #{distress_res.get('task_id')}, zero LLM",
+                ok=True, ms=2
+            )
+            AgentLedger.finish_run(
+                run_id, status="Done", result_type="distress_intercepted",
+                latency_ms=int((time.time() - start_ts) * 1000),
+                guard_reasons=["Distress safety policy triggered"]
+            )
+            return {
+                "answer_type": "distress",
+                "answer": distress_res["answer"],
+                "bullets": [],
+                "sources": [],
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": True,
+                "action_suggested": "distress_support",
+                "is_grounded": False,
+                "evidence_strength": "Not enough evidence",
+                "response": distress_res["response"],
+                "citations": [],
+                "task_id": distress_res.get("task_id"),
+                "run_id": run_id
+            }
+
         # Gate 1.1: Emergency Check
         if has_emergency_term(clean_q) or has_emergency_term(effective_q):
             guidance = EMERGENCY_GUIDANCE.get(lang, EMERGENCY_GUIDANCE["en"])

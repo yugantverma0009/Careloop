@@ -707,6 +707,26 @@ export const getAgentExemplars = (draftType, limit = 3) =>
 export const generatePatientDayBrief = (language = 'en') =>
   post(`/patient/me/day-brief?language=${encodeURIComponent(language)}`, {});
 
+// ─── Phase 4: Trust, Transparency & Safety API (5.F, 5.G, 5.H) ────────────────
+
+export const getWhyToldExplainer = (flagId = null, lang = 'en') =>
+  get(`/patient/me/why-told?${flagId ? `flag_id=${flagId}&` : ''}lang=${encodeURIComponent(lang)}`);
+
+export const getReadingsTrend = (type = 'SpO2') =>
+  get(`/patient/me/readings-trend?type=${encodeURIComponent(type)}`);
+
+export const requestHelpCall = (category, note = null) =>
+  post('/patient/me/help-call', { category, note });
+
+export const getAiTransparency = () =>
+  get('/patient/me/ai-transparency');
+
+export const toggleAiHelp = (enabled) =>
+  post('/patient/me/ai-help', { enabled });
+
+export const requestChatPrivacy = (actionType) =>
+  post('/patient/me/chat-privacy', { action_type: actionType });
+
 
 
 

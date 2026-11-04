@@ -6675,6 +6675,7 @@ def get_nurse_call_list(
         # 2. Call items: Open flags
         cur.execute(
             """SELECT f.flag_id, f.patient_id, p.full_name, p.patient_code, p.phone,
+                      p.ai_help_enabled, p.preferred_language,
                       TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
                       dr.condition_summary, f.reason, f.severity, f.source_type, f.status,
                       CASE 
@@ -6817,6 +6818,8 @@ def get_nurse_call_list(
                 "patient_code": fl["patient_code"],
                 "age": fl["age"],
                 "phone": fl["phone"] or "+91-98765-43210",
+                "ai_help_enabled": bool(fl.get("ai_help_enabled", 1)),
+                "preferred_language": fl.get("preferred_language") or "en",
                 "condition": fl["condition_summary"] or "Post-discharge recovery",
                 "reason": fl["reason"],
                 "tier": tier,
@@ -7552,6 +7555,86 @@ def update_patient_reminder_preferences(
         channel_pref=payload.channel_pref,
         language=payload.language
     )
+
+
+# ─── Phase 4: Trust, Transparency & Safety Endpoints (5.F, 5.G, 5.H) ────
+class HelpCallIn(BaseModel):
+    category: str = "general_call"
+    note: Optional[str] = None
+
+
+class AiHelpToggleIn(BaseModel):
+    enabled: bool = True
+
+
+class ChatPrivacyIn(BaseModel):
+    action_type: str = "hide"
+
+
+@app.get("/patient/me/why-told")
+def get_patient_why_told(
+    flag_id: Optional[int] = None,
+    lang: str = "en",
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Transparent explanation of why care team was told of an alert."""
+    from .agents.trust_service import TrustService
+    pid = get_effective_patient_id(user)
+    return TrustService.get_why_told_explainer(patient_id=pid, flag_id=flag_id, language=lang or "en")
+
+
+@app.get("/patient/me/readings-trend")
+def get_patient_readings_trend(
+    type: str = "SpO2",
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """7-day sensor reading trend with doctor alert limit line."""
+    from .agents.trust_service import TrustService
+    pid = get_effective_patient_id(user)
+    return TrustService.get_readings_trend(patient_id=pid, measurement_type=type or "SpO2")
+
+
+@app.post("/patient/me/help-call")
+def request_patient_help_call(
+    payload: HelpCallIn,
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Help bar: creates a de-duplicated triage nurse call request."""
+    from .agents.trust_service import TrustService
+    pid = get_effective_patient_id(user)
+    return TrustService.request_nurse_call(patient_id=pid, reason_category=payload.category, custom_note=payload.note)
+
+
+@app.get("/patient/me/ai-transparency")
+def get_patient_ai_transparency(
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Summarizes AI interactions, data sources used, consent record, and memory."""
+    from .agents.trust_service import TrustService
+    pid = get_effective_patient_id(user)
+    return TrustService.get_ai_transparency_summary(patient_id=pid)
+
+
+@app.post("/patient/me/ai-help")
+def toggle_patient_ai_help(
+    payload: AiHelpToggleIn,
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Toggles AI help on or off for this patient."""
+    from .agents.trust_service import TrustService
+    pid = get_effective_patient_id(user)
+    return TrustService.set_ai_help_enabled(patient_id=pid, enabled=payload.enabled)
+
+
+@app.post("/patient/me/chat-privacy")
+def request_patient_chat_privacy(
+    payload: ChatPrivacyIn,
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Patient requests to hide or delete chat history."""
+    from .agents.trust_service import TrustService
+    pid = get_effective_patient_id(user)
+    return TrustService.request_chat_privacy(patient_id=pid, action_type=payload.action_type)
 
 
 @app.post("/sms/inbound")

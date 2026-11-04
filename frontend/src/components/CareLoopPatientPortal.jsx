@@ -36,6 +36,12 @@ import {
   recordDoseBarrier,
   getPatientWeeklyRecap,
   updatePatientReminderPreferences,
+  getWhyToldExplainer,
+  getReadingsTrend,
+  requestHelpCall,
+  getAiTransparency,
+  toggleAiHelp,
+  requestChatPrivacy,
   logout,
   API_BASE,
 } from '../services/api';
@@ -305,6 +311,7 @@ export default function CareLoopPatientPortal({ user }) {
       await updatePatientSettings({ ai_help_enabled: nextStatus });
       await updatePatientConsent(nextStatus).catch(() => null);
       setAiHelpEnabled(nextStatus);
+      setAiTransparencyData((prev) => prev ? { ...prev, ai_help_enabled: nextStatus } : prev);
     } catch (err) {
       alert(err.message || 'Failed to update AI help preference');
     } finally {
@@ -414,6 +421,27 @@ export default function CareLoopPatientPortal({ user }) {
   const [activeBarrierDoseId, setActiveBarrierDoseId] = useState(null);
   const [barrierNoteText, setBarrierNoteText] = useState('');
   const [barrierToast, setBarrierToast] = useState(null);
+
+  // Phase 4: Trust, Transparency & Safety States (5.F, 5.G, 5.H)
+  const [showWhyToldModal, setShowWhyToldModal] = useState(false);
+  const [whyToldData, setWhyToldData] = useState(null);
+  const [whyToldLoading, setWhyToldLoading] = useState(false);
+
+  const [showReadingsModal, setShowReadingsModal] = useState(false);
+  const [readingsTrendData, setReadingsTrendData] = useState(null);
+  const [readingsTrendLoading, setReadingsTrendLoading] = useState(false);
+
+  const [showHelpBarModal, setShowHelpBarModal] = useState(false);
+  const [helpBarLoading, setHelpBarLoading] = useState(false);
+  const [helpBarFeedback, setHelpBarFeedback] = useState(null);
+
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [aiTransparencyData, setAiTransparencyData] = useState(null);
+  const [chatHiddenOnScreen, setChatHiddenOnScreen] = useState(() => {
+    try { return localStorage.getItem('careloop_chat_hidden') === 'true'; } catch(e) { return false; }
+  });
+  const [chatPrivacyFeedback, setChatPrivacyFeedback] = useState(null);
+  const [whyUpdateModalItem, setWhyUpdateModalItem] = useState(null);
 
   const chatEndRef = useRef(null);
 
@@ -1514,6 +1542,74 @@ export default function CareLoopPatientPortal({ user }) {
     }
   };
 
+  // Phase 4: Trust, Transparency & Safety Handlers (5.F, 5.G, 5.H)
+  const handleOpenWhyTold = async (flagId = null) => {
+    setShowWhyToldModal(true);
+    setWhyToldLoading(true);
+    try {
+      const data = await getWhyToldExplainer(flagId, lang);
+      setWhyToldData(data);
+    } catch (e) {
+      alert(`Could not load explanation: ${e.message || 'Error'}`);
+    } finally {
+      setWhyToldLoading(false);
+    }
+  };
+
+  const handleOpenReadingsTrend = async (type = 'SpO2') => {
+    setShowReadingsModal(true);
+    setReadingsTrendLoading(true);
+    try {
+      const data = await getReadingsTrend(type);
+      setReadingsTrendData(data);
+    } catch (e) {
+      alert(`Could not load readings: ${e.message || 'Error'}`);
+    } finally {
+      setReadingsTrendLoading(false);
+    }
+  };
+
+  const handleHelpCallRequest = async (category, note = null) => {
+    setHelpBarLoading(true);
+    try {
+      const res = await requestHelpCall(category, note);
+      setHelpBarFeedback(res.message || 'Request sent to triage nurse.');
+      setTimeout(() => {
+        setHelpBarFeedback(null);
+        setShowHelpBarModal(false);
+      }, 3000);
+    } catch (e) {
+      alert(`Help request failed: ${e.message || 'Error'}`);
+    } finally {
+      setHelpBarLoading(false);
+    }
+  };
+
+  const handleHideChat = async () => {
+    try {
+      await requestChatPrivacy('hide');
+      setChatHiddenOnScreen(true);
+      try { localStorage.setItem('careloop_chat_hidden', 'true'); } catch(e) {}
+      setChatPrivacyFeedback(lang === 'hi' ? 'चैट इतिहास स्क्रीन से छिपा दिया गया है।' : 'Chat history hidden from display.');
+      setTimeout(() => setChatPrivacyFeedback(null), 3000);
+    } catch (e) {
+      alert(`Privacy request failed: ${e.message || 'Error'}`);
+    }
+  };
+
+  const handleRequestChatDeletion = async () => {
+    if (!window.confirm(lang === 'hi' ? 'क्या आप केयरलूप से अपनी चैट हटाने का अनुरोध करना चाहते हैं? नैदानिक सुरक्षा के लिए ऑडिट रिकॉर्ड रखे जाएंगे, जबकि टेक्स्ट हटा दिया जाएगा।' : 'Request CareLoop to delete your chat text? Your audit timestamps and ID records will be securely retained for clinical safety, while conversation text is scheduled for permanent purge.')) {
+      return;
+    }
+    try {
+      const res = await requestChatPrivacy('delete');
+      setChatPrivacyFeedback(res.message);
+      setTimeout(() => setChatPrivacyFeedback(null), 4000);
+    } catch (e) {
+      alert(`Deletion request failed: ${e.message || 'Error'}`);
+    }
+  };
+
   const handleMarkUpdateSeen = async (updateId) => {
     try {
       await markPatientUpdateSeen(updateId);
@@ -1957,6 +2053,55 @@ export default function CareLoopPatientPortal({ user }) {
             >
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: easyMode ? '#10b981' : '#94a3b8' }} />
               <span>{lang === 'hi' ? 'ईज़ी मोड' : 'Easy Mode'}</span>
+            </button>
+
+            {/* Phase 4: Help Bar Button (5.G) */}
+            <button
+              type="button"
+              onClick={() => setShowHelpBarModal(true)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                border: '1px solid #ef4444',
+                background: '#fee2e2',
+                color: '#b91c1c',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={lang === 'hi' ? 'आपातकालीन सहायता और नर्स संपर्क' : 'Emergency help and nurse contact'}
+            >
+              <span>🆘</span>
+              <span>{lang === 'hi' ? 'मदद (Help)' : 'Help Bar'}</span>
+            </button>
+
+            {/* Phase 4: Settings & AI Transparency Button (5.H) */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowSettingsModal(true);
+                getAiTransparency().then(setAiTransparencyData).catch(() => {});
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-subtle, #cbd5e1)',
+                background: 'var(--bg-base, #f8fafc)',
+                color: 'var(--text-secondary, #475569)',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={lang === 'hi' ? 'सेटिंग्स और गोपनीयता' : 'Settings and privacy'}
+            >
+              <span>⚙️</span>
+              <span>{lang === 'hi' ? 'सेटिंग्स' : 'Settings'}</span>
             </button>
 
             {/* In-App Reminders Bell (Brief Sec 6.8) */}
@@ -2520,7 +2665,7 @@ export default function CareLoopPatientPortal({ user }) {
               >
                 <IconAlertTriangle width={20} height={20} />
               </div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--alert-red-text, #991b1b)' }}>
                   {lang === 'hi' ? 'आपकी केयर टीम को सूचित कर दिया गया है' : 'Your care team has been told'}
                 </div>
@@ -2530,6 +2675,23 @@ export default function CareLoopPatientPortal({ user }) {
                     : 'If you have chest pain or severe trouble breathing, call 112 now.'}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => handleOpenWhyTold()}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #b91c1c',
+                  background: '#ffffff',
+                  color: '#b91c1c',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {lang === 'hi' ? 'केयर टीम को क्यों बताया?' : 'Why was care team told?'}
+              </button>
             </div>
           )}
 
@@ -2561,7 +2723,7 @@ export default function CareLoopPatientPortal({ user }) {
               >
                 <IconClock width={20} height={20} />
               </div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--warning-amber-text, #92400e)' }}>
                   {lang === 'hi' ? 'समीक्षा प्रतीक्षित' : 'Waiting for care team review'}
                 </div>
@@ -2571,6 +2733,23 @@ export default function CareLoopPatientPortal({ user }) {
                     : 'A reading is waiting for your care team to review.'}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => handleOpenWhyTold()}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #b45309',
+                  background: '#ffffff',
+                  color: '#92400e',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {lang === 'hi' ? 'केयर टीम को क्यों बताया?' : 'Why was care team told?'}
+              </button>
             </div>
           )}
 
@@ -3375,9 +3554,25 @@ export default function CareLoopPatientPortal({ user }) {
                   >
                     {heartRateValue} <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted, #64748b)' }}>bpm</span>
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginBottom: '8px' }}>
                     {lang === 'hi' ? `नवीनतम रीडिंग, ${hrTime} · ${hrQuality}` : `Latest reading, ${hrTime} · ${hrQuality}`}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReadingsTrend('Heart_Rate')}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--accent-teal, #0d9488)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📊 {lang === 'hi' ? '7-दिवसीय रुझान और सीमा' : '7-Day Trend & Alert Limit'}
+                  </button>
                 </div>
 
                 {/* Card 2: Blood Oxygen (SpO2) */}
@@ -3423,9 +3618,25 @@ export default function CareLoopPatientPortal({ user }) {
                   >
                     {spo2Value}%
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginBottom: '8px' }}>
                     {lang === 'hi' ? `नवीनतम रीडिंग, ${spo2Time} · ${spo2Quality}` : `Latest reading, ${spo2Time} · ${spo2Quality}`}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReadingsTrend('SpO2')}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-base, #f8fafc)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--accent-blue, #0284c7)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📊 {lang === 'hi' ? '7-दिवसीय रुझान और सीमा' : '7-Day Trend & Alert Limit'}
+                  </button>
                 </div>
 
                 {/* Card 3: Latest Check-in */}
@@ -7818,9 +8029,26 @@ export default function CareLoopPatientPortal({ user }) {
                             }}
                           >
                             <IconVolume2 width={12} height={12} />
-                            <span>{speakingMsgId === `update-${u.update_id}` ? (lang === 'hi' ? 'रोकें' : 'Stop') : (lang === 'hi' ? 'सुनें' : 'Listen')}</span>
+                            <span>{speakingMsgId === `update-${u.update_id}` ? (lang === 'hi' ? 'रुकें' : 'Stop') : (lang === 'hi' ? 'सुनें' : 'Listen')}</span>
                           </button>
-                          {!isSeen && (
+
+                          <button
+                            type="button"
+                            onClick={() => setWhyUpdateModalItem(u)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--accent-teal, #0d9488)',
+                              padding: '2px 4px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            {lang === 'hi' ? 'यह क्यों दिख रहा है?' : 'Why am I seeing this?'}
+                          </button>
+                        {!isSeen && (
                             <button
                               type="button"
                               onClick={() => handleMarkUpdateSeen(u.update_id)}
@@ -9114,6 +9342,618 @@ export default function CareLoopPatientPortal({ user }) {
               {lang === 'hi'
                 ? '⚠️ आपातकालीन स्थिति में तुरंत 112 या अपने नजदीकी अस्पताल से संपर्क करें।'
                 : '⚠️ In an urgent emergency, always contact emergency services or your hospital.'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4: "Why was my care team told?" Modal (5.F) */}
+      {showWhyToldModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setShowWhyToldModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '520px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'केयर टीम को क्यों सूचित किया गया?' : 'Why was my care team told?'}
+                </h3>
+                <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  {lang === 'hi' ? 'पारदर्शी सुरक्षा नियम और नैदानिक संदर्भ' : 'Plain, judgment-free clinical alert context'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWhyToldModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {whyToldLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary, #475569)' }}>
+                {lang === 'hi' ? 'विवरण लोड हो रहा है...' : 'Loading explanation...'}
+              </div>
+            ) : whyToldData?.has_open_alert ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* 1. Quality Label */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #cbd5e1)', fontSize: '12px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-secondary, #475569)' }}>
+                    {lang === 'hi' ? 'डेटा गुणवत्ता स्थिति:' : 'Sensor Data Quality:'}
+                  </span>
+                  <span style={{ padding: '2px 8px', borderRadius: '10px', background: '#dcfce7', color: '#166534', fontWeight: 700, fontSize: '11px' }}>
+                    {whyToldData.data_quality_label || 'Good'}
+                  </span>
+                </div>
+
+                {/* 2. Plain Reason */}
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '4px' }}>
+                    {lang === 'hi' ? 'वास्तविक कारण:' : 'Recorded Reason:'}
+                  </div>
+                  <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.06)', borderRadius: '8px', borderLeft: '3px solid #dc2626', fontSize: '13px', color: 'var(--text-primary, #0f172a)', lineHeight: 1.5 }}>
+                    {whyToldData.plain_reason}
+                  </div>
+                </div>
+
+                {/* 3. Approving Doctor Rule */}
+                <div style={{ padding: '12px', background: 'rgba(2, 132, 199, 0.06)', borderRadius: '8px', border: '1px solid rgba(2, 132, 199, 0.2)', fontSize: '12px', color: '#0369a1', lineHeight: 1.5 }}>
+                  🔒 <strong>{lang === 'hi' ? 'चिकित्सक द्वारा निर्धारित सुरक्षा सीमा:' : 'Physician safety threshold:'}</strong>{' '}
+                  {whyToldData.rule_explanation}
+                </div>
+
+                {/* 4. What happens next */}
+                <div style={{ padding: '12px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #cbd5e1)', fontSize: '12px', color: 'var(--text-secondary, #334155)', lineHeight: 1.5 }}>
+                  ℹ️ <strong>{lang === 'hi' ? 'आगे क्या होगा?' : 'What happens next?'}</strong>{' '}
+                  {whyToldData.what_happens_next}
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary, #475569)', fontSize: '13px' }}>
+                {whyToldData?.message || 'No active alert currently shared with your care team.'}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
+              <button
+                type="button"
+                onClick={() => setShowWhyToldModal(false)}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: 'var(--navy-deep, #0b1528)', color: '#ffffff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {lang === 'hi' ? 'समझ गया' : 'Understood'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4: "My Readings: 7-Day Trend" Modal (5.F) */}
+      {showReadingsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setShowReadingsModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '560px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'मेरी रीडिंग: 7-दिवसीय रुझान' : 'My Readings: 7-Day Trend'}
+                </h3>
+                <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  {readingsTrendData?.measurement_type === 'SpO2' ? 'Blood Oxygen (SpO2 %)' : 'Pulse Rate (Heart Rate bpm)'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => handleOpenReadingsTrend(readingsTrendData?.measurement_type === 'SpO2' ? 'Heart_Rate' : 'SpO2')}
+                  style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-subtle, #cbd5e1)', background: 'var(--bg-base, #f8fafc)', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  {readingsTrendData?.measurement_type === 'SpO2' ? 'Switch to Pulse' : 'Switch to SpO2'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReadingsModal(false)}
+                  style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {readingsTrendLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary, #475569)' }}>
+                Loading readings...
+              </div>
+            ) : readingsTrendData ? (
+              <div>
+                {/* Headline valid reading */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-base, #f8fafc)', borderRadius: '10px', marginBottom: '14px', border: '1px solid var(--border-subtle, #cbd5e1)' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>Latest Verified Reading:</div>
+                    <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      {readingsTrendData.latest_reading?.value || '--'} {readingsTrendData.latest_reading?.unit}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>{readingsTrendData.latest_reading?.time || 'Recent'}</div>
+                    <span style={{ padding: '2px 8px', borderRadius: '8px', background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: 700 }}>
+                      Quality: {readingsTrendData.latest_reading?.quality || 'Good'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Invalid readings filtered note */}
+                {readingsTrendData.invalid_readings_ignored > 0 && (
+                  <div style={{ padding: '6px 10px', borderRadius: '6px', background: 'rgba(234, 179, 8, 0.1)', color: '#854d0e', fontSize: '11px', marginBottom: '12px' }}>
+                    ⚠️ {readingsTrendData.invalid_readings_ignored} readings ignored: impossible or motion values kept out of headline.
+                  </div>
+                )}
+
+                {/* SVG Line / Dot Chart */}
+                <div style={{ background: 'var(--bg-surface, #ffffff)', border: '1px solid var(--border-subtle, #cbd5e1)', borderRadius: '10px', padding: '16px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted, #64748b)', marginBottom: '8px' }}>
+                    <span>Past 7 Days History</span>
+                    <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                      --- {readingsTrendData.alert_limit?.label} ({readingsTrendData.alert_limit?.threshold})
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '110px', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle, #cbd5e1)' }}>
+                    {(readingsTrendData.points || []).map((pt, i) => {
+                      const minV = readingsTrendData.measurement_type === 'SpO2' ? 85 : 50;
+                      const maxV = readingsTrendData.measurement_type === 'SpO2' ? 100 : 130;
+                      const pct = Math.max(10, Math.min(100, ((pt.value - minV) / (maxV - minV)) * 100));
+                      const isAlert = readingsTrendData.measurement_type === 'SpO2' ? pt.value < readingsTrendData.alert_limit?.threshold : pt.value > readingsTrendData.alert_limit?.threshold;
+                      return (
+                        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+                          <span style={{ fontSize: '9px', color: isAlert ? '#dc2626' : 'var(--text-secondary, #475569)', fontWeight: 700 }}>{pt.value}</span>
+                          <div style={{ width: '8px', height: `${pct}%`, borderRadius: '4px', background: isAlert ? '#dc2626' : 'var(--accent-teal, #0d9488)' }} />
+                          <span style={{ fontSize: '8px', color: 'var(--text-muted, #94a3b8)', marginTop: '4px' }}>{pt.time?.split(' ')[0]}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Clinical Boundary Disclaimer */}
+                <div style={{ padding: '8px 12px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px dashed var(--border-subtle, #cbd5e1)', fontSize: '11px', color: 'var(--text-muted, #64748b)', textAlign: 'center' }}>
+                  {readingsTrendData.disclaimer}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4: Help Bar Modal (5.G) */}
+      {showHelpBarModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setShowHelpBarModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '460px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'सहायता और संपर्क केंद्र' : 'CareLoop Help Bar'}
+                </h3>
+                <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  {lang === 'hi' ? 'सीधा संपर्क और आपातकालीन सहायता' : 'Direct emergency guidance & triage callbacks'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHelpBarModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Direct 112 Call Emergency Button */}
+            <a
+              href="tel:112"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                padding: '14px',
+                borderRadius: '10px',
+                background: '#dc2626',
+                color: '#ffffff',
+                textDecoration: 'none',
+                fontWeight: 800,
+                fontSize: '15px',
+                marginBottom: '14px',
+                boxShadow: '0 4px 6px -1px rgba(220, 38, 38, 0.3)',
+              }}
+            >
+              <span>🚨</span>
+              <span>{lang === 'hi' ? 'आपातकालीन कॉल: 112' : 'Call 112 Emergency'}</span>
+            </a>
+
+            {/* Options List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+              <button
+                type="button"
+                onClick={() => handleHelpCallRequest('callback_request')}
+                disabled={helpBarLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  background: 'var(--bg-base, #f8fafc)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary, #0f172a)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <span>👩‍⚕️</span>
+                <span>{lang === 'hi' ? 'मेरी नर्स को मुझे कॉल करने के लिए कहें' : 'Ask a nurse to call me'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleHelpCallRequest('sos_alert')}
+                disabled={helpBarLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #fca5a5',
+                  background: '#fef2f2',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#b91c1c',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <span>🆘</span>
+                <span>{lang === 'hi' ? 'एसओएस (SOS) अलर्ट भेजें' : 'Send Urgent SOS Alert'}</span>
+              </button>
+            </div>
+
+            {/* Message My Nurse Fixed Templates */}
+            <div style={{ marginBottom: '14px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '6px' }}>
+                {lang === 'hi' ? 'नर्स को संदेश (तय प्रारूप):' : 'Message my nurse (Fixed Template):'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {[
+                  { id: 'med_question', label_en: 'Question about my medication dose', label_hi: 'दवा की खुराक से जुड़ा सवाल' },
+                  { id: 'exercise_question', label_en: 'Question about recovery activity/walking', label_hi: 'रिकवरी व्यायाम या टहलने से जुड़ा सवाल' },
+                  { id: 'appt_question', label_en: 'Need help rescheduling upcoming clinic visit', label_hi: 'अपॉइंटमेंट समय बदलने में सहायता चाहिए' },
+                ].map((tmpl) => (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => handleHelpCallRequest('template_message', tmpl.label_en)}
+                    disabled={helpBarLoading}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #cbd5e1)',
+                      background: 'var(--bg-surface, #ffffff)',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary, #334155)',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    💬 {lang === 'hi' ? tmpl.label_hi : tmpl.label_en}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {helpBarFeedback && (
+              <div style={{ padding: '8px 12px', borderRadius: '6px', background: '#dcfce7', color: '#166534', fontSize: '12px', fontWeight: 600, marginBottom: '12px', textAlign: 'center' }}>
+                {helpBarFeedback}
+              </div>
+            )}
+
+            <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', textAlign: 'center' }}>
+              ℹ️ SOS notifies your hospital care team. It does not dispatch an ambulance. For immediate emergency, call 112.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4: Settings & AI Transparency Modal (5.H) */}
+      {showSettingsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '540px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'सेटिंग्स और एआई पारदर्शिता' : 'Settings & AI Transparency'}
+                </h3>
+                <p style={{ margin: '3px 0 0 0', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  {lang === 'hi' ? 'गोपनीयता, सहमति और डेटा नियंत्रण' : 'Patient preferences, consent records & privacy'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* AI Help Switch */}
+            <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #cbd5e1)', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'एआई सहायक सुविधाएँ (AI Help)' : 'AI Care Guide Assistant'}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', marginTop: '2px', maxWidth: '340px' }}>
+                  {aiHelpEnabled
+                    ? (lang === 'hi' ? 'एआई चालू है। डिस्चार्ज पेपर्स से सवालों के जवाब दिए जाते हैं।' : 'AI enabled. Answers questions directly from your discharge papers.')
+                    : (lang === 'hi' ? 'एआई बंद है। रूटीन दवा रिमाइंडर और डॉक्टर नियम सामान्य रूप से चलेंगे।' : 'AI disabled. Routine medication reminders and doctor safety rules continue.')}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleAiHelp}
+                disabled={aiHelpLoading}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  border: 'none',
+                  background: aiHelpEnabled ? '#059669' : '#94a3b8',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {aiHelpEnabled ? (lang === 'hi' ? 'चालू' : 'ON') : (lang === 'hi' ? 'बंद' : 'OFF')}
+              </button>
+            </div>
+
+            {/* How AI was used for me */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
+                🤖 {lang === 'hi' ? 'मेरे लिए एआई का उपयोग कैसे हुआ:' : 'How CareLoop used AI for me:'}
+              </div>
+              <div style={{ padding: '12px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #cbd5e1)', fontSize: '12px', color: 'var(--text-secondary, #334155)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div>Total AI assistant replies delivered: <strong>{aiTransparencyData?.ai_messages_delivered || 0}</strong></div>
+                <div>Consent Version: <strong>{aiTransparencyData?.consent_record?.notice_version || 'v2.0-approved'}</strong> (Consented on {aiTransparencyData?.consent_record?.consented_at})</div>
+                <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                  Sources used: Hospital Discharge Summary, Active Prescriptions, Clinical Recovery Plan.
+                </div>
+              </div>
+            </div>
+
+            {/* What Care Guide remembers */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
+                🧠 {lang === 'hi' ? 'केयर गाइड मेरे बारे में क्या याद रखता है:' : 'What Care Guide remembers about me:'}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '12px', color: 'var(--text-secondary, #334155)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {(aiTransparencyData?.what_care_guide_remembers || [
+                  'Your name and contact preferences',
+                  'Hospital discharge summary and recovery instructions',
+                  'Prescribed medications and reminder advance times',
+                  'Completed check-in pain history'
+                ]).map((item, i) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ul>
+            </div>
+
+            {/* My Data Controls */}
+            <div style={{ borderTop: '1px solid var(--border-subtle, #e2e8f0)', paddingTop: '14px', marginBottom: '14px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                🔒 {lang === 'hi' ? 'मेरा डेटा और गोपनीयता नियंत्रण:' : 'My Data & Privacy Controls:'}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleHideChat}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                    background: 'var(--bg-base, #f8fafc)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text-secondary, #475569)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {chatHiddenOnScreen ? 'Chat is hidden' : (lang === 'hi' ? 'स्क्रीन से चैट छुपाएं' : 'Hide chat from screen')}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRequestChatDeletion}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fca5a5',
+                    background: '#fef2f2',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#b91c1c',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {lang === 'hi' ? 'चैट हटाने का अनुरोध करें' : 'Ask CareLoop to delete chat'}
+                </button>
+              </div>
+            </div>
+
+            {chatPrivacyFeedback && (
+              <div style={{ padding: '8px 12px', borderRadius: '6px', background: '#dcfce7', color: '#166534', fontSize: '12px', fontWeight: 600, marginBottom: '12px' }}>
+                {chatPrivacyFeedback}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: 'var(--navy-deep, #0b1528)', color: '#ffffff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {lang === 'hi' ? 'सहेजें और बंद करें' : 'Save & Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4: "Why am I seeing this?" Update Trigger Modal (5.H) */}
+      {whyUpdateModalItem && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setWhyUpdateModalItem(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '460px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                {lang === 'hi' ? 'यह संदेश क्यों दिखाया गया?' : 'Why am I seeing this message?'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setWhyUpdateModalItem(null)}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: '12px', background: 'var(--bg-base, #f8fafc)', borderRadius: '8px', border: '1px solid var(--border-subtle, #cbd5e1)', fontSize: '12px', lineHeight: 1.5, color: 'var(--text-secondary, #334155)', marginBottom: '14px' }}>
+              <div><strong>Update Title:</strong> {whyUpdateModalItem.title}</div>
+              <div style={{ marginTop: '6px' }}><strong>Trigger Source:</strong> {whyUpdateModalItem.update_type || 'Care team routine'}</div>
+              <div style={{ marginTop: '6px' }}>
+                This message was triggered by your doctor-approved recovery schedule or care team outreach protocol. It is sent based on your prescribed discharge orders.
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setWhyUpdateModalItem(null)}
+                style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', background: 'var(--navy-deep, #0b1528)', color: '#ffffff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {lang === 'hi' ? 'बंद करें' : 'Close'}
+              </button>
             </div>
           </div>
         </div>

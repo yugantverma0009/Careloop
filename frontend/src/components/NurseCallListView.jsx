@@ -659,7 +659,20 @@ export default function NurseCallListView({ onSelectPatient }) {
                         onClick={() => onSelectPatient && onSelectPatient(item.patient_id)}
                       />
                       <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
-                        {item.condition} · Tel: <strong>{item.phone}</strong>
+                        {item.condition} · Tel: <strong>{item.phone}</strong> · {item.preferred_language === 'hi' ? 'Hindi' : 'English'}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '8px',
+                          background: item.ai_help_enabled ? '#dcfce7' : '#f1f5f9',
+                          color: item.ai_help_enabled ? '#166534' : '#64748b',
+                          border: `1px solid ${item.ai_help_enabled ? '#bbf7d0' : '#cbd5e1'}`,
+                        }}
+                      >
+                        {item.ai_help_enabled ? 'AI: ON' : 'AI: OFF'}
                       </span>
                     </div>
 
