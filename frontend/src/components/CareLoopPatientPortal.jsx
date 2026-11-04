@@ -5247,12 +5247,13 @@ export default function CareLoopPatientPortal({ user }) {
                 background: 'var(--bg-surface, #ffffff)',
                 border: '1px solid var(--border-subtle, #e2e8f0)',
                 borderRadius: '16px',
-                padding: '24px',
-                height: '660px',
+                padding: '24px 28px',
+                minHeight: 'calc(100vh - 160px)',
+                width: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                maxWidth: '920px',
                 boxShadow: 'var(--shadow-card)',
+                boxSizing: 'border-box',
               }}
             >
               {/* Care Guide Agentic Header */}
@@ -5599,34 +5600,69 @@ export default function CareLoopPatientPortal({ user }) {
                             key={msgId || i}
                             style={{
                               alignSelf: isUser ? 'flex-end' : 'flex-start',
-                              maxWidth: '84%',
+                              maxWidth: '88%',
                               display: 'flex',
                               flexDirection: 'column',
-                              gap: '4px',
+                              gap: '6px',
                             }}
                           >
                             {/* Message Header Label */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', alignSelf: isUser ? 'flex-end' : 'flex-start', marginBottom: '2px' }}>
                               {!isUser ? (
                                 <>
-                                  <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'rgba(13, 148, 136, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-teal, #0d9488)' }}>
-                                    <IconSparkles width={11} height={11} />
+                                  <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(13, 148, 136, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-teal, #0d9488)' }}>
+                                    <IconSparkles width={12} height={12} />
                                   </div>
-                                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>Care Guide</span>
-                                  <span style={{ fontSize: '10px', background: 'rgba(5, 150, 105, 0.1)', color: '#059669', padding: '1px 6px', borderRadius: '10px', fontWeight: 700 }}>
-                                    {msg.evidence_strength || 'Directly stated in papers'}
-                                  </span>
+                                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>Care Guide</span>
+                                  {(() => {
+                                    if (isEmergency) {
+                                      return (
+                                        <span style={{ fontSize: '10px', background: 'rgba(239, 68, 68, 0.12)', color: '#dc2626', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                                          Emergency Protocol
+                                        </span>
+                                      );
+                                    }
+                                    if (msg.answer_type === 'source_conflict') {
+                                      return (
+                                        <span style={{ fontSize: '10px', background: 'rgba(217, 119, 6, 0.12)', color: '#d97706', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                                          Source Conflict Detected
+                                        </span>
+                                      );
+                                    }
+                                    if (msg.answer_type === 'unavailable' || msg.answer_type === 'daily_limit_reached') {
+                                      return (
+                                        <span style={{ fontSize: '10px', background: 'rgba(100, 116, 139, 0.12)', color: '#475569', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                                          System Notice
+                                        </span>
+                                      );
+                                    }
+                                    if (msg.answer_type === 'opt_out') {
+                                      return (
+                                        <span style={{ fontSize: '10px', background: 'rgba(100, 116, 139, 0.12)', color: '#475569', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                                          Human-Only Mode
+                                        </span>
+                                      );
+                                    }
+                                    if (msg.evidence_strength) {
+                                      return (
+                                        <span style={{ fontSize: '10px', background: 'rgba(5, 150, 105, 0.1)', color: '#059669', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                                          {msg.evidence_strength}
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </>
                               ) : (
-                                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted, #64748b)' }}>You</span>
+                                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted, #64748b)' }}>You</span>
                               )}
                             </div>
 
                             {/* Message Bubble */}
                             <div
                               style={{
-                                padding: '12px 16px',
-                                borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                                padding: '14px 20px',
+                                borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                                 background: isUser
                                   ? 'var(--navy-deep, #0b1528)'
                                   : isEmergency
@@ -5638,8 +5674,8 @@ export default function CareLoopPatientPortal({ user }) {
                                   ? 'none'
                                   : '1px solid var(--border-subtle, #e2e8f0)',
                                 color: isUser ? '#ffffff' : 'var(--text-primary, #0f172a)',
-                                fontSize: '13px',
-                                lineHeight: 1.6,
+                                fontSize: '14px',
+                                lineHeight: 1.65,
                                 boxShadow: isUser ? '0 1px 3px rgba(0,0,0,0.1)' : '0 1px 2px rgba(0,0,0,0.02)',
                               }}
                             >
@@ -6310,9 +6346,9 @@ export default function CareLoopPatientPortal({ user }) {
                         }
                         style={{
                           flex: 1,
-                          padding: '10px 0',
+                          padding: '12px 0',
                           border: 'none',
-                          fontSize: '13px',
+                          fontSize: '14px',
                           background: 'transparent',
                           color: 'var(--text-primary, #0f172a)',
                           outline: 'none',

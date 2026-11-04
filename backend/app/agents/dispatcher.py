@@ -24,8 +24,8 @@ from backend.app.agents.policy_guard import PolicyGuard, PolicyGuardResult
 import os
 logger = logging.getLogger(__name__)
 
-# Daily budget: max LLM calls per patient per day (configurable for evaluation)
-MAX_DAILY_LLM_CALLS_PER_PATIENT = int(os.getenv("MAX_DAILY_LLM_CALLS", "15"))
+# Daily budget: max LLM calls per patient per day (configurable, default 50 for interactive testing)
+MAX_DAILY_LLM_CALLS_PER_PATIENT = int(os.getenv("MAX_DAILY_LLM_CALLS", "50"))
 
 
 class DispatcherDecision:
@@ -154,12 +154,14 @@ class AgentDispatcher:
                                 degraded=True
                             )
 
-                    # 4. Daily budget check
+                    # 4. Daily budget check (excludes automated evals, test suites, and regression benchmarks)
                     if not bypass_budget and os.environ.get("CARELOOP_EVAL_MODE") != "1":
                         cur.execute("""
                             SELECT COALESCE(SUM(llm_calls), 0) as total_calls
                             FROM agent_runs
-                            WHERE patient_id = %s AND started_at >= CURDATE();
+                            WHERE patient_id = %s 
+                              AND started_at >= CURDATE()
+                              AND trigger_type NOT IN ('eval', 'test', 'benchmark', 'redteam', 'regression', 'drill');
                         """, (patient_id,))
                         calls_row = cur.fetchone()
                         total_calls = calls_row["total_calls"] if calls_row else 0

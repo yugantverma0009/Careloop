@@ -466,12 +466,44 @@ class PapersAgent:
                     "run_id": run_id
                 }
 
-            # Global pause or daily budget block
+            # Daily budget block
+            if "budget reached" in (decision.reason or "").lower():
+                limit_reply = (
+                    "You have reached your daily question limit for automated recovery guidance. "
+                    "Your care team has been notified and remains directly available for any support."
+                    if lang == "en"
+                    else "आप आज के लिए स्वचालित रिकवरी प्रश्नों की दैनिक सीमा तक पहुँच चुके हैं। आपकी केयर टीम सीधे संपर्क के लिए उपलब्ध है।"
+                )
+                AgentLedger.record_step(
+                    run_id, 1, "Gate",
+                    f"Dispatcher blocked execution: {decision.reason}",
+                    ok=False, ms=1
+                )
+                AgentLedger.finish_run(
+                    run_id, status="Blocked_By_Guard", result_type="daily_budget_reached",
+                    latency_ms=1, guard_reasons=[decision.reason]
+                )
+                return {
+                    "answer_type": "daily_limit_reached",
+                    "answer": limit_reply,
+                    "bullets": [],
+                    "sources": [],
+                    "suggestions": ["Ask my care team directly", "View my discharge papers"],
+                    "can_ask_care_team": True,
+                    "is_grounded": False,
+                    "evidence_strength": None,
+                    "response": limit_reply,
+                    "citations": [],
+                    "retrieval_debug": {"intent": "daily_budget_reached", "reason": decision.reason},
+                    "run_id": run_id
+                }
+
+            # Clinician Pause or Circuit Breaker
             pause_reply = (
-                "CareLoop Assistant is temporarily unavailable while our clinical team conducts system updates. "
-                "Your care team remains available for direct support."
+                "Care Guide assistance is currently paused by clinician safety controls. "
+                "Your care team remains directly available for support."
                 if lang == "en"
-                else "केयरलूप असिस्टेंट अस्थायी रूप से अनुपलब्ध है। आपकी केयर टीम सीधे संपर्क के लिए उपलब्ध है।"
+                else "क्लीनिकल सुरक्षा नियंत्रणों द्वारा केयर गाइड सहायता वर्तमान में रोकी गई है। आपकी केयर टीम सीधे संपर्क के लिए उपलब्ध है।"
             )
             AgentLedger.record_step(
                 run_id, 1, "Gate",
@@ -490,6 +522,7 @@ class PapersAgent:
                 "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
                 "can_ask_care_team": True,
                 "is_grounded": False,
+                "evidence_strength": None,
                 "response": pause_reply,
                 "citations": [],
                 "retrieval_debug": {"intent": "supervisor_paused", "reason": decision.reason},
