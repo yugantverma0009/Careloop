@@ -897,6 +897,40 @@ LANGUAGE:
 
     # Step 7: Check found flag from LLM
     if not answer_data.get("found", False):
+        ans_cand = (answer_data.get("answer") or "").strip()
+        bullets_cand = answer_data.get("bullets") or []
+        q_low = clean_q.lower()
+        is_health_or_symptom = any(
+            w in q_low for w in [
+                "pain", "hurt", "ache", "symptom", "back", "leg", "arm", "chest", "head",
+                "dizzy", "dizziness", "tired", "fatigue", "fever", "nausea", "vomit",
+                "breath", "breathe", "cough", "swelling", "swollen", "eat", "food",
+                "diet", "drink", "sleep", "shower", "bath", "walk", "exercise", "bleed",
+                "dressing", "incision", "cut", "stitch", "wound",
+                "दर्द", "कमर", "सीने", "सांस", "चक्कर", "थकान", "बुखार", "उल्टी"
+            ]
+        )
+        if is_health_or_symptom and (len(ans_cand) > 15 or bullets_cand):
+            bullet_text = "\n".join(f"• {b}" for b in bullets_cand if b)
+            full_ans = f"{ans_cand}\n\n{bullet_text}".strip() if bullet_text and bullet_text not in ans_cand else (ans_cand or bullet_text)
+            actions = [
+                {"action_type": "Start_Checkin", "label": "Record in Daily Check-in"},
+                {"action_type": "Ask_Care_Team", "label": "Ask Care Team"}
+            ]
+            return {
+                "answer_type": "grounded",
+                "answer": full_ans,
+                "bullets": bullets_cand,
+                "sources": sources_payload[:2],
+                "actions": actions,
+                "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                "can_ask_care_team": True,
+                "is_grounded": True,
+                "response": full_ans,
+                "citations": [s.get("chunk_id") for s in sources_payload[:2] if s.get("chunk_id")],
+                "retrieval_debug": {"intent": intent, "health_symptom_guidance": True},
+            }
+
         not_found_ans = NOT_FOUND_MSG.get(lang, NOT_FOUND_MSG["en"])
         return {
             "answer_type": "not_found",
