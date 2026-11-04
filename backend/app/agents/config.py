@@ -85,9 +85,7 @@ CASE_QUEUE_WEIGHTS = {
     # 5. Consent missing penalty
     "consent_missing_penalty": -20,
     # 6. SOS active distress alert
-    "sos_points": 150,
-    # 7. Open wound photo review pending
-    "open_photo_review_points": 25
+    "sos_points": 150
 }
 
 # Phase 5: Proactive Help, Approved Examples & Patient Transparency

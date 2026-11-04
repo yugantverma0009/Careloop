@@ -11,7 +11,7 @@ Core Principle: "The LLM talks. Rules decide. Humans act."
    Policy Guard strictly enforces sources, numbers, and banned words; failure cleanly falls
    back to the deterministic fact sheet.
 4. Decision Table & Fixed Menu (Section 4.2): Evaluates fixed menu deterministically:
-   ['call_now', 'send_checkin', 'request_photo', 'ask_doctor', 'recheck_at', 'merge_duplicate', 'close_rule'].
+   ['call_now', 'send_checkin', 'ask_doctor', 'recheck_at', 'merge_duplicate', 'close_rule'].
    The LLM NEVER chooses the step.
 5. Consent Guard Constraint: If caregiver consent is not granted, the brief explicitly notes
    "Caregiver consent: not granted" and family outreach is strictly blocked.
@@ -422,7 +422,7 @@ class CasePrepAgent:
         Consent rule: If caregiver consent is False, family outreach is strictly forbidden.
         """
         # Fixed menu allowed options
-        # Menu: call_now, send_checkin, request_photo, ask_doctor, recheck_at, merge_duplicate, close_rule
+        # Menu: call_now, send_checkin, ask_doctor, recheck_at, merge_duplicate, close_rule
 
         # Row 1: Emergency or Urgent_Review tier
         if source_type == "Emergency" or severity == "Urgent_Review":
@@ -494,17 +494,17 @@ class CasePrepAgent:
                 }
                 options = ["send_checkin", "call_now", "ask_doctor", "recheck_at"]
 
-        # Row 5: Symptom or Photo report
-        elif source_type in ("Symptom", "Photo"):
+        # Row 5: Symptom report
+        elif source_type == "Symptom":
             next_step = {
-                "key": "request_photo",
-                "label": "Ask for a photo",
+                "key": "call_now",
+                "label": "Call the patient now",
                 "why": [
                     "Patient reported recovery symptom",
-                    "Request visual verification of surgical site"
+                    "Verify current comfort, vitals, and surgical site"
                 ]
             }
-            options = ["call_now", "request_photo", "ask_doctor", "recheck_at"]
+            options = ["call_now", "send_checkin", "ask_doctor", "recheck_at"]
 
         # Default fallback
         else:

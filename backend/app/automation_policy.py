@@ -25,7 +25,6 @@ MAX_DAILY_PATIENT_MESSAGES = 3
 ROUTINE_ACTION_TYPES = {
     "Dose_Reminder",
     "Checkin_Prompt",
-    "Photo_Request",
     "Plan_Prompt",
     "Welcome_Call_Task",
 }
@@ -60,7 +59,7 @@ def can_send(
             - sms_opt_out (bool)
             - consent_status (Optional[str])
         action: Action dict containing keys:
-            - action_type (str: Dose_Reminder, Checkin_Prompt, Photo_Request, Fall_Prompt, etc.)
+            - action_type (str: Dose_Reminder, Checkin_Prompt, Fall_Prompt, etc.)
             - channel (str: App, SMS, Voice, Task)
             - reason (str: required non-empty explanation)
             - attempts (int: current attempt count)
@@ -117,7 +116,7 @@ def can_send(
             return False, "Max 3 execution retry attempts exceeded."
 
     # 7. Check daily automated patient message limit (max 3 non-dose messages/day)
-    if action_type in {"Checkin_Prompt", "Photo_Request", "Plan_Prompt"}:
+    if action_type in {"Checkin_Prompt", "Plan_Prompt"}:
         if daily_message_count >= MAX_DAILY_PATIENT_MESSAGES:
             return False, f"Daily limit of {MAX_DAILY_PATIENT_MESSAGES} automated patient prompts reached for today."
 

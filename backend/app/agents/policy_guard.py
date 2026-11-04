@@ -10,7 +10,7 @@ Enforces the 10 checks in Section 6 of careloop_care_agents_plan.md:
 5. Menu: Next steps and options only from the approved fixed menu.
 6. Language: Output language matches patient preference (en/hi).
 7. Banned words: Zero clinical judgment words (stable, normal, safe, etc.) & zero dose advice.
-8. Consent: Family or photo actions blocked if consent is missing.
+8. Consent: Family actions blocked if consent is missing.
 9. Limits: Quiet hours (22:00-07:00 IST), daily caps, pause, STOP, emergency suppression.
 10. Schema & format: JSON schema valid; length caps; untrusted text instructions ignored.
 """
@@ -44,7 +44,6 @@ BANNED_WORDS = [
 ALLOWED_NEXT_STEPS = {
     "call_now",
     "send_checkin",
-    "request_photo",
     "ask_doctor",
     "recheck_at",
     "merge_duplicate",
@@ -54,7 +53,6 @@ ALLOWED_NEXT_STEPS = {
 # Allowlisted Action Cards for Patients (Section C & Ground Rules)
 ALLOWLISTED_PATIENT_ACTIONS = {
     "Start_Checkin",
-    "Add_Photo",
     "Request_Call",
     "Ask_Care_Team",
     "Open_Plan_Item",

@@ -40,7 +40,6 @@ STANDARD_ACTIONS_AGREED = [
     "rest with legs elevated",
     "continue scheduled medications",
     "maintain hydration and rest",
-    "submit wound incision photo",
     "re-test vital signs in 2 hours",
     "avoid heavy lifting (>5 kg)",
     "call care team if dizziness persists"

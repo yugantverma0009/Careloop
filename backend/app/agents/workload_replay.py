@@ -86,7 +86,7 @@ SCRIPTED_SHIFT_EVENTS: List[Dict[str, Any]] = [
     {"event_id": "EVT-15", "category": "reminder_followup", "patient_id": 3, "desc": "Rajesh Kumar: Blood pressure telemetry upload prompt"},
     {"event_id": "EVT-16", "category": "reminder_followup", "patient_id": 5, "desc": "Sunita Verma: Afternoon dose confirmation nudge"},
     {"event_id": "EVT-17", "category": "reminder_followup", "patient_id": 1, "desc": "Aarav Patel: Evening 20:00 PM medication reminder"},
-    {"event_id": "EVT-18", "category": "reminder_followup", "patient_id": 4, "desc": "Kabir Mehta: Sternal incision wound photo check prompt"},
+    {"event_id": "EVT-18", "category": "reminder_followup", "patient_id": 4, "desc": "Kabir Mehta: Sternal incision dressing care follow-up prompt"},
     {"event_id": "EVT-19", "category": "reminder_followup", "patient_id": 2, "desc": "Meera Sharma: Telemetry gateway reconnect reminder"},
     {"event_id": "EVT-20", "category": "reminder_followup", "patient_id": 5, "desc": "Sunita Verma: Evening dose reminder"},
     {"event_id": "EVT-21", "category": "reminder_followup", "patient_id": 3, "desc": "Rajesh Kumar: Symptom score follow-up reminder"},

@@ -55,7 +55,6 @@ def run_migration():
             defaults = [
                 ('dose_reminder', 'Auto', 'Live', 1),
                 ('checkin_prompt', 'Auto', 'Live', 1),
-                ('photo_request', 'Auto', 'Live', 1),
                 ('papers_question_sourced', 'Auto', 'Live', 1),
                 ('not_found_care_team_request', 'Auto', 'Live', 1),
                 ('dose_change_care_team_request', 'Auto', 'Live', 1),

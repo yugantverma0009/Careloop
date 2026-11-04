@@ -5,7 +5,7 @@ Principles:
 - "The LLM talks. Rules decide. Humans act."
 - "Doctor-enabled per rule type and per patient, off by default."
 - Low-risk types only (e.g. "No data from device" closes when valid telemetry resumes for 30 minutes).
-- STRICT SAFETY GUARD: NEVER auto-close Emergency, SOS, Urgent, Symptom, or Photo flags.
+- STRICT SAFETY GUARD: NEVER auto-close Emergency, SOS, Urgent, or Symptom flags.
 - Closures are clearly labelled with the trigger condition and the doctor who approved the rule.
 - Every auto-closed flag CAN be reopened by staff at any time.
 - All actions audited with staff/system identity.
@@ -20,7 +20,7 @@ from ..db import get_conn
 
 logger = logging.getLogger(__name__)
 
-RESTRICTED_SOURCE_TYPES = {"Emergency", "SOS", "Symptom", "Photo"}
+RESTRICTED_SOURCE_TYPES = {"Emergency", "SOS", "Symptom"}
 RESTRICTED_SEVERITIES = {"Urgent", "Urgent_Review"}
 
 
@@ -81,7 +81,7 @@ class AutoCloseService:
         Evaluates whether a specific flag is eligible for approved auto-close.
         Enforces Section 5.4 constraints:
         - Must be enabled by doctor (off by default).
-        - Refuses Emergency, SOS, Urgent, Symptom, and Photo flags.
+        - Refuses Emergency, SOS, Urgent, and Symptom flags.
         """
         if not cls.is_auto_close_enabled():
             return False, "Auto-close is disabled by default until doctor enables approved rules"
@@ -99,7 +99,7 @@ class AutoCloseService:
                 if fl["status"] != "Open":
                     return False, f"Flag #{flag_id} is already {fl['status']}"
 
-                # Mandatory Refusal of Emergency, SOS, Symptom, and Photo flags
+                # Mandatory Refusal of Emergency, SOS, and Symptom flags
                 if fl["source_type"] in RESTRICTED_SOURCE_TYPES:
                     return False, f"Auto-close strictly refused: flag source_type '{fl['source_type']}' cannot be auto-closed"
 

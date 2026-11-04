@@ -2,7 +2,7 @@
 backend/app/patient_updates.py — Proactive Patient Updates & Automation Limits Engine
 
 Assistant v2 (Phase 4):
-Automated messages (reminders, prompts, photo requests, plan of the day) land in the patient's
+Automated messages (reminders, prompts, plan of the day) land in the patient's
 Updates inbox. All proactive system updates MUST respect clinical automation limits:
 1. Quiet hours (22:00 - 07:00 local time): non-emergency automated messages are suppressed.
 2. Max 2 reminders per dose.

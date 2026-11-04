@@ -6,7 +6,7 @@ Core Principles:
 - "Agents do the routine. People make the calls."
 - Case state machine: Raised -> Briefed -> Contacting / Waiting_For_Doctor -> Decided -> Closed (and Reopened).
 - Agents attach steps to cases; agents NEVER skip a state or act on a Closed case.
-- Explainable queue order: Rule-based score from fixed weights (Tier, Overdue bucket, No-answers, Device silent, Consent missing, SOS, Photo review). No machine learning.
+- Explainable queue order: Rule-based score from fixed weights (Tier, Overdue bucket, No-answers, Device silent, Consent missing, SOS). No machine learning.
 - Fast routine draft review: Diff view, keyboard shortcuts (j/k/a/e/r), and batch approval enabled ONLY when shadow agreement >= 95% over the last 50 cases and doctor approved.
 - Edited drafts: Diff preserved with the draft for Phase 5 few-shot exemplars.
 """
@@ -282,7 +282,6 @@ class ExplainableQueueService:
         4. Device silent (>24h=+30, >12h=+15)
         5. Consent missing penalty (-20)
         6. SOS active alert (+150)
-        7. Open photo review pending (+25)
 
         Returns: (total_score, list_of_factors)
         """
@@ -341,13 +340,6 @@ class ExplainableQueueService:
             sos_pts = weights["sos_points"]
             score += sos_pts
             factors.append({"factor": "Active SOS emergency trigger", "points": sos_pts})
-
-        # 7. Open Photo Review Pending
-        photo_pending = bool(patient.get("photo_pending", False))
-        if photo_pending:
-            ph_pts = weights["open_photo_review_points"]
-            score += ph_pts
-            factors.append({"factor": "Wound / incision photo pending clinical review", "points": ph_pts})
 
         return score, factors
 

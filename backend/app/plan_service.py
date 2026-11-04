@@ -559,7 +559,6 @@ def approve_recovery_plan(plan_id: int, doctor_id: int) -> Dict[str, Any]:
     Doctor-only approval of a recovery plan.
     - Sets previous approved plan to 'Superseded'.
     - Activates this plan ('Approved').
-    - Schedules wound care photo prompts in Rounds if wound care items exist.
     - Deterministically generates 3 understanding check questions.
     """
     conn = get_db_connection()
@@ -599,20 +598,6 @@ def approve_recovery_plan(plan_id: int, doctor_id: int) -> Dict[str, Any]:
                 (plan_id,)
             )
             items = cur.fetchall()
-
-            # Schedule Photo_Request in scheduled_actions if wound care item exists
-            has_wound_care = any(it["item_type"] == "Wound_Care" for it in items)
-            if has_wound_care:
-                dedupe_key = f"photo_req_{patient_id}_day1"
-                cur.execute(
-                    """
-                    INSERT IGNORE INTO scheduled_actions (
-                        patient_id, action_type, channel, run_at, status, reason, dedupe_key
-                    ) VALUES (%s, 'Photo_Request', 'App', NOW() + INTERVAL 1 DAY, 'Scheduled',
-                              'Scheduled post-op incision check per approved recovery plan', %s)
-                    """,
-                    (patient_id, dedupe_key)
-                )
 
             # Generate 3 deterministic understanding check questions
             generate_understanding_check_questions(patient_id, plan_id, items, cur)

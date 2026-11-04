@@ -39,7 +39,6 @@ ACTION_TO_AGENT = {
     "post_call_patient_message": "call_notes_agent",
     "dose_reminder": "outreach_agent",
     "checkin_prompt": "outreach_agent",
-    "photo_request": "outreach_agent",
     "no_answer_retry_scheduling": "outreach_agent",
     "shift_handoff": "handoff_agent",
     "daily_summary": "handoff_agent",

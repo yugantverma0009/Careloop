@@ -46,7 +46,6 @@ VALID_INTENTS = {
 # Allowlist for patient-confirmed action cards (Brief Sec 7.6 & 7.12)
 ALLOWLIST_ACTIONS = {
     "Start_Checkin",
-    "Add_Photo",
     "Request_Call",
     "Ask_Care_Team",
     "Open_Plan_Item",

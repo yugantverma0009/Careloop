@@ -81,7 +81,6 @@ ALLOWLISTED_TEMPLATES = [
             "no_checkin_today",
             "device_silent_over",
             "open_flags",
-            "photo_pending",
             "sos_open",
             "family_consent_missing"
         ],
@@ -90,7 +89,6 @@ ALLOWLISTED_TEMPLATES = [
             "Patients with no check-in today",
             "Devices silent over 24 hours",
             "Show patients with open flags",
-            "Who has a pending wound photo?",
             "Patients missing family consent",
             "Any active SOS alerts?"
         ]
@@ -122,14 +120,12 @@ ALLOWLISTED_TEMPLATES = [
         "allowed_purposes": [
             "missed_dose_reminder",
             "checkin_prompt",
-            "wound_photo_request",
             "appointment_reminder",
             "vital_check_prompt"
         ],
         "example_prompts": [
             "Draft message to Aarav about missed dose",
-            "Draft checkin prompt for Meera",
-            "Draft wound photo request for Rajesh"
+            "Draft checkin prompt for Meera"
         ]
     },
     {
@@ -269,8 +265,6 @@ def classify_staff_question(question: str) -> Dict[str, Any]:
         purpose = "checkin_prompt"
         if "missed dose" in q_lower or "medicine" in q_lower or "tablet" in q_lower:
             purpose = "missed_dose_reminder"
-        elif "wound" in q_lower or "photo" in q_lower or "incision" in q_lower:
-            purpose = "wound_photo_request"
         elif "appointment" in q_lower or "visit" in q_lower:
             purpose = "appointment_reminder"
         elif "vital" in q_lower or "sensor" in q_lower:
@@ -340,15 +334,6 @@ def classify_staff_question(question: str) -> Dict[str, Any]:
         return {
             "template": "find_patients",
             "parameters": {"filter": "open_flags"},
-            "confidence": 0.95,
-            "is_allowlisted": True
-        }
-
-    # 6e. photo_pending
-    if any(k in q_lower for k in ("wound photo", "incision photo", "photo pending", "pending photo")):
-        return {
-            "template": "find_patients",
-            "parameters": {"filter": "photo_pending"},
             "confidence": 0.95,
             "is_allowlisted": True
         }
@@ -570,30 +555,6 @@ class CopilotExecutor:
                         }
                     })
 
-            elif filter_type == "photo_pending":
-                columns = ["Patient", "Identifiers", "Upload Date", "Status"]
-                cur.execute(f"""
-                    SELECT p.patient_id, p.full_name, p.patient_code, p.date_of_birth, p.ai_help_enabled,
-                           w.uploaded_at
-                    FROM wound_photos w
-                    JOIN patients p ON p.patient_id = w.patient_id
-                    WHERE {' AND '.join(where_clauses)}
-                      AND w.status = 'Pending_Review'
-                    ORDER BY w.uploaded_at DESC;
-                """, query_params)
-                for r in cur.fetchall() or []:
-                    age = (datetime.now().date() - r["date_of_birth"]).days // 365 if r.get("date_of_birth") else 58
-                    rows.append({
-                        "patient_id": r["patient_id"],
-                        "patient_name": r["full_name"],
-                        "identifiers": f"{r['patient_code']} • {age}y",
-                        "opt_out_badge": r.get("ai_help_enabled") == 0,
-                        "data": {
-                            "Upload Date": r["uploaded_at"].strftime("%d %b %I:%M %p") if r.get("uploaded_at") else "Recent",
-                            "Status": "Pending Clinician Review"
-                        }
-                    })
-
             elif filter_type == "sos_open":
                 columns = ["Patient", "Identifiers", "Triggered At", "Status"]
                 cur.execute(f"""
@@ -765,7 +726,7 @@ class CopilotExecutor:
             {"title": "2. Trigger Event & Citations", "content": f"{flag['severity']} flag raised at {flag['created_at'].strftime('%d %b %I:%M %p')}: {flag['reason']}"},
             {"title": "3. Vital Trends", "content": "SpO2 dropped below baseline threshold (94%); Heart rate elevated at 98 bpm."},
             {"title": "4. Adherence & Intake", "content": "Morning dose confirmed at 08:00 AM; Check-in form completed with mild fatigue reported."},
-            {"title": "5. Deterministic Recommended Next Step", "content": f"Recommended Step: {brief_data.get('recommended_step', 'Request_Wound_Photo_Or_Call')} (from Case Prep Decision Table)"}
+            {"title": "5. Deterministic Recommended Next Step", "content": f"Recommended Step: {brief_data.get('recommended_step', 'Call_Patient')} (from Case Prep Decision Table)"}
         ]
 
         return {
@@ -802,8 +763,6 @@ class CopilotExecutor:
         first_name = p["full_name"].split()[0]
         if purpose == "missed_dose_reminder":
             msg = f"Hello {first_name}, this is your CareLoop care team. We noticed your scheduled morning dose has not been confirmed. Please take it with water if you have not already, or let us know if you need assistance."
-        elif purpose == "wound_photo_request":
-            msg = f"Hello {first_name}, Dr. Sharma has requested a photo check of your sternal incision. Please tap the camera button on your home screen to submit a clear, well-lit photo."
         elif purpose == "appointment_reminder":
             msg = f"Hello {first_name}, reminder: your upcoming cardiology follow-up visit is scheduled at OPD Clinic Room 302. Please bring your medications with you."
         elif purpose == "vital_check_prompt":

@@ -164,9 +164,9 @@ STAFF_COPILOT_QUESTIONS_40 = [
     {"id": "cp-16", "q": "List active flags across all patients", "expected_template": "find_patients", "expected_filter": "open_flags"},
     {"id": "cp-17", "q": "Which patients have open clinical flags?", "expected_template": "find_patients", "expected_filter": "open_flags"},
 
-    # find_patients: photo_pending (2)
-    {"id": "cp-18", "q": "Who has a pending wound photo?", "expected_template": "find_patients", "expected_filter": "photo_pending"},
-    {"id": "cp-19", "q": "Find patients with incision photo pending review", "expected_template": "find_patients", "expected_filter": "photo_pending"},
+    # find_patients: missed_doses_at_least additional (2)
+    {"id": "cp-18", "q": "Who missed medication doses today?", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
+    {"id": "cp-19", "q": "Find patients who missed taking morning pills", "expected_template": "find_patients", "expected_filter": "missed_doses_at_least"},
 
     # find_patients: sos_open (2)
     {"id": "cp-20", "q": "Any active SOS alerts?", "expected_template": "find_patients", "expected_filter": "sos_open"},
@@ -192,7 +192,7 @@ STAFF_COPILOT_QUESTIONS_40 = [
     # draft_message (4)
     {"id": "cp-33", "q": "Draft message to Aarav about missed dose", "expected_template": "draft_message", "expected_purpose": "missed_dose_reminder"},
     {"id": "cp-34", "q": "Draft checkin prompt for Meera", "expected_template": "draft_message", "expected_purpose": "checkin_prompt"},
-    {"id": "cp-35", "q": "Draft wound photo request for Rajesh", "expected_template": "draft_message", "expected_purpose": "wound_photo_request"},
+    {"id": "cp-35", "q": "Draft vital sign check prompt for Rajesh", "expected_template": "draft_message", "expected_purpose": "vital_check_prompt"},
     {"id": "cp-36", "q": "Compose appointment reminder for Sunita", "expected_template": "draft_message", "expected_purpose": "appointment_reminder"},
 
     # summarize_since (2)
@@ -219,7 +219,7 @@ DEV_COPILOT, HELDOUT_COPILOT = _partition_list(STAFF_COPILOT_QUESTIONS_40, 0.8)
 # Fixed golden assertions
 GOLDEN_DECISION_CASES = [
     {"id": "case-01", "name": "Meera Sharma SpO2 Drop", "patient_id": 2, "flag_id": 2, "expected_step": "Urgent_Escalation"},
-    {"id": "case-02", "name": "Rajesh Verma Sternal Redness", "patient_id": 3, "flag_id": 3, "expected_step": "Request_Wound_Photo"},
+    {"id": "case-02", "name": "Rajesh Verma Sternal Redness", "patient_id": 3, "flag_id": 3, "expected_step": "Call_Patient"},
     {"id": "case-03", "name": "Aarav Patel Missed Dose", "patient_id": 1, "flag_id": 1, "expected_step": "Send_Dose_Reminder"},
     {"id": "case-04", "name": "Sunita Rao Normal Vitals", "patient_id": 5, "flag_id": 5, "expected_step": "Routine_Monitoring"},
     {"id": "case-05", "name": "Kabir Mehta Routine Checkin", "patient_id": 4, "flag_id": 4, "expected_step": "Routine_Monitoring"},
