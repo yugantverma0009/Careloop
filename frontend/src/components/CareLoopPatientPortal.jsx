@@ -27,6 +27,10 @@ import {
   getPatientVisitPrep,
   updatePatientConsent,
   generatePatientDayBrief,
+  getActiveCheckinTemplate,
+  getPatientCheckinContext,
+  startCheckinSession,
+  recordCheckinAnswer,
   logout,
   API_BASE,
 } from '../services/api';
@@ -59,6 +63,9 @@ import {
   IconRefresh,
   IconGoogleCalendar,
   IconExternalLink,
+  IconTrash,
+  IconUserCheck,
+  IconHelpCircle,
 } from './Icons';
 
 const SKIP_REASONS = [
@@ -365,6 +372,29 @@ export default function CareLoopPatientPortal({ user }) {
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
   const recognitionRef = useRef(null);
 
+  // Phase 2: Companion & Conversational Check-in State
+  const [easyMode, setEasyMode] = useState(() => {
+    try { return localStorage.getItem('careloop_easy_mode') === 'true'; } catch(e) { return false; }
+  });
+  const [largeText, setLargeText] = useState(() => {
+    try { return localStorage.getItem('careloop_large_text') === 'true'; } catch(e) { return false; }
+  });
+  const [checkinContext, setCheckinContext] = useState(null);
+  const [inlineCheckinActive, setInlineCheckinActive] = useState(false);
+  const [inlineCheckinTemplate, setInlineCheckinTemplate] = useState(null);
+  const [inlineCheckinSession, setInlineCheckinSession] = useState(null);
+  const [inlineCheckinStep, setInlineCheckinStep] = useState(0);
+  const [inlineCheckinAnswers, setInlineCheckinAnswers] = useState({});
+  const [inlineCheckinBranch, setInlineCheckinBranch] = useState(null);
+  const [inlineCheckinSummaryFacts, setInlineCheckinSummaryFacts] = useState(null);
+  const [inlineCheckinClosing, setInlineCheckinClosing] = useState(null);
+  const [inlineCheckinSubmitting, setInlineCheckinSubmitting] = useState(false);
+  const [inlineCheckinEmergency, setInlineCheckinEmergency] = useState(null);
+  const [voiceNoticeDismissed, setVoiceNoticeDismissed] = useState(() => {
+    try { return localStorage.getItem('careloop_voice_notice_dismissed') === 'true'; } catch(e) { return false; }
+  });
+  const [voiceFixMode, setVoiceFixMode] = useState(false);
+
   const chatEndRef = useRef(null);
 
   const [lastUpdatedTime, setLastUpdatedTime] = useState(() => new Date().toLocaleTimeString());
@@ -376,14 +406,16 @@ export default function CareLoopPatientPortal({ user }) {
     try {
       if (!silent) setLoading(true);
       setErrorMsg('');
-      const [todayRes, chatRes, updatesRes] = await Promise.all([
+      const [todayRes, chatRes, updatesRes, ctxRes] = await Promise.all([
         getPatientToday().catch((err) => {
           throw err;
         }),
         getChatHistory(conversationId).catch(() => []),
         getPatientUpdates().catch(() => ({ unread_count: 0, updates: [] })),
+        getPatientCheckinContext(lang).catch(() => null),
       ]);
       setTodayData(todayRes);
+      if (ctxRes) setCheckinContext(ctxRes);
       setLastUpdatedTime(new Date().toLocaleTimeString());
       if (updatesRes) {
         setUpdatesList(updatesRes.updates || []);
@@ -1318,6 +1350,94 @@ export default function CareLoopPatientPortal({ user }) {
     window.speechSynthesis.speak(utterance);
   };
 
+  const startInlineCheckin = async () => {
+    try {
+      setInlineCheckinSubmitting(true);
+      const [tmpl, sess] = await Promise.all([
+        getActiveCheckinTemplate(),
+        startCheckinSession('App_Guided'),
+      ]);
+      setInlineCheckinTemplate(tmpl);
+      setInlineCheckinSession(sess);
+      setInlineCheckinStep(0);
+      setInlineCheckinAnswers({});
+      setInlineCheckinBranch(null);
+      setInlineCheckinSummaryFacts(null);
+      setInlineCheckinClosing(null);
+      setInlineCheckinEmergency(null);
+      setInlineCheckinActive(true);
+
+      if (voiceAutoplay || easyMode) {
+        const q1 = tmpl.questions?.[0];
+        if (q1) {
+          const qText = lang === 'hi' ? q1.text_hi : q1.text_en;
+          speakAnswer(qText, lang, 'inline-q-0');
+        }
+      }
+    } catch (err) {
+      alert(`Could not start check-in: ${err.message || 'Error'}`);
+    } finally {
+      setInlineCheckinSubmitting(false);
+    }
+  };
+
+  const handleInlineCheckinAnswer = async (questionId, value, rawInput = null) => {
+    if (!inlineCheckinSession || !inlineCheckinTemplate) return;
+    setInlineCheckinSubmitting(true);
+    try {
+      const res = await recordCheckinAnswer(
+        inlineCheckinSession.session_id,
+        questionId,
+        value,
+        rawInput || String(value),
+        lang
+      );
+
+      setInlineCheckinAnswers((prev) => ({
+        ...prev,
+        [questionId]: res.normalized_value || value,
+      }));
+
+      if (res.emergency || res.status === 'emergency_triggered') {
+        setInlineCheckinEmergency(res);
+        return;
+      }
+
+      if (res.branching?.ask_pain_details) {
+        setInlineCheckinBranch('pain_details');
+      } else if (res.branching?.ask_med_barriers) {
+        setInlineCheckinBranch('med_barriers');
+      } else if (res.branching?.ask_wound_details) {
+        setInlineCheckinBranch('wound_details');
+      } else {
+        setInlineCheckinBranch(null);
+      }
+
+      if (res.completed || res.status === 'completed') {
+        setInlineCheckinSummaryFacts(res.facts_summary || []);
+        setInlineCheckinClosing(
+          res.closing_phrase || (lang === 'hi' ? 'दैनिक चेक-इन पूरा हुआ।' : 'Daily check-in completed.')
+        );
+        loadCheckinHistory();
+        getPatientCheckinContext(lang).then(setCheckinContext).catch(() => {});
+      } else if (res.next_step) {
+        const nextIdx = res.next_step - 1;
+        setInlineCheckinStep(nextIdx);
+        if (voiceAutoplay || easyMode) {
+          const nextQ = inlineCheckinTemplate.questions?.[nextIdx];
+          if (nextQ) {
+            const nextText = lang === 'hi' ? nextQ.text_hi : nextQ.text_en;
+            speakAnswer(nextText, lang, `inline-q-${nextIdx}`);
+          }
+        }
+      }
+    } catch (err) {
+      alert(`Error recording answer: ${err.message || 'Error'}`);
+    } finally {
+      setInlineCheckinSubmitting(false);
+    }
+  };
+
   const handleMarkUpdateSeen = async (updateId) => {
     try {
       await markPatientUpdateSeen(updateId);
@@ -1710,6 +1830,59 @@ export default function CareLoopPatientPortal({ user }) {
               </button>
             </div>
 
+            {/* Phase 2: Large Text & Easy Mode Toggles */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !largeText;
+                setLargeText(next);
+                try { localStorage.setItem('careloop_large_text', String(next)); } catch(e) {}
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: largeText ? '1.5px solid var(--accent-blue, #0284c7)' : '1px solid var(--border-subtle, #e2e8f0)',
+                background: largeText ? 'var(--accent-blue-soft, #eff6ff)' : 'var(--bg-base, #f8fafc)',
+                color: largeText ? 'var(--accent-blue, #0284c7)' : 'var(--text-secondary, #475569)',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={lang === 'hi' ? 'बड़ा टेक्स्ट (आकार बढ़ाएं)' : 'Toggle large text'}
+            >
+              <span style={{ fontWeight: 800 }}>Aa</span>
+              <span>{largeText ? (lang === 'hi' ? 'बड़ा' : 'Large') : (lang === 'hi' ? 'सामान्य' : 'Normal')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const next = !easyMode;
+                setEasyMode(next);
+                try { localStorage.setItem('careloop_easy_mode', String(next)); } catch(e) {}
+              }}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                border: easyMode ? '1.5px solid #10b981' : '1px solid var(--border-subtle, #e2e8f0)',
+                background: easyMode ? '#ecfdf5' : 'var(--bg-base, #f8fafc)',
+                color: easyMode ? '#047857' : 'var(--text-secondary, #475569)',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+              title={lang === 'hi' ? 'ईज़ी मोड (सरल दृश्य)' : 'Toggle Easy Mode (large buttons)'}
+            >
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: easyMode ? '#10b981' : '#94a3b8' }} />
+              <span>{lang === 'hi' ? 'ईज़ी मोड' : 'Easy Mode'}</span>
+            </button>
+
             {/* In-App Reminders Bell (Brief Sec 6.8) */}
             <div style={{ position: 'relative' }}>
               <button
@@ -1916,7 +2089,133 @@ export default function CareLoopPatientPortal({ user }) {
         </header>
 
         {/* ─── 3. DASHBOARD MAIN CONTAINER ─── */}
-        <main style={{ padding: '32px 36px', maxWidth: '1400px', width: '100%', margin: '0 auto' }}>
+        <main
+          style={{
+            padding: easyMode ? '20px 20px' : '32px 36px',
+            maxWidth: easyMode ? '960px' : '1400px',
+            width: '100%',
+            margin: '0 auto',
+            fontSize: largeText ? '18px' : '14px',
+          }}
+        >
+          {/* Easy Mode 4 Big Buttons Banner (Phase 2) */}
+          {easyMode && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '12px',
+                marginBottom: '24px',
+                padding: '14px',
+                background: 'var(--bg-surface, #ffffff)',
+                border: '2px solid var(--accent-teal, #0d9488)',
+                borderRadius: '16px',
+                boxShadow: '0 4px 12px rgba(13, 148, 136, 0.1)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setActiveNav('recovery')}
+                style={{
+                  minHeight: '56px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  border: activeNav === 'recovery' ? '2px solid var(--accent-blue, #0284c7)' : '1px solid var(--border-subtle, #cbd5e1)',
+                  background: activeNav === 'recovery' ? 'var(--accent-blue-soft, #eff6ff)' : 'var(--bg-base, #f8fafc)',
+                  color: 'var(--text-primary, #0f172a)',
+                  fontSize: '18px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: '22px' }}>📅</span>
+                <span>{lang === 'hi' ? 'आज' : 'Today'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveNav('prescriptions')}
+                style={{
+                  minHeight: '56px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  border: activeNav === 'prescriptions' ? '2px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #cbd5e1)',
+                  background: activeNav === 'prescriptions' ? 'rgba(13, 148, 136, 0.1)' : 'var(--bg-base, #f8fafc)',
+                  color: 'var(--text-primary, #0f172a)',
+                  fontSize: '18px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: '22px' }}>💊</span>
+                <span>{lang === 'hi' ? 'दवाइयाँ' : 'Medicines'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNav('chat');
+                  setAssistantSubTab('ask');
+                  if (!inlineCheckinActive && !checkinContext?.completed_today) {
+                    startInlineCheckin();
+                  }
+                }}
+                style={{
+                  minHeight: '56px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  border: activeNav === 'chat' ? '2px solid #ec4899' : '1px solid var(--border-subtle, #cbd5e1)',
+                  background: activeNav === 'chat' ? '#fdf2f8' : 'var(--bg-base, #f8fafc)',
+                  color: 'var(--text-primary, #0f172a)',
+                  fontSize: '18px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: '22px' }}>❤️</span>
+                <span>{lang === 'hi' ? 'कैसा लग रहा है' : 'How I feel'}</span>
+              </button>
+
+              <a
+                href="tel:112"
+                style={{
+                  minHeight: '56px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  border: '2px solid #ef4444',
+                  background: '#fee2e2',
+                  color: '#b91c1c',
+                  fontSize: '18px',
+                  fontWeight: 800,
+                  textDecoration: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: '22px' }}>🆘</span>
+                <span>{lang === 'hi' ? 'मदद (112)' : 'Help (112)'}</span>
+              </a>
+            </div>
+          )}
           {errorMsg && (
             <div
               style={{
@@ -5336,13 +5635,13 @@ export default function CareLoopPatientPortal({ user }) {
                         }}
                       >
                         <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#059669' }} />
-                        {lang === 'hi' ? 'सक्रिय · सत्यापित पेपर्स' : 'Active · Grounded in papers'}
+                        {lang === 'hi' ? 'सक्रिय · केयर गाइड' : 'Active · Care Guide'}
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
                       {lang === 'hi'
-                        ? 'अस्पताल डिस्चार्ज पेपर्स व डॉक्टर-अनुमोदित प्लान से सत्यापित रिकवरी उत्तर।'
-                        : 'Verified recovery guidance grounded strictly in your hospital discharge papers.'}
+                        ? 'अस्पताल डिस्चार्ज पेपर्स और डॉक्टर-अनुमोदित प्लान पर आधारित रिकवरी उत्तर।'
+                        : 'Answers grounded in your hospital discharge papers and recovery plan.'}
                     </div>
                   </div>
                 </div>
@@ -5367,7 +5666,7 @@ export default function CareLoopPatientPortal({ user }) {
                     }}
                     title={lang === 'hi' ? 'हैंड्स-फ्री मोड (ऑटो-सेंड और उत्तर सुनना)' : 'Hands-free mode (auto-send & listen)'}
                   >
-                    <span>🎙️</span>
+                    <IconMic width={12} height={12} />
                     <span>{lang === 'hi' ? 'हैंड्स-फ्री' : 'Hands-free'}</span>
                   </button>
 
@@ -5421,27 +5720,6 @@ export default function CareLoopPatientPortal({ user }) {
                     <span>{lang === 'hi' ? 'नया संवाद' : 'New chat'}</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleClearHistory}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      border: '1px solid #fecaca',
-                      background: '#fff1f2',
-                      color: '#dc2626',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                    title={lang === 'hi' ? 'चैट इतिहास स्थायी रूप से हटाएं' : 'Permanently delete chat history'}
-                  >
-                    <span>🗑️</span>
-                    <span>{lang === 'hi' ? 'इतिहास हटाएं' : 'Delete history'}</span>
-                  </button>
                   <span className="status-pill status-pill-blue">
                     <IconShieldCheck width={12} height={12} style={{ marginRight: '4px' }} />
                     {lang === 'hi' ? 'सत्यापित स्रोत' : 'Verified Sources'}
@@ -5547,6 +5825,526 @@ export default function CareLoopPatientPortal({ user }) {
               {/* ─── TAB 1: ASK (Chat + Voice + Agentic Cards) ─── */}
               {assistantSubTab === 'ask' && (
                 <>
+                  {/* Phase 2: Microphone Privacy Notice (Step 2.5) */}
+                  {!voiceNoticeDismissed && (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: 'var(--bg-base, #f8fafc)',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        marginBottom: '12px',
+                        fontSize: '12px',
+                        color: 'var(--text-secondary, #475569)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <IconMic width={15} height={15} style={{ color: 'var(--accent-teal, #0d9488)', flexShrink: 0 }} />
+                        <span>
+                          {lang === 'hi'
+                            ? 'वॉयस आपके ब्राउज़र की स्पीच सेवा का उपयोग करता है। CareLoop आपकी रिकॉर्डिंग नहीं रखता, केवल टेक्स्ट सुरक्षित रहता है।'
+                            : "Voice uses your browser's speech service. CareLoop does not keep your audio recordings, only the text."}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVoiceNoticeDismissed(true);
+                          try { localStorage.setItem('careloop_voice_notice_dismissed', 'true'); } catch(e){}
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: 'var(--accent-teal, #0d9488)',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {lang === 'hi' ? 'समझ गया' : 'Got it'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Phase 2: Proactive Today Card (Step 2.1) */}
+                  {!inlineCheckinActive && (
+                    <div
+                      style={{
+                        padding: '16px 20px',
+                        borderRadius: '14px',
+                        background: checkinContext?.completed_today
+                          ? 'linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, rgba(2, 132, 199, 0.06) 100%)'
+                          : 'linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(13, 148, 136, 0.08) 100%)',
+                        border: '1.5px solid var(--accent-teal, #0d9488)',
+                        marginBottom: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '14px',
+                        boxShadow: '0 2px 8px rgba(13, 148, 136, 0.06)',
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: '240px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '18px' }}>{checkinContext?.completed_today ? '✅' : '👋'}</span>
+                          <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                            {checkinContext?.completed_today
+                              ? (lang === 'hi' ? 'आज का चेक-इन पूरा हुआ' : 'Check-in Completed Today')
+                              : (checkinContext?.greeting || (lang === 'hi' ? 'नमस्ते! आज आप कैसा महसूस कर रहे हैं?' : 'Good morning! How are you feeling today?'))}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', lineHeight: 1.5 }}>
+                          {checkinContext?.completed_today ? (
+                            <span>
+                              {lang === 'hi'
+                                ? `आज का रिकॉर्ड दर्ज हो चुका है (दर्द: ${checkinContext?.today_checkin?.pain_score ?? 'नॉर्मल'}/10, दवाएं: ${checkinContext?.today_checkin?.medications_taken || 'पूरी ली'})।`
+                                : `Recorded today. Pain: ${checkinContext?.today_checkin?.pain_score ?? 0}/10 · Meds: ${checkinContext?.today_checkin?.medications_taken || 'All'}.`}
+                            </span>
+                          ) : (
+                            <span>
+                              {checkinContext?.yesterday_fact || (lang === 'hi' ? 'डॉक्टर-अनुमोदित दैनिक चेक-इन 2 मिनट में पूरा करें।' : 'Complete your 2-minute daily recovery check-in.')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {checkinContext?.completed_today ? (
+                          <button
+                            type="button"
+                            onClick={startInlineCheckin}
+                            disabled={inlineCheckinSubmitting}
+                            style={{
+                              padding: '8px 14px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--accent-teal, #0d9488)',
+                              background: '#ffffff',
+                              color: 'var(--accent-teal, #0d9488)',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {lang === 'hi' ? 'चेक-इन अपडेट करें' : "Update today's check-in"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={startInlineCheckin}
+                            disabled={inlineCheckinSubmitting}
+                            style={{
+                              padding: '10px 18px',
+                              borderRadius: '10px',
+                              border: 'none',
+                              background: 'var(--accent-teal, #0d9488)',
+                              color: '#ffffff',
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 2px 6px rgba(13, 148, 136, 0.3)',
+                            }}
+                          >
+                            <IconUserCheck width={15} height={15} />
+                            <span>{lang === 'hi' ? 'चेक-इन शुरू करें' : 'Start Check-in'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Phase 2: Turn-by-Turn Conversational Check-in (Step 2.2) */}
+                  {inlineCheckinActive && (
+                    <div
+                      style={{
+                        padding: '18px 22px',
+                        borderRadius: '16px',
+                        background: 'var(--bg-surface, #ffffff)',
+                        border: '2px solid var(--accent-teal, #0d9488)',
+                        marginBottom: '16px',
+                        boxShadow: '0 4px 16px rgba(13, 148, 136, 0.12)',
+                      }}
+                    >
+                      {/* Emergency Intercept View */}
+                      {inlineCheckinEmergency ? (
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc2626', marginBottom: '8px' }}>
+                            <IconAlertTriangle width={24} height={24} />
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>
+                              {lang === 'hi' ? 'आपातकालीन लक्षण इंटरसेप्ट' : 'Emergency Symptom Intercept'}
+                            </h3>
+                          </div>
+                          <p style={{ fontSize: '14px', color: 'var(--text-primary, #0f172a)', lineHeight: 1.5, marginBottom: '14px' }}>
+                            {lang === 'hi'
+                              ? 'आपने गंभीर लक्षण दर्ज किए हैं। आपकी केयर टीम को तुरंत अलर्ट भेज दिया गया है। कृपया बिना देरी किए आपातकालीन सहायता लें:'
+                              : 'You reported severe acute symptoms. An urgent alert has been dispatched to your triage nurse. Please seek immediate medical help:'}
+                          </p>
+                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            <a
+                              href="tel:112"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '12px 20px',
+                                borderRadius: '10px',
+                                background: '#dc2626',
+                                color: '#ffffff',
+                                textDecoration: 'none',
+                                fontWeight: 800,
+                                fontSize: '14px',
+                              }}
+                            >
+                              📞 {lang === 'hi' ? '112 पर तुरंत कॉल करें' : 'Call 112 Immediately'}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInlineCheckinActive(false);
+                                setInlineCheckinEmergency(null);
+                              }}
+                              style={{
+                                padding: '10px 16px',
+                                borderRadius: '10px',
+                                border: '1px solid var(--border-subtle, #cbd5e1)',
+                                background: '#ffffff',
+                                color: 'var(--text-secondary, #475569)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {lang === 'hi' ? 'बंद करें' : 'Close'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : inlineCheckinSummaryFacts ? (
+                        /* Completed Summary View */
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669' }}>
+                              <IconCheck width={20} height={20} />
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>
+                                {lang === 'hi' ? 'दैनिक चेक-इन पूर्ण व सुरक्षित' : 'Daily Check-in Recorded'}
+                              </h3>
+                            </div>
+                            <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', background: 'rgba(5, 150, 105, 0.1)', color: '#059669' }}>
+                              {lang === 'hi' ? 'रिकॉर्ड सहेजा गया' : 'Saved to EHR'}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '13px', color: 'var(--text-primary, #0f172a)', background: 'var(--bg-base, #f8fafc)', padding: '12px 14px', borderRadius: '10px', marginBottom: '12px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                            <p style={{ margin: '0 0 8px 0', fontWeight: 700, color: 'var(--accent-teal, #0d9488)' }}>
+                              {inlineCheckinClosing}
+                            </p>
+                            <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {inlineCheckinSummaryFacts.map((fact, fIdx) => (
+                                <li key={fIdx} style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                                  {fact}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInlineCheckinActive(false);
+                              setInlineCheckinSummaryFacts(null);
+                            }}
+                            style={{
+                              padding: '8px 16px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              background: 'var(--accent-teal, #0d9488)',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {lang === 'hi' ? 'केयर गाइड पर वापस जाएं' : 'Done & Return to Care Guide'}
+                          </button>
+                        </div>
+                      ) : (
+                        /* In-Progress Question Turn View */
+                        (() => {
+                          const questions = inlineCheckinTemplate?.questions || [];
+                          const currentQ = questions[inlineCheckinStep] || questions[0];
+                          if (!currentQ) return null;
+                          const qText = lang === 'hi' ? currentQ.text_hi : currentQ.text_en;
+                          let choices = [];
+                          try {
+                            choices = typeof currentQ.choices === 'string' ? JSON.parse(currentQ.choices) : (currentQ.choices || []);
+                          } catch (e) {
+                            choices = [];
+                          }
+
+                          return (
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--accent-teal, #0d9488)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                  {lang === 'hi' ? `प्रश्न ${inlineCheckinStep + 1} / ${questions.length}` : `Question ${inlineCheckinStep + 1} of ${questions.length}`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineCheckinActive(false)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--text-muted, #94a3b8)', fontSize: '11px', cursor: 'pointer' }}
+                                >
+                                  {lang === 'hi' ? 'बाद में करें' : 'Skip for now'}
+                                </button>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '14px' }}>
+                                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', lineHeight: 1.4 }}>
+                                  {qText}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => speakAnswer(qText, lang, `inline-turn-${inlineCheckinStep}`)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--accent-teal, #0d9488)', cursor: 'pointer', padding: '4px' }}
+                                  title={lang === 'hi' ? 'प्रश्न सुनें' : 'Listen to question'}
+                                >
+                                  <IconVolume2 width={16} height={16} />
+                                </button>
+                              </div>
+
+                              {/* Branching Prompts */}
+                              {inlineCheckinBranch === 'pain_details' && (
+                                <div style={{ marginBottom: '12px', padding: '10px 12px', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#c2410c', marginBottom: '6px' }}>
+                                    {lang === 'hi' ? 'दर्द का मुख्य स्थान चुनें:' : 'Select where the pain is located:'}
+                                  </div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {['Surgical incision', 'Chest', 'Shoulder / Back', 'General ache'].map((loc, lIdx) => (
+                                      <button
+                                        key={lIdx}
+                                        type="button"
+                                        disabled={inlineCheckinSubmitting}
+                                        onClick={() => handleInlineCheckinAnswer(currentQ.question_id, `${inlineCheckinAnswers[currentQ.question_id] || ''} (${loc})`)}
+                                        style={{ padding: '4px 10px', borderRadius: '14px', border: '1px solid #fdba74', background: '#ffffff', color: '#9a3412', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                      >
+                                        {loc}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {inlineCheckinBranch === 'med_barriers' && (
+                                <div style={{ marginBottom: '12px', padding: '10px 12px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#1d4ed8', marginBottom: '6px' }}>
+                                    {lang === 'hi' ? 'दवा न ले पाने का कारण बताएं:' : 'Select reason for missed medications:'}
+                                  </div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {[
+                                      { id: 'forgot', en: 'Forgot', hi: 'भूल गए' },
+                                      { id: 'unwell', en: 'Felt unwell', hi: 'तबीयत ठीक नहीं थी' },
+                                      { id: 'ran_out', en: 'Ran out of pills', hi: 'दवा खत्म हो गई' },
+                                      { id: 'side_effects', en: 'Side effects / nausea', hi: 'साइड इफेक्ट' },
+                                    ].map((barrier) => (
+                                      <button
+                                        key={barrier.id}
+                                        type="button"
+                                        disabled={inlineCheckinSubmitting}
+                                        onClick={() => handleInlineCheckinAnswer(currentQ.question_id, `${inlineCheckinAnswers[currentQ.question_id] || 'some'} - ${barrier.en}`, barrier.hi)}
+                                        style={{ padding: '4px 10px', borderRadius: '14px', border: '1px solid #93c5fd', background: '#ffffff', color: '#1e40af', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                      >
+                                        {lang === 'hi' ? barrier.hi : barrier.en}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Question Type Inputs */}
+                              {currentQ.response_type === 'Scale_0_10' && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                                    let bg = '#f0fdf4';
+                                    let border = '#86efac';
+                                    let color = '#15803d';
+                                    if (num >= 4 && num <= 6) {
+                                      bg = '#fffbeb';
+                                      border = '#fcd34d';
+                                      color = '#b45309';
+                                    } else if (num >= 7) {
+                                      bg = '#fef2f2';
+                                      border = '#fca5a5';
+                                      color = '#b91c1c';
+                                    }
+                                    return (
+                                      <button
+                                        key={num}
+                                        type="button"
+                                        disabled={inlineCheckinSubmitting}
+                                        onClick={() => handleInlineCheckinAnswer(currentQ.question_id, num)}
+                                        style={{
+                                          flex: 1,
+                                          minWidth: '32px',
+                                          height: '42px',
+                                          borderRadius: '8px',
+                                          border: `1.5px solid ${border}`,
+                                          background: bg,
+                                          color: color,
+                                          fontWeight: 800,
+                                          fontSize: '14px',
+                                          cursor: inlineCheckinSubmitting ? 'not-allowed' : 'pointer',
+                                          transition: 'transform 0.1s ease',
+                                        }}
+                                      >
+                                        {num}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {currentQ.response_type === 'Yes_No' && (
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                                  <button
+                                    type="button"
+                                    disabled={inlineCheckinSubmitting}
+                                    onClick={() => handleInlineCheckinAnswer(currentQ.question_id, 'No')}
+                                    style={{
+                                      flex: 1,
+                                      padding: '12px 16px',
+                                      borderRadius: '10px',
+                                      border: '1.5px solid #86efac',
+                                      background: '#f0fdf4',
+                                      color: '#15803d',
+                                      fontWeight: 800,
+                                      fontSize: '14px',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {lang === 'hi' ? 'नहीं, कोई गंभीर लक्षण नहीं' : 'No - None of these'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={inlineCheckinSubmitting}
+                                    onClick={() => handleInlineCheckinAnswer(currentQ.question_id, 'Yes')}
+                                    style={{
+                                      flex: 1,
+                                      padding: '12px 16px',
+                                      borderRadius: '10px',
+                                      border: '1.5px solid #fca5a5',
+                                      background: '#fef2f2',
+                                      color: '#b91c1c',
+                                      fontWeight: 800,
+                                      fontSize: '14px',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {lang === 'hi' ? 'हाँ, मुझे गंभीर लक्षण हैं' : 'Yes - I have severe symptoms'}
+                                  </button>
+                                </div>
+                              )}
+
+                              {currentQ.response_type === 'Choice' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                                  {choices.map((ch, cIdx) => (
+                                    <button
+                                      key={cIdx}
+                                      type="button"
+                                      disabled={inlineCheckinSubmitting}
+                                      onClick={() => handleInlineCheckinAnswer(currentQ.question_id, ch.key || ch.label_en || ch)}
+                                      style={{
+                                        padding: '12px 16px',
+                                        borderRadius: '10px',
+                                        border: '1.5px solid var(--border-subtle, #cbd5e1)',
+                                        background: 'var(--bg-base, #f8fafc)',
+                                        color: 'var(--text-primary, #0f172a)',
+                                        fontWeight: 700,
+                                        fontSize: '13px',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {lang === 'hi' ? (ch.label_hi || ch.label_en || ch) : (ch.label_en || ch)}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {currentQ.response_type === 'Text' && (
+                                <div style={{ marginTop: '8px' }}>
+                                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <input
+                                      type="text"
+                                      id="inline-notes-input"
+                                      placeholder={lang === 'hi' ? 'कोई टिप्पणी या सवाल लिखें...' : 'Type any note for your nurse or doctor...'}
+                                      style={{
+                                        flex: 1,
+                                        padding: '10px 14px',
+                                        borderRadius: '8px',
+                                        border: '1.5px solid var(--border-subtle, #cbd5e1)',
+                                        background: '#ffffff',
+                                        color: 'var(--text-primary, #0f172a)',
+                                        fontSize: '13px',
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleInlineCheckinAnswer(currentQ.question_id, e.target.value || 'None');
+                                        }
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={inlineCheckinSubmitting}
+                                      onClick={() => {
+                                        const val = document.getElementById('inline-notes-input')?.value || 'None';
+                                        handleInlineCheckinAnswer(currentQ.question_id, val);
+                                      }}
+                                      style={{
+                                        padding: '10px 16px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: 'var(--accent-teal, #0d9488)',
+                                        color: '#ffffff',
+                                        fontWeight: 700,
+                                        fontSize: '12px',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {lang === 'hi' ? 'पूर्ण करें' : 'Submit'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={inlineCheckinSubmitting}
+                                      onClick={() => handleInlineCheckinAnswer(currentQ.question_id, 'None')}
+                                      style={{
+                                        padding: '10px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                                        background: '#ffffff',
+                                        color: 'var(--text-muted, #64748b)',
+                                        fontSize: '12px',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {lang === 'hi' ? 'छोड़ें' : 'Skip'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()
+                      )}
+                    </div>
+                  )}
+
                   {/* Chat Message Scroll Area */}
                   <div
                     style={{
@@ -6375,6 +7173,70 @@ export default function CareLoopPatientPortal({ user }) {
                     </div>
                   )}
 
+                  {/* Voice Fix Mode Preview (Step 2.5) */}
+                  {voiceFixMode && chatInput && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: 'var(--accent-blue-soft, #eff6ff)',
+                        border: '1px solid var(--accent-blue, #0284c7)',
+                        fontSize: '12px',
+                        marginTop: '4px',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: 'var(--accent-blue, #0284c7)', fontWeight: 700 }}>
+                          {lang === 'hi' ? 'सुना गया:' : 'Heard speech:'}
+                        </span>
+                        <span style={{ color: 'var(--text-primary, #0f172a)', fontStyle: 'italic' }}>
+                          "{chatInput}"
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setVoiceFixMode(false)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--accent-blue, #0284c7)',
+                            background: '#ffffff',
+                            color: 'var(--accent-blue, #0284c7)',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {lang === 'hi' ? 'ठीक करें / भेजें' : 'Fix / Ready'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatInput('');
+                            setVoiceFixMode(false);
+                          }}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            background: '#fee2e2',
+                            color: '#dc2626',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {lang === 'hi' ? 'हटाएं' : 'Clear'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Modernized Agentic Chat Composer Form */}
                   <form
                     onSubmit={handleSendMessage}
@@ -6471,10 +7333,36 @@ export default function CareLoopPatientPortal({ user }) {
                         padding: '0 4px',
                         fontSize: '11px',
                         color: 'var(--text-muted, #94a3b8)',
+                        gap: '8px',
+                        flexWrap: 'wrap',
                       }}
                     >
-                      <span>{lang === 'hi' ? 'नमूना डेटा · डिस्चार्ज पेपर्स से सत्यापित · आपातकाल में 112 डायल करें' : 'Sample data · Sourced from your papers · For emergencies call 112'}</span>
-                      <span style={{ fontSize: '10px' }}>Enter to send</span>
+                      <span>{lang === 'hi' ? 'नमूना डेटा · डिस्चार्ज पेपर्स पर आधारित · आपातकाल में 112 डायल करें' : 'Sample data · Grounded in papers · For emergencies call 112'}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button
+                          type="button"
+                          onClick={handleClearHistory}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-muted, #94a3b8)',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 4px',
+                            transition: 'color 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = '#dc2626')}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #94a3b8)')}
+                          title={lang === 'hi' ? 'चैट इतिहास हटाएं' : 'Clear chat history'}
+                        >
+                          <IconTrash width={12} height={12} />
+                          <span>{lang === 'hi' ? 'इतिहास हटाएं' : 'Delete history'}</span>
+                        </button>
+                        <span style={{ fontSize: '10px' }}>Enter to send</span>
+                      </div>
                     </div>
                   </form>
                 </>

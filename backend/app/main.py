@@ -7341,6 +7341,11 @@ class CheckinAnswerIn(BaseModel):
     question_id: int
     answer_value: str
     raw_input: Optional[str] = None
+    language: Optional[str] = "en"
+
+
+class PhraseStatusIn(BaseModel):
+    status: str  # 'Approved' or 'Pending'
 
 
 class SimulateSmsIn(BaseModel):
@@ -7358,6 +7363,23 @@ def get_active_patient_checkin_template(
     if not tmpl:
         raise HTTPException(status_code=404, detail="No doctor-approved check-in template is currently active.")
     return tmpl
+
+
+@app.get("/patient/me/checkin/context")
+def get_patient_daily_checkin_context(
+    lang: Optional[str] = "en",
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """
+    Returns day context for patient Care Guide (Phase 2 Task 1 & 2):
+    - has_completed_today: bool
+    - active_session: partial session details if present
+    - yesterday_facts: comparison facts from previous report
+    - greeting_phrase: doctor-approved greeting phrase
+    """
+    from .checkin import get_patient_checkin_context
+    pid = get_effective_patient_id(user)
+    return get_patient_checkin_context(pid, language=lang or "en")
 
 
 @app.post("/patient/me/checkin/start")
@@ -7388,7 +7410,8 @@ def record_patient_checkin_answer(
             patient_id=pid,
             question_id=body.question_id,
             answer_value=body.answer_value,
-            raw_input=body.raw_input
+            raw_input=body.raw_input,
+            language=body.language or "en",
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -7415,6 +7438,30 @@ def approve_doctor_checkin_template(
         return approve_template(template_id, doctor_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/staff/phrase-bank")
+def list_phrase_bank(
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Returns all doctor-approved conversational phrases in phrase bank."""
+    from .agents.phrase_bank_service import PhraseBankService
+    return {"phrases": PhraseBankService.list_phrases_for_doctor()}
+
+
+@app.post("/staff/phrase-bank/{phrase_id}/status")
+def update_phrase_status(
+    phrase_id: int,
+    body: PhraseStatusIn,
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor approves or updates a phrase in the phrase bank."""
+    from .agents.phrase_bank_service import PhraseBankService
+    doctor_id = user["staff_id"]
+    ok = PhraseBankService.update_phrase_status(phrase_id, body.status, doctor_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return {"status": "updated", "phrase_id": phrase_id, "new_status": body.status}
 
 
 @app.post("/sms/inbound")

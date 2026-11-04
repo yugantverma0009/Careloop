@@ -14,6 +14,14 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import pymysql
 from backend.app.db import get_conn
+from backend.app.agents.hinglish_normalizer import (
+    normalize_pain_answer,
+    normalize_yes_no,
+    normalize_medication_answer,
+    normalize_wound_status,
+    extract_barrier_code,
+)
+from backend.app.agents.phrase_bank_service import PhraseBankService
 
 
 def get_active_checkin_template() -> Optional[Dict[str, Any]]:
@@ -48,6 +56,77 @@ def get_active_checkin_template() -> Optional[Dict[str, Any]]:
                     pass
         template["questions"] = questions
         return template
+
+
+def get_patient_checkin_context(patient_id: int, language: str = "en") -> Dict[str, Any]:
+    """
+    Day Context Engine (Phase 2 Task 2 & 5.A):
+    - Determines if patient has completed today's check-in (prevents duplicate prompts).
+    - Retrieves yesterday's check-in facts (e.g., 'Yesterday you reported pain 2').
+    - Returns active in-progress session if partially completed.
+    - Selects a conversational opening greeting from the doctor-approved phrase bank.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        # Check if check-in completed today
+        cur.execute(
+            """SELECT session_id, completed_at, symptom_report_id
+               FROM checkin_sessions
+               WHERE patient_id = %s AND status = 'Completed' AND DATE(completed_at) = CURDATE()
+               ORDER BY completed_at DESC LIMIT 1""",
+            (patient_id,)
+        )
+        completed_today = cur.fetchone()
+
+        # Check for active in-progress session (started within 2 hours)
+        cur.execute(
+            """SELECT session_id, template_id, current_step, started_at
+               FROM checkin_sessions
+               WHERE patient_id = %s AND status = 'In_Progress' AND started_at >= NOW() - INTERVAL 2 HOUR
+               ORDER BY started_at DESC LIMIT 1""",
+            (patient_id,)
+        )
+        active_sess = cur.fetchone()
+
+        # Retrieve previous check-in report before today
+        cur.execute(
+            """SELECT pain_level, DATE(reported_at) as rep_date, symptom_text
+               FROM symptom_reports
+               WHERE patient_id = %s AND DATE(reported_at) < CURDATE()
+               ORDER BY reported_at DESC LIMIT 1""",
+            (patient_id,)
+        )
+        prev_report = cur.fetchone()
+
+    # Yesterday / Previous facts string
+    prev_facts = None
+    last_pain = None
+    if prev_report:
+        last_pain = prev_report.get("pain_level")
+        p_date = str(prev_report.get("rep_date"))
+        if last_pain is not None:
+            if language == "hi":
+                prev_facts = f"पिछली बार ({p_date}) आपने दर्द स्तर {last_pain}/10 दर्ज किया था।"
+            else:
+                prev_facts = f"On your previous check-in ({p_date}), you reported pain {last_pain}/10."
+
+    greeting = PhraseBankService.get_rotated_phrase("greeting", language=language, turn_seed=patient_id)
+
+    return {
+        "patient_id": patient_id,
+        "has_completed_today": bool(completed_today),
+        "completed_today": bool(completed_today),
+        "completed_at": str(completed_today["completed_at"]) if completed_today else None,
+        "active_session": {
+            "session_id": active_sess["session_id"],
+            "current_step": active_sess["current_step"],
+            "template_id": active_sess["template_id"],
+        } if active_sess else None,
+        "yesterday_facts": prev_facts,
+        "yesterday_fact": prev_facts,
+        "last_pain": last_pain,
+        "greeting_phrase": greeting,
+        "greeting": greeting,
+    }
 
 
 def start_checkin_session(patient_id: int, channel: str = "App_Guided") -> Dict[str, Any]:
@@ -87,27 +166,44 @@ def start_checkin_session(patient_id: int, channel: str = "App_Guided") -> Dict[
 
 def record_checkin_answer(
     session_id: int,
-    patient_id: int,
-    question_id: int,
-    answer_value: str,
-    raw_input: Optional[str] = None
+    patient_id: Optional[int] = None,
+    question_id: int = 1,
+    answer_value: Optional[str] = None,
+    raw_input: Optional[str] = None,
+    language: str = "en",
+    raw_answer: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Record an answer for the current question in a session.
-    If the question is an emergency trigger and the answer is positive:
-    - Immediately creates an emergency symptom report and triggers urgent escalation.
-    - Halts subsequent routine questions.
+    Record an answer for the current question in a session (Phase 2 Task 2 & 5.A).
+    - Normalizes Hinglish/Hindi digits and terms.
+    - Evaluates branching logic (pain >= 7, some/none meds, wound mild/worried).
+    - Emergency trigger immediately creates safety alert and halts routine questions.
+    - Attaches conversational phrase bank acknowledgements and factual closing summaries.
     """
+    if answer_value is None and raw_answer is not None:
+        answer_value = raw_answer
+    elif answer_value is None:
+        answer_value = ""
+
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT session_id, patient_id, template_id, status, current_step
-               FROM checkin_sessions
-               WHERE session_id = %s AND patient_id = %s""",
-            (session_id, patient_id)
-        )
+        if patient_id is not None:
+            cur.execute(
+                """SELECT session_id, patient_id, template_id, status, current_step
+                   FROM checkin_sessions
+                   WHERE session_id = %s AND patient_id = %s""",
+                (session_id, patient_id)
+            )
+        else:
+            cur.execute(
+                """SELECT session_id, patient_id, template_id, status, current_step
+                   FROM checkin_sessions
+                   WHERE session_id = %s""",
+                (session_id,)
+            )
         session = cur.fetchone()
         if not session:
             raise ValueError("Check-in session not found.")
+        patient_id = session["patient_id"]
         if session["status"] != "In_Progress":
             raise ValueError(f"Session is already {session['status']}.")
 
@@ -122,16 +218,36 @@ def record_checkin_answer(
         if not question:
             raise ValueError("Question does not belong to this template.")
 
+        # ── HINGLISH NORMALIZATION ──
+        normalized_val = str(answer_value).strip()
+        q_key = question["question_key"]
+        if "pain" in q_key:
+            pn = normalize_pain_answer(normalized_val)
+            if pn is not None:
+                normalized_val = str(pn)
+        elif question["is_emergency_trigger"]:
+            yn = normalize_yes_no(normalized_val)
+            if yn:
+                normalized_val = yn
+        elif "medication" in q_key:
+            med = normalize_medication_answer(normalized_val)
+            if med:
+                normalized_val = med
+        elif "wound" in q_key:
+            wnd = normalize_wound_status(normalized_val)
+            if wnd:
+                normalized_val = wnd
+
         # Save or update answer
         cur.execute(
             """INSERT INTO checkin_answers (session_id, question_id, answer_value, raw_input, created_at)
                VALUES (%s, %s, %s, %s, NOW())""",
-            (session_id, question_id, str(answer_value), raw_input)
+            (session_id, question_id, normalized_val, raw_input or str(answer_value))
         )
 
         # ── EMERGENCY TRIGGER CHECK ──────────────────────────────────────────
         is_emergency = False
-        val_clean = str(answer_value).strip().lower()
+        val_clean = normalized_val.lower()
         if question["is_emergency_trigger"] and val_clean in ["yes", "haan", "true", "1", "severe"]:
             is_emergency = True
 
@@ -188,13 +304,35 @@ def record_checkin_answer(
             return {
                 "status": "emergency_triggered",
                 "emergency": True,
+                "halt_flow": True,
                 "completed": True,
                 "session_id": session_id,
                 "report_id": report_id,
                 "flag_id": flag_id,
+                "guidance": "Immediate Emergency Alert: Call 112 immediately." if language == "en" else "आपातकालीन सुरक्षा सूचना: तुरंत 112 पर कॉल करें।",
                 "guidance_en": "Immediate Safety Alert: A triage nurse has been alerted right now. Please sit down, rest, and keep your phone near. If you feel severe chest tightness or difficulty breathing, call 112 immediately.",
                 "guidance_hi": "आपातकालीन सुरक्षा सूचना: आपकी देखभाल टीम को तुरंत सूचित कर दिया गया है। कृपया आराम से बैठें। यदि सीने में तेज दबाव या सांस लेने में गंभीर तकलीफ हो, तो तुरंत 112 पर कॉल करें।"
             }
+
+        # ── BRANCHING DETECTION ──
+        branch_pain_details = False
+        branch_med_barriers = False
+        branch_wound_details = False
+
+        if "pain" in q_key:
+            try:
+                if int(normalized_val) >= 7:
+                    branch_pain_details = True
+            except (ValueError, TypeError):
+                pass
+        elif "medication" in q_key and normalized_val in ("some", "none"):
+            branch_med_barriers = True
+        elif "wound" in q_key and normalized_val in ("mild", "worried"):
+            branch_wound_details = True
+
+        ack_phrase = PhraseBankService.get_rotated_phrase(
+            "acknowledgement", language=language, turn_seed=question["step_order"]
+        )
 
         # ── ADVANCE STEP OR COMPLETE ─────────────────────────────────────────
         cur.execute(
@@ -218,6 +356,7 @@ def record_checkin_answer(
 
             pain_score = 0
             notes_parts = []
+            facts_list = []
             for ans in all_answers:
                 k = ans["question_key"]
                 v = ans["answer_value"]
@@ -226,6 +365,15 @@ def record_checkin_answer(
                         pain_score = int(v)
                     except ValueError:
                         pass
+                    facts_list.append(f"Pain level: {v}/10" if language == "en" else f"दर्द स्तर: {v}/10")
+                elif "emergency" in k:
+                    facts_list.append("Acute symptoms: None" if language == "en" else "गंभीर लक्षण: कोई नहीं")
+                elif "medication" in k:
+                    facts_list.append(f"Medications: {v.replace('_', ' ').title()}" if language == "en" else f"दवाएं: {v}")
+                elif "wound" in k:
+                    facts_list.append(f"Wound site: {v.replace('_', ' ').title()}" if language == "en" else f"घाव स्थिति: {v}")
+                elif "notes" in k and v:
+                    facts_list.append(f"Note: {v}" if language == "en" else f"नोट: {v}")
                 notes_parts.append(f"{k}: {v}")
 
             symptom_summary = "Check-in Guide summary: " + " | ".join(notes_parts)
@@ -234,8 +382,8 @@ def record_checkin_answer(
             cur.execute(
                 """INSERT INTO symptom_reports
                    (patient_id, symptom_text, pain_level, reported_at, input_method, language, emergency_keyword_hit, review_status)
-                   VALUES (%s, %s, %s, NOW(), 'Text', 'en', 0, 'Pending')""",
-                (patient_id, symptom_summary, pain_score)
+                   VALUES (%s, %s, %s, NOW(), 'Text', %s, 0, 'Pending')""",
+                (patient_id, symptom_summary, pain_score, language)
             )
             report_id = cur.lastrowid
 
@@ -261,6 +409,8 @@ def record_checkin_answer(
             )
             conn.commit()
 
+            closing_phrase = PhraseBankService.get_rotated_phrase("closing", language=language, turn_seed=patient_id)
+
             return {
                 "status": "completed",
                 "emergency": False,
@@ -268,7 +418,10 @@ def record_checkin_answer(
                 "session_id": session_id,
                 "report_id": report_id,
                 "pain_level": pain_score,
-                "message": "Daily check-in completed and saved to your chart."
+                "ack_phrase": ack_phrase,
+                "closing_phrase": closing_phrase,
+                "facts_summary": facts_list,
+                "message": "Daily check-in completed and saved to your chart." if language == "en" else "दैनिक चेक-इन सफलतापूर्वक पूरा हुआ और आपके चार्ट में सहेज लिया गया।"
             }
         else:
             cur.execute(
@@ -282,7 +435,14 @@ def record_checkin_answer(
                 "completed": False,
                 "session_id": session_id,
                 "next_step": next_step,
-                "total_steps": total_questions
+                "total_steps": total_questions,
+                "normalized_value": int(normalized_val) if str(normalized_val).isdigit() else normalized_val,
+                "ack_phrase": ack_phrase,
+                "branching": {
+                    "ask_pain_details": branch_pain_details,
+                    "ask_med_barriers": branch_med_barriers,
+                    "ask_wound_details": branch_wound_details
+                }
             }
 
 

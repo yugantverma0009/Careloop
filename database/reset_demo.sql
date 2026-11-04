@@ -18,6 +18,7 @@ DELETE FROM case_flags;
 DELETE FROM `cases`;
 DELETE FROM agent_autonomy;
 DELETE FROM agent_system_state;
+DELETE FROM phrase_bank;
 DELETE FROM checkin_answers;
 DELETE FROM checkin_sessions;
 DELETE FROM checkin_questions;

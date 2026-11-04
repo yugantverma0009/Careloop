@@ -955,6 +955,14 @@ def main():
                 """, (f"run-shadow-callnote-{i:02d}", agreed, i % 24))
 
         conn.commit()
+
+        # Seed doctor-approved phrase bank (Phase 2 Task 3)
+        try:
+            from backend.app.agents.phrase_bank_service import PhraseBankService
+            PhraseBankService.seed_initial_phrases()
+        except Exception as pbe:
+            print(f"Phrase bank seed note: {pbe}")
+
         duration = (datetime.now() - start_time).total_seconds()
         print(f"✅ Seeding complete in {duration:.2f} seconds!")
     except Exception as e:

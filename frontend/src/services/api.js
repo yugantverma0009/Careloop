@@ -559,15 +559,19 @@ export const dismissProposal = (proposalId, dismissReason) =>
 export const getActiveCheckinTemplate = () =>
   get('/patient/me/checkin/template');
 
+export const getPatientCheckinContext = (lang = 'en') =>
+  get(`/patient/me/checkin/context?lang=${lang}`);
+
 export const startCheckinSession = (channel = 'App_Guided') =>
   post('/patient/me/checkin/start', { channel });
 
-export const recordCheckinAnswer = (sessionId, questionId, answerValue, rawInput = null) =>
+export const recordCheckinAnswer = (sessionId, questionId, answerValue, rawInput = null, language = 'en') =>
   post('/patient/me/checkin/answer', {
     session_id: sessionId,
     question_id: questionId,
     answer_value: String(answerValue),
     raw_input: rawInput,
+    language: language,
   });
 
 export const getDoctorCheckinTemplates = () =>
@@ -575,6 +579,12 @@ export const getDoctorCheckinTemplates = () =>
 
 export const approveDoctorCheckinTemplate = (templateId) =>
   post(`/staff/checkin-templates/${templateId}/approve`, {});
+
+export const getPhraseBank = () =>
+  get('/staff/phrase-bank');
+
+export const updatePhraseStatus = (phraseId, status) =>
+  post(`/staff/phrase-bank/${phraseId}/status`, { status });
 
 export const simulateInboundSms = (fromPhone, body) =>
   post('/staff/sms/simulate-inbound', { from_phone: fromPhone, body });

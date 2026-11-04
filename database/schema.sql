@@ -1836,3 +1836,22 @@ SET character_set_client = @saved_cs_client;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
 -- Dump completed on 2026-11-04 13:33:49
+
+--
+-- Table structure for table `phrase_bank`
+--
+
+DROP TABLE IF EXISTS `phrase_bank`;
+CREATE TABLE `phrase_bank` (
+  `phrase_id` int NOT NULL AUTO_INCREMENT,
+  `category` enum('greeting','acknowledgement','closing','encouragement','emergency') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `text_en` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `text_hi` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reading_grade_level` decimal(3,1) DEFAULT '6.0',
+  `status` enum('Approved','Pending') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Approved',
+  `approved_by_staff_id` int DEFAULT '1',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`phrase_id`),
+  KEY `idx_pb_cat_status` (`category`,`status`,`is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
