@@ -3630,32 +3630,65 @@ def chat_with_assistant(body: ChatIn, user: Dict[str, Any] = Depends(require_pat
 
 @app.post("/patient/me/chat/new")
 def start_new_chat_endpoint(user: Dict[str, Any] = Depends(require_patient)):
-    """Clears ephemeral conversation state (topic, pending clarification, last sources)."""
+    """Clears ephemeral conversation state and deletes patient chat messages so the new chat starts completely fresh."""
     from .agents.rag_v2_service import ConversationStateManager
     pid = get_effective_patient_id(user)
     ConversationStateManager.clear_conversation(str(pid))
-    return {"status": "ok", "message": "Conversation state reset. No long-term memory retained."}
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM chat_feedback WHERE message_id IN (SELECT message_id FROM chat_messages WHERE patient_id = %s);", (pid,))
+        cur.execute("DELETE FROM chat_messages WHERE patient_id = %s;", (pid,))
+    return {"status": "ok", "message": "Conversation state reset and previous chat history deleted."}
+
+
+@app.post("/patient/me/chat/clear")
+@app.delete("/patient/me/chat/history")
+def clear_patient_chat_history_endpoint(user: Dict[str, Any] = Depends(require_patient)):
+    """Explicitly deletes all previous chat messages and feedback for this patient."""
+    from .agents.rag_v2_service import ConversationStateManager
+    pid = get_effective_patient_id(user)
+    ConversationStateManager.clear_conversation(str(pid))
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM chat_feedback WHERE message_id IN (SELECT message_id FROM chat_messages WHERE patient_id = %s);", (pid,))
+        cur.execute("DELETE FROM chat_messages WHERE patient_id = %s;", (pid,))
+    return {"status": "ok", "message": "Chat history permanently deleted."}
 
 
 
 @app.get("/patient/me/chat/history")
-def get_chat_history(user: Dict[str, Any] = Depends(require_patient)):
+def get_chat_history(
+    conversation_id: Optional[str] = None,
+    user: Dict[str, Any] = Depends(require_patient)
+):
     """
     Returns patient chat history with answer types, source chips, and feedback ratings (Brief Sec 7.10 & 8.6).
+    If conversation_id is provided, filters to that active conversation.
     """
     pid = get_effective_patient_id(user)
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT m.message_id, m.patient_id, m.sender, m.message_text,
-                      m.is_grounded, m.created_at, m.answer_type, m.conversation_id,
-                      m.retrieval_debug,
-                      f.rating AS feedback_rating
-               FROM chat_messages m
-               LEFT JOIN chat_feedback f ON f.message_id = m.message_id
-               WHERE m.patient_id = %s
-               ORDER BY m.created_at ASC LIMIT 100""",
-            (pid,),
-        )
+        if conversation_id:
+            cur.execute(
+                """SELECT m.message_id, m.patient_id, m.sender, m.message_text,
+                          m.is_grounded, m.created_at, m.answer_type, m.conversation_id,
+                          m.retrieval_debug,
+                          f.rating AS feedback_rating
+                   FROM chat_messages m
+                   LEFT JOIN chat_feedback f ON f.message_id = m.message_id
+                   WHERE m.patient_id = %s AND m.conversation_id = %s
+                   ORDER BY m.created_at ASC LIMIT 100""",
+                (pid, conversation_id),
+            )
+        else:
+            cur.execute(
+                """SELECT m.message_id, m.patient_id, m.sender, m.message_text,
+                          m.is_grounded, m.created_at, m.answer_type, m.conversation_id,
+                          m.retrieval_debug,
+                          f.rating AS feedback_rating
+                   FROM chat_messages m
+                   LEFT JOIN chat_feedback f ON f.message_id = m.message_id
+                   WHERE m.patient_id = %s
+                   ORDER BY m.created_at ASC LIMIT 100""",
+                (pid,),
+            )
         rows = cur.fetchall()
 
         messages = []

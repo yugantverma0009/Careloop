@@ -12,6 +12,8 @@ import {
   getPatientCheckins,
   sendChatMessage,
   getChatHistory,
+  startNewChat,
+  clearChatHistory,
   askCareTeamForChatMessage,
   submitChatFeedback,
   getPatientUpdates,
@@ -379,7 +381,7 @@ export default function CareLoopPatientPortal({ user }) {
         getPatientToday().catch((err) => {
           throw err;
         }),
-        getChatHistory().catch(() => []),
+        getChatHistory(conversationId).catch(() => []),
         getPatientUpdates().catch(() => ({ unread_count: 0, updates: [] })),
       ]);
       setTodayData(todayRes);
@@ -1106,10 +1108,32 @@ export default function CareLoopPatientPortal({ user }) {
     }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
+    try {
+      await startNewChat();
+    } catch (e) {
+      console.warn('Failed to reset conversation state', e);
+    }
     const newConv = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`;
     setConversationId(newConv);
     setChatMessages([]);
+    setFeedbackState({});
+    setActionFeedbackMsg(lang === 'hi' ? 'नया संवाद शुरू हो गया है।' : 'Fresh chat started.');
+    setTimeout(() => setActionFeedbackMsg(''), 3000);
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      await clearChatHistory();
+      const newConv = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `conv-${Date.now()}`;
+      setConversationId(newConv);
+      setChatMessages([]);
+      setFeedbackState({});
+      setActionFeedbackMsg(lang === 'hi' ? 'चैट इतिहास हटा दिया गया है।' : 'Chat history deleted.');
+      setTimeout(() => setActionFeedbackMsg(''), 3000);
+    } catch (e) {
+      alert('Could not clear history: ' + e.message);
+    }
   };
 
   // ─── Phase 3 Voice Methods ───────────────────────────────────────────────
@@ -5387,6 +5411,28 @@ export default function CareLoopPatientPortal({ user }) {
                   >
                     <IconRefresh width={13} height={13} />
                     <span>{lang === 'hi' ? 'नया संवाद' : 'New chat'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleClearHistory}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #fecaca',
+                      background: '#fff1f2',
+                      color: '#dc2626',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                    title={lang === 'hi' ? 'चैट इतिहास स्थायी रूप से हटाएं' : 'Permanently delete chat history'}
+                  >
+                    <span>🗑️</span>
+                    <span>{lang === 'hi' ? 'इतिहास हटाएं' : 'Delete history'}</span>
                   </button>
                   <span className="status-pill status-pill-blue">
                     <IconShieldCheck width={12} height={12} style={{ marginRight: '4px' }} />

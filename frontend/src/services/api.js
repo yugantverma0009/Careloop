@@ -203,7 +203,12 @@ export const getMyStatus = () => get('/patient/me/status');
 export const sendChatMessage = (message, language = 'en', conversation_id = null) =>
   post('/patient/me/chat', { message, language, conversation_id });
 
-export const getChatHistory = () => get('/patient/me/chat/history');
+export const getChatHistory = (conversation_id = null) =>
+  get(`/patient/me/chat/history${conversation_id ? `?conversation_id=${encodeURIComponent(conversation_id)}` : ''}`);
+
+export const startNewChat = () => post('/patient/me/chat/new', {});
+
+export const clearChatHistory = () => post('/patient/me/chat/clear', {});
 
 export const askCareTeamForChatMessage = (messageId) =>
   post(`/patient/me/chat/${messageId}/ask-care-team`, {});
