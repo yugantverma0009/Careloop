@@ -3370,20 +3370,6 @@ def get_patient_timeline(
         )
         notes = cur.fetchall()
 
-        # 7. Photos (Phase 3 Feature F4)
-        cur.execute(
-            """SELECT wp.photo_id AS event_id, wp.taken_at AS event_time, 'Photo' AS event_type,
-                      CONCAT('Wound Photo (', wp.quality_status, '): ', COALESCE(wp.finding, wp.review_status)) AS summary,
-                      COALESCE(cs.full_name, 'Patient') AS actor, NULL AS quality_status,
-                      wp.photo_id, wp.finding, wp.review_status, wp.patient_note
-               FROM wound_photos wp
-               LEFT JOIN care_staff cs ON cs.staff_id = wp.reviewed_by_staff_id
-               WHERE wp.patient_id = %s
-               ORDER BY wp.taken_at DESC LIMIT %s""",
-            (pid, limit),
-        )
-        photos = cur.fetchall()
-
         # 8. Approved Rule Limits for Chart
         cur.execute(
             """SELECT rule_type, measurement_type, threshold_value
@@ -3403,7 +3389,7 @@ def get_patient_timeline(
     all_events = []
     selected_types = [t.strip().lower() for t in event_types.split(",")] if event_types != "All" else None
 
-    candidates = list(readings) + list(symptoms) + list(doses) + list(flags) + list(calls) + list(notes) + list(photos)
+    candidates = list(readings) + list(symptoms) + list(doses) + list(flags) + list(calls) + list(notes)
     for ev in candidates:
         ev_type = ev["event_type"].lower()
         if selected_types and ev_type not in selected_types and "all" not in selected_types:
@@ -3942,14 +3928,6 @@ def execute_patient_action(
                 "ui_action": "navigate",
                 "target_tab": "checkin",
                 "message": "Opening guided check-in.",
-            }
-        elif action_type == "Add_Photo":
-            result = {
-                "status": "ok",
-                "action_type": action_type,
-                "ui_action": "modal",
-                "target_modal": "wound_photo",
-                "message": "Opening wound photo check.",
             }
         elif action_type == "Open_Medicines":
             result = {
@@ -4890,14 +4868,6 @@ def get_shift_handoff(
             is_received = rec_row is not None
             received_at = rec_row["created_at"].strftime("%H:%M") if rec_row else None
 
-            # Photos waiting for review (Phase 3 Feature F4)
-            cur.execute(
-                """SELECT COUNT(*) AS c FROM wound_photos 
-                   WHERE patient_id = %s AND review_status IN ('Pending', 'Needs_Doctor')""",
-                (pid,),
-            )
-            pending_photos_cnt = cur.fetchone()["c"]
-
             combined_actions = [
                 {
                     "task_id": t["followup_id"],
@@ -4908,14 +4878,6 @@ def get_shift_handoff(
                 }
                 for t in tasks
             ]
-            if pending_photos_cnt > 0:
-                combined_actions.insert(0, {
-                    "task_id": f"photo_{pid}",
-                    "reason": f"{pending_photos_cnt} wound photo waiting for review",
-                    "priority": "Review_Soon",
-                    "due_at": "Today",
-                    "owner": "Nursing Staff",
-                })
 
             handoff_cards.append({
                 "patient_id": pid,
@@ -6649,40 +6611,6 @@ def get_doctor_decisions(
                 "priority_weight": 50,
             })
 
-        # 6. Photos Needing Doctor Review (Phase 3 Feature F4)
-        cur.execute(
-            """SELECT wp.photo_id, wp.patient_id, p.full_name, p.patient_code,
-                      TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
-                      dr.condition_summary, wp.quality_status, wp.patient_note, wp.review_note,
-                      wp.taken_at,
-                      ROUND(TIMESTAMPDIFF(MINUTE, wp.taken_at, NOW())) AS waited_mins,
-                      cs.full_name AS requested_by_name
-               FROM wound_photos wp
-               JOIN patients p ON wp.patient_id = p.patient_id
-               LEFT JOIN discharge_records dr ON p.patient_id = dr.patient_id
-               LEFT JOIN care_staff cs ON wp.reviewed_by_staff_id = cs.staff_id
-               WHERE wp.review_status = 'Needs_Doctor'
-               ORDER BY wp.taken_at ASC"""
-        )
-        photo_doctor_rows = cur.fetchall() or []
-        for pr in photo_doctor_rows:
-            waited = f"{pr['waited_mins']}m" if pr['waited_mins'] < 60 else f"{pr['waited_mins'] // 60}h {pr['waited_mins'] % 60}m"
-            decision_items.append({
-                "type": "photo_review",
-                "id": pr["photo_id"],
-                "photo_id": pr["photo_id"],
-                "patient_id": pr["patient_id"],
-                "patient_name": pr["full_name"],
-                "patient_code": pr["patient_code"],
-                "patient_age": pr["age"],
-                "condition": pr["condition_summary"] or "Recovery",
-                "title": f"Wound Photo review requested by Nurse {pr['requested_by_name'] or 'Staff'}",
-                "detail": pr["review_note"] or pr["patient_note"] or "Nurse requested attending physician evaluation of wound photograph.",
-                "tier": "Review_Soon",
-                "waited_text": f"Waited {waited}",
-                "priority_weight": 70,
-            })
-
         # 7. Recovery Plans Awaiting Approval (Phase 4 Feature F5 - tracked in Approvals -> Recovery plans)
         cur.execute(
             """SELECT rp.plan_id, rp.patient_id, p.full_name, p.patient_code,
@@ -6705,7 +6633,6 @@ def get_doctor_decisions(
                 "needs_decision_now": len(decision_items),
                 "summaries_to_approve": len(summary_rows),
                 "limit_change_requests": len(proposal_rows),
-                "photo_reviews_waiting": len(photo_doctor_rows),
                 "plans_to_approve": len(plan_rows),
                 "patients_in_followup": total_patients,
             },
@@ -6964,18 +6891,11 @@ def get_nurse_call_list(
         calls_to_make = len(formatted_flags) + len(formatted_tasks)
         visits_today = len(formatted_tasks)
 
-        # 6. Photos waiting for nurse review (Phase 3 Feature F4)
-        cur.execute(
-            """SELECT COUNT(*) AS total FROM wound_photos WHERE review_status = 'Pending'"""
-        )
-        photos_to_review_count = cur.fetchone()["total"]
-
         return {
             "cards": {
                 "calls_to_make": calls_to_make,
                 "visits_today": visits_today,
                 "pending_limit_requests": pending_proposals_count,
-                "photos_to_review": photos_to_review_count,
                 "active_patients": total_patients,
             },
             "call_items": formatted_flags,
@@ -7547,214 +7467,6 @@ def get_patient_sms_history(
     return {"messages": get_patient_sms_messages(patient_id)}
 
 
-# ─── Feature F4: Wound Photo Check Endpoints ─────────────────────────────────
-
-class ReviewPhotoRequest(BaseModel):
-    finding: str
-    review_note: Optional[str] = None
-    action: str = "none"
-
-
-class CleanupRetentionRequest(BaseModel):
-    retention_days: int = 30
-
-
-@app.post("/patient/me/photos/quality-check")
-async def check_photo_quality(
-    file: UploadFile = File(...),
-    user: Dict[str, Any] = Depends(require_patient),
-):
-    """
-    Run deterministic quality check on uploaded photo bytes without saving.
-    Returns plain-language recommendation and metrics.
-    """
-    from .photo_service import analyze_image_quality
-    contents = await file.read()
-    return analyze_image_quality(contents)
-
-
-@app.post("/patient/me/photos")
-async def upload_patient_photo(
-    file: UploadFile = File(...),
-    patient_note: Optional[str] = Form(None),
-    session_id: Optional[int] = Form(None),
-    use_anyway: bool = Form(False),
-    user: Dict[str, Any] = Depends(require_patient),
-):
-    """
-    Upload a recovery / wound photo.
-    Enforces quality checks, strips EXIF, generates thumbnail, and records audit log.
-    """
-    from .photo_service import save_wound_photo
-    contents = await file.read()
-    patient_id = user["patient_id"]
-    try:
-        res = save_wound_photo(
-            patient_id=patient_id,
-            image_bytes=contents,
-            original_filename=file.filename or "photo.jpg",
-            patient_note=patient_note,
-            session_id=session_id,
-            use_anyway=use_anyway,
-            actor_id=user.get("account_id"),
-            actor_role="Patient",
-        )
-        return res
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/patient/me/photos")
-def get_my_photos(
-    user: Dict[str, Any] = Depends(require_patient),
-):
-    """List wound photos for authenticated patient."""
-    from .photo_service import get_patient_photos
-    return get_patient_photos(user["patient_id"])
-
-
-@app.get("/staff/patients/{patient_id}/photos")
-def get_staff_patient_photos(
-    patient_id: int,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
-):
-    """List wound photos with side-by-side latest and previous comparisons for clinical review."""
-    from .photo_service import get_patient_photos
-    return get_patient_photos(patient_id)
-
-
-@app.get("/staff/photos/pending-overview")
-def get_pending_photos(
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
-):
-    """Retrieve unreviewed photos overview for nurse call list and doctor desk."""
-    from .photo_service import get_pending_photos_overview
-    return get_pending_photos_overview()
-
-
-@app.post("/staff/photos/{photo_id}/review")
-def review_photo_endpoint(
-    photo_id: int,
-    body: ReviewPhotoRequest,
-    user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse")),
-):
-    """
-    Human-only clinical review of a wound photo.
-    Findings: 'No_Concern_Seen', 'Concern_Noted', 'Retake_Needed'.
-    Optionally escalates to doctor ('ask_doctor') or raises human flag ('raise_flag').
-    """
-    from .photo_service import review_wound_photo
-    try:
-        return review_wound_photo(
-            photo_id=photo_id,
-            staff_id=user["staff_id"],
-            staff_role=user["role"],
-            finding=body.finding,
-            review_note=body.review_note,
-            action=body.action,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/photos/{photo_id}/image")
-def get_photo_image(
-    photo_id: int,
-    token: Optional[str] = Query(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    Authenticated image endpoint with strict role checks and audit logging.
-    - Caregivers: strictly 403 Forbidden.
-    - Patient: can only access their own photos (403 if mismatch).
-    - Nurse / Doctor: authorized.
-    Every view writes PHOTO_VIEWED to audit_log.
-    """
-    auth_header = authorization
-    if not auth_header and token:
-        auth_header = f"Bearer {token}"
-    user = current_user(auth_header)
-
-    user_role = user.get("role")
-    if user_role == "Caregiver":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: Caregivers are strictly not permitted to access patient wound photos under privacy rules.",
-        )
-
-    from .photo_service import get_photo_path, audit_photo_view
-    file_path, photo_pid = get_photo_path(photo_id, is_thumb=False)
-    if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    if user_role == "Patient" and user.get("patient_id") != photo_pid:
-        raise HTTPException(status_code=403, detail="Forbidden: You may only view your own photographs.")
-
-    audit_photo_view(
-        photo_id=photo_id,
-        patient_id=photo_pid,
-        actor_id=user.get("staff_id") or user.get("account_id"),
-        actor_role=user_role,
-    )
-
-    return FileResponse(file_path, media_type="image/jpeg")
-
-
-@app.get("/photos/{photo_id}/thumb")
-def get_photo_thumbnail(
-    photo_id: int,
-    token: Optional[str] = Query(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    Authenticated thumbnail endpoint with strict role checks and audit logging.
-    - Caregivers: strictly 403 Forbidden.
-    - Patient: can only access their own photos (403 if mismatch).
-    - Nurse / Doctor: authorized.
-    Every view writes PHOTO_VIEWED to audit_log.
-    """
-    auth_header = authorization
-    if not auth_header and token:
-        auth_header = f"Bearer {token}"
-    user = current_user(auth_header)
-
-    user_role = user.get("role")
-    if user_role == "Caregiver":
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: Caregivers are strictly not permitted to access patient wound photos under privacy rules.",
-        )
-
-    from .photo_service import get_photo_path, audit_photo_view
-    file_path, photo_pid = get_photo_path(photo_id, is_thumb=True)
-    if not file_path or not os.path.exists(file_path):
-        file_path, photo_pid = get_photo_path(photo_id, is_thumb=False)
-        if not file_path or not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="Photo thumbnail not found")
-
-    if user_role == "Patient" and user.get("patient_id") != photo_pid:
-        raise HTTPException(status_code=403, detail="Forbidden: You may only view your own photographs.")
-
-    audit_photo_view(
-        photo_id=photo_id,
-        patient_id=photo_pid,
-        actor_id=user.get("staff_id") or user.get("account_id"),
-        actor_role=user_role,
-    )
-
-    return FileResponse(file_path, media_type="image/jpeg")
-
-
-@app.post("/staff/photos/cleanup-retention")
-def trigger_photo_retention_cleanup(
-    body: CleanupRetentionRequest = CleanupRetentionRequest(),
-    user: Dict[str, Any] = Depends(require_doctor),
-):
-    """Audited purge of wound photos exceeding retention threshold."""
-    from .photo_service import cleanup_retention_photos
-    return cleanup_retention_photos(retention_days=body.retention_days, staff_id=user["staff_id"])
-
-
 # ─── Feature F5 & F6: Recovery Plan & Patient Admission Endpoints ─────────────
 
 class DraftPlanIn(BaseModel):
@@ -8290,14 +8002,14 @@ def get_agent_settings(user: Dict[str, Any] = Depends(require_role("Doctor"))):
                 "name": "No data from device (silent device)",
                 "low_risk": True,
                 "condition": "Data resumed for 30 minutes",
-                "refuses": "Emergency, SOS, Urgent, Symptom, Photo flags"
+                "refuses": "Emergency, SOS, Urgent, Symptom flags"
             },
             {
                 "rule_type": "Missed_Dose_Confirmed",
                 "name": "Missed medication dose confirmed taken",
                 "low_risk": True,
                 "condition": "Patient logs late confirmation within 2 hours",
-                "refuses": "Emergency, SOS, Urgent, Symptom, Photo flags"
+                "refuses": "Emergency, SOS, Urgent, Symptom flags"
             }
         ]
     }
@@ -8349,7 +8061,7 @@ def update_agent_autonomy(
 # ─── CareLoop Case Prep Agent Endpoints (Phase 3) ───────────────────────────
 
 class CaseDecideIn(BaseModel):
-    action: str = Field(..., pattern="^(call_now|send_checkin|request_photo|ask_doctor|recheck_at|merge_duplicate|close_rule)$")
+    action: str = Field(..., pattern="^(call_now|send_checkin|ask_doctor|recheck_at|merge_duplicate|close_rule)$")
     note: Optional[str] = None
     script_id: Optional[int] = None
 
@@ -8468,7 +8180,7 @@ def decide_case_action(
         )
 
         # Update case and primary flag status based on action
-        if payload.action in ("call_now", "send_checkin", "request_photo"):
+        if payload.action in ("call_now", "send_checkin"):
             new_case_status = "In_Progress"
             new_flag_status = "Acknowledged"
         elif payload.action in ("close_rule", "merge_duplicate"):
@@ -8630,7 +8342,6 @@ def get_prioritised_worklist_endpoint(
             "device_silent_hours": 24 if any("device" in (f.get("reason", "").lower()) for f in p.get("flags", [])) else 0,
             "consent_missing": any("consent" in (f.get("reason", "").lower()) for f in p.get("flags", [])),
             "has_sos": p.get("has_emergency", False),
-            "photo_pending": any("photo" in (f.get("reason", "").lower()) for f in p.get("flags", [])),
         })
         p_copy = dict(p)
         p_copy["explainable_score"] = score
@@ -8916,7 +8627,7 @@ def evaluate_auto_close_endpoint(
 ):
     """
     Evaluates doctor-approved auto-close on a flag.
-    Strictly refuses emergency, SOS, urgent, symptom, or photo flags.
+    Strictly refuses emergency, SOS, urgent, or symptom flags.
     """
     from .agents.auto_close_service import AutoCloseService
 
