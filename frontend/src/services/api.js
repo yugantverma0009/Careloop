@@ -586,6 +586,23 @@ export const getPhraseBank = () =>
 export const updatePhraseStatus = (phraseId, status) =>
   post(`/staff/phrase-bank/${phraseId}/status`, { status });
 
+// ─── Phase 3: Recovery Coach & Medication Support API ───────────────────────
+
+export const getPatientThreeThings = (lang = 'en') =>
+  get(`/patient/me/three-things?lang=${lang}`);
+
+export const recordDailyItemNotToday = (itemType, reasonCode, note = null) =>
+  post(`/patient/me/daily-items/${itemType}/not-today`, { reason_code: reasonCode, note });
+
+export const recordDoseBarrier = (medicationLogId, reasonCode, note = null) =>
+  post('/patient/me/dose-barriers', { medication_log_id: medicationLogId, reason_code: reasonCode, note });
+
+export const getPatientWeeklyRecap = (lang = 'en') =>
+  get(`/patient/me/weekly-recap?lang=${lang}`);
+
+export const updatePatientReminderPreferences = (leadMin, channelPref, lang = null) =>
+  post('/patient/me/preferences/reminders', { reminder_lead_min: leadMin, channel_pref: channelPref, language: lang });
+
 export const simulateInboundSms = (fromPhone, body) =>
   post('/staff/sms/simulate-inbound', { from_phone: fromPhone, body });
 

@@ -245,6 +245,95 @@ class PapersAgent:
                 "run_id": run_id
             }
 
+        # Gate 1.25: Missed-Dose Question Check (Phase 3 Task 5)
+        missed_dose_patterns = [
+            r"\b(?:missed|forgot)\b.*?\b(?:dose|medication|pill|tablet|medicine)\b",
+            r"\bwhat\s+(?:should|to)\s+do\s+if\s+i\s+miss(?:ed)?\b",
+            r"\bdouble\s+(?:the\s+)?dose\b",
+            r"\bmiss\s+ho\s+gayi\b",
+            r"\bdawai\s+bhool\s+gaya\b",
+            r"\bdose\s+chhoot\s+gayi\b",
+            r"\bchhoot\s+gaya\b",
+        ]
+        is_missed_dose = any(re.search(p, clean_q, re.IGNORECASE) or re.search(p, effective_q, re.IGNORECASE) for p in missed_dose_patterns)
+        if is_missed_dose:
+            matching_passage = None
+            try:
+                with get_conn() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT dc.chunk_text, dc.section_title, dc.page_no
+                           FROM document_chunks dc
+                           JOIN discharge_documents dd ON dc.document_id = dd.document_id
+                           WHERE dd.patient_id = %s
+                             AND (dc.chunk_text LIKE '%missed dose%' OR dc.chunk_text LIKE '%miss a dose%' OR dc.chunk_text LIKE '%if you miss%')
+                           LIMIT 1""",
+                        (patient_id,)
+                    )
+                    matching_passage = cur.fetchone()
+            except Exception:
+                matching_passage = None
+
+            if matching_passage:
+                src_label = f"Discharge Summary - {matching_passage.get('section_title', 'Medications')}"
+                if matching_passage.get("page_no"):
+                    src_label += f" - p.{matching_passage.get('page_no')}"
+                chunk_snippet = matching_passage.get("chunk_text") or ""
+                resp_text = (
+                    f"According to your discharge papers:\n\n\"{chunk_snippet}\""
+                    if lang == "en"
+                    else f"आपके डिस्चार्ज पेपर्स के अनुसार:\n\n\"{chunk_snippet}\""
+                )
+                AgentLedger.finish_run(
+                    run_id, status="Done", result_type="missed_dose_sourced",
+                    latency_ms=int((time.time() - start_ts) * 1000)
+                )
+                return {
+                    "answer_type": "sourced",
+                    "answer": resp_text,
+                    "bullets": [],
+                    "sources": [{
+                        "label": src_label,
+                        "text": chunk_snippet,
+                        "section_title": matching_passage.get("section_title"),
+                        "page_no": matching_passage.get("page_no")
+                    }],
+                    "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                    "can_ask_care_team": True,
+                    "is_grounded": True,
+                    "evidence_strength": "High",
+                    "response": resp_text,
+                    "citations": [src_label],
+                    "run_id": run_id
+                }
+            else:
+                abstain_msg = (
+                    "That is not in your discharge papers, so I will not guess."
+                    if lang == "en"
+                    else "यह आपके डिस्चार्ज पेपर्स में नहीं है, इसलिए मैं अनुमान नहीं लगाऊँगा।"
+                )
+                AgentLedger.finish_run(
+                    run_id, status="Done", result_type="missed_dose_abstained",
+                    latency_ms=int((time.time() - start_ts) * 1000)
+                )
+                return {
+                    "answer_type": "abstain",
+                    "answer": abstain_msg,
+                    "bullets": [
+                        "Please consult your triage nurse before taking or skipping any doses."
+                        if lang == "en"
+                        else "कोई भी दवा लेने या छोड़ने से पहले कृपया अपनी नर्स से संपर्क करें।"
+                    ],
+                    "sources": [],
+                    "suggestions": DEFAULT_SUGGESTIONS.get(lang, DEFAULT_SUGGESTIONS["en"]),
+                    "can_ask_care_team": True,
+                    "action_suggested": "ask_care_team",
+                    "is_grounded": False,
+                    "evidence_strength": "Not enough evidence",
+                    "response": abstain_msg,
+                    "citations": [],
+                    "run_id": run_id
+                }
+
         # Gate 1.3: Red-Team & Injection Safety Gate
         is_safe, attack_reason = PolicyGuard.inspect_redteam_attack(clean_q, context={"patient_id": patient_id})
         if not is_safe:

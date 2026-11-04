@@ -25,7 +25,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 logger = logging.getLogger(__name__)
 
-# Banned clinical judgment words (ICMR & Safety Rules)
+# Banned clinical judgment words & prohibited dose advice (ICMR & Phase 3 Safety Rules)
 BANNED_WORDS = [
     r"\bnormal\b",
     r"\boptimal\b",
@@ -38,6 +38,16 @@ BANNED_WORDS = [
     r"\bprescrib(?:e|ed|ing)\b",
     r"\bAI\s*nurse\b",
     r"\bautonomous\b",
+    # Phase 3 Prohibited Dose Advice patterns (EN/HI/Hinglish)
+    r"\btake\s+it\s+now\b",
+    r"\bskip\s+it\b",
+    r"\bdouble\s+(?:the\s+)?(?:dose|pill|tablet)\b",
+    r"\bstop\s+taking\b",
+    r"\babhi\s+le\s+lo\b",
+    r"\bchhod\s+do\b",
+    r"\bdouble\s+le\s+lo\b",
+    r"\brok\s+do\b",
+    r"\bdawa\s+rok\s+do\b",
 ]
 
 # Fixed Menu of Allowed Next Steps (Section 4.2)

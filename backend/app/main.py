@@ -7464,6 +7464,96 @@ def update_phrase_status(
     return {"status": "updated", "phrase_id": phrase_id, "new_status": body.status}
 
 
+# ─── PHASE 3: RECOVERY COACH & MEDICATION SUPPORT ENDPOINTS ──────────────────
+
+class ItemNotTodayIn(BaseModel):
+    reason_code: str
+    note: Optional[str] = None
+
+
+class DoseBarrierIn(BaseModel):
+    medication_log_id: Optional[int] = None
+    reason_code: str
+    note: Optional[str] = None
+
+
+class ReminderPrefsIn(BaseModel):
+    reminder_lead_min: int = 15
+    channel_pref: str = "App"
+    language: Optional[str] = None
+
+
+@app.get("/patient/me/three-things")
+def get_patient_three_things(
+    lang: str = "en",
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Deterministic selection of today's 3 priority recovery items."""
+    from .agents.recovery_coach import RecoveryCoachService
+    pid = get_effective_patient_id(user)
+    return RecoveryCoachService.get_todays_three_things(patient_id=pid, language=lang or "en")
+
+
+@app.post("/patient/me/daily-items/{item_type}/not-today")
+def record_daily_item_not_today(
+    item_type: str,
+    payload: ItemNotTodayIn,
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Record 'Not today' / snooze for a non-critical activity. Feeds nurse brief, never a flag."""
+    from .agents.recovery_coach import RecoveryCoachService
+    pid = get_effective_patient_id(user)
+    return RecoveryCoachService.record_item_not_today(
+        patient_id=pid,
+        item_type=item_type,
+        reason_code=payload.reason_code,
+        note=payload.note
+    )
+
+
+@app.post("/patient/me/dose-barriers")
+def record_patient_dose_barrier(
+    payload: DoseBarrierIn,
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Capture medication barrier and schedule de-duplicated nurse callback if unwell/ran out/side effects."""
+    from .agents.recovery_coach import RecoveryCoachService
+    pid = get_effective_patient_id(user)
+    return RecoveryCoachService.record_medication_barrier(
+        patient_id=pid,
+        medication_log_id=payload.medication_log_id,
+        reason_code_raw=payload.reason_code,
+        note=payload.note
+    )
+
+
+@app.get("/patient/me/weekly-recap")
+def get_patient_weekly_recap(
+    lang: str = "en",
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Facts-only weekly recap compiler (doses, check-ins, pain numbers)."""
+    from .agents.recovery_coach import RecoveryCoachService
+    pid = get_effective_patient_id(user)
+    return RecoveryCoachService.get_weekly_recap(patient_id=pid, language=lang or "en")
+
+
+@app.post("/patient/me/preferences/reminders")
+def update_patient_reminder_preferences(
+    payload: ReminderPrefsIn,
+    user: Dict[str, Any] = Depends(require_role("Patient")),
+):
+    """Patient updates reminder lead time and channel preference. Dose times remain locked."""
+    from .agents.recovery_coach import RecoveryCoachService
+    pid = get_effective_patient_id(user)
+    return RecoveryCoachService.update_reminder_preferences(
+        patient_id=pid,
+        reminder_lead_min=payload.reminder_lead_min,
+        channel_pref=payload.channel_pref,
+        language=payload.language
+    )
+
+
 @app.post("/sms/inbound")
 async def twilio_inbound_webhook(request: Request):
     """Inbound Twilio SMS webhook."""

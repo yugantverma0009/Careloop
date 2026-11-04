@@ -31,6 +31,11 @@ import {
   getPatientCheckinContext,
   startCheckinSession,
   recordCheckinAnswer,
+  getPatientThreeThings,
+  recordDailyItemNotToday,
+  recordDoseBarrier,
+  getPatientWeeklyRecap,
+  updatePatientReminderPreferences,
   logout,
   API_BASE,
 } from '../services/api';
@@ -395,6 +400,21 @@ export default function CareLoopPatientPortal({ user }) {
   });
   const [voiceFixMode, setVoiceFixMode] = useState(false);
 
+  // Phase 3: Recovery Coach, Today's 3 Things, Medication Support & Weekly Recap
+  const [threeThingsData, setThreeThingsData] = useState(null);
+  const [snoozePopoverItem, setSnoozePopoverItem] = useState(null);
+  const [showWeeklyRecap, setShowWeeklyRecap] = useState(false);
+  const [weeklyRecapData, setWeeklyRecapData] = useState(null);
+  const [weeklyRecapLoading, setWeeklyRecapLoading] = useState(false);
+  const [showReminderPrefs, setShowReminderPrefs] = useState(false);
+  const [reminderLeadMin, setReminderLeadMin] = useState(15);
+  const [reminderChannelPref, setReminderChannelPref] = useState('App');
+  const [reminderPrefsFeedback, setReminderPrefsFeedback] = useState(null);
+  const [reminderPrefsSaving, setReminderPrefsSaving] = useState(false);
+  const [activeBarrierDoseId, setActiveBarrierDoseId] = useState(null);
+  const [barrierNoteText, setBarrierNoteText] = useState('');
+  const [barrierToast, setBarrierToast] = useState(null);
+
   const chatEndRef = useRef(null);
 
   const [lastUpdatedTime, setLastUpdatedTime] = useState(() => new Date().toLocaleTimeString());
@@ -406,16 +426,18 @@ export default function CareLoopPatientPortal({ user }) {
     try {
       if (!silent) setLoading(true);
       setErrorMsg('');
-      const [todayRes, chatRes, updatesRes, ctxRes] = await Promise.all([
+      const [todayRes, chatRes, updatesRes, ctxRes, threeRes] = await Promise.all([
         getPatientToday().catch((err) => {
           throw err;
         }),
         getChatHistory(conversationId).catch(() => []),
         getPatientUpdates().catch(() => ({ unread_count: 0, updates: [] })),
         getPatientCheckinContext(lang).catch(() => null),
+        getPatientThreeThings(lang).catch(() => null),
       ]);
       setTodayData(todayRes);
       if (ctxRes) setCheckinContext(ctxRes);
+      if (threeRes) setThreeThingsData(threeRes);
       setLastUpdatedTime(new Date().toLocaleTimeString());
       if (updatesRes) {
         setUpdatesList(updatesRes.updates || []);
@@ -1435,6 +1457,60 @@ export default function CareLoopPatientPortal({ user }) {
       alert(`Error recording answer: ${err.message || 'Error'}`);
     } finally {
       setInlineCheckinSubmitting(false);
+    }
+  };
+
+  // Phase 3: Recovery Coach Handlers
+  const handleNotToday = async (itemType, reasonCode) => {
+    try {
+      const res = await recordDailyItemNotToday(itemType, reasonCode);
+      setSnoozePopoverItem(null);
+      setBarrierToast(res.message || 'Item postponed for today.');
+      setTimeout(() => setBarrierToast(null), 5000);
+      getPatientThreeThings(lang).then(setThreeThingsData).catch(() => {});
+    } catch (e) {
+      alert(`Could not postpone item: ${e.message || 'Error'}`);
+    }
+  };
+
+  const handleRecordBarrier = async (doseId, reasonCode, note = null) => {
+    try {
+      const res = await recordDoseBarrier(doseId, reasonCode, note);
+      setActiveBarrierDoseId(null);
+      setBarrierToast(res.message || 'Medication reason recorded.');
+      setTimeout(() => setBarrierToast(null), 5000);
+      loadTodayData(true);
+    } catch (e) {
+      alert(`Could not record reason: ${e.message || 'Error'}`);
+    }
+  };
+
+  const handleOpenWeeklyRecap = async () => {
+    setShowWeeklyRecap(true);
+    setWeeklyRecapLoading(true);
+    try {
+      const recap = await getPatientWeeklyRecap(lang);
+      setWeeklyRecapData(recap);
+    } catch (e) {
+      alert(`Could not load weekly recap: ${e.message || 'Error'}`);
+    } finally {
+      setWeeklyRecapLoading(false);
+    }
+  };
+
+  const handleSaveReminderPrefs = async () => {
+    setReminderPrefsSaving(true);
+    try {
+      const res = await updatePatientReminderPreferences(reminderLeadMin, reminderChannelPref, lang);
+      setReminderPrefsFeedback(res.message || 'Reminder settings updated.');
+      setTimeout(() => {
+        setReminderPrefsFeedback(null);
+        setShowReminderPrefs(false);
+      }, 2000);
+    } catch (e) {
+      alert(`Could not update reminders: ${e.message || 'Error'}`);
+    } finally {
+      setReminderPrefsSaving(false);
     }
   };
 
@@ -2591,6 +2667,241 @@ export default function CareLoopPatientPortal({ user }) {
           {/* ─── 6. TAB: RECOVERY HOME ─── */}
           {activeNav === 'recovery' && (
             <>
+              {/* Phase 3: Today's 3 Things & Recovery Coach Card (Section 5.C) */}
+              <div
+                style={{
+                  background: 'var(--bg-surface, #ffffff)',
+                  border: '1.5px solid var(--accent-teal, #0d9488)',
+                  borderRadius: '16px',
+                  padding: '20px 24px',
+                  boxShadow: 'var(--shadow-card)',
+                  marginBottom: '24px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(13, 148, 136, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-teal, #0d9488)' }}>
+                      <IconSparkles width={20} height={20} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                        {lang === 'hi' ? "आज के ३ मुख्य कार्य (Today's 3 Things)" : "Today's 3 Things"}
+                      </h3>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', marginTop: '2px' }}>
+                        {lang === 'hi' ? "डॉक्टर-अनुमोदित योजना से निर्धारित कार्य" : "Priority tasks from your approved recovery plan"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={handleOpenWeeklyRecap}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--accent-teal, #0d9488)',
+                        background: 'rgba(13, 148, 136, 0.08)',
+                        color: 'var(--accent-teal, #0d9488)',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <IconCalendar width={14} height={14} />
+                      <span>{lang === 'hi' ? 'साप्ताहिक समीक्षा (Recap)' : 'Weekly Recap'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Phrase Bank Encouragement Row (Action-based, No health praise) */}
+                {threeThingsData?.encouragement && (
+                  <div
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      background: 'var(--accent-blue-soft, #eff6ff)',
+                      border: '1px solid var(--accent-blue, #0284c7)',
+                      color: 'var(--accent-blue, #0284c7)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      marginBottom: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <span>✨</span>
+                    <span>{threeThingsData.encouragement}</span>
+                  </div>
+                )}
+
+                {/* Barrier / Feedback Toast */}
+                {barrierToast && (
+                  <div
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(5, 150, 105, 0.1)',
+                      border: '1px solid #059669',
+                      color: '#059669',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      marginBottom: '14px',
+                    }}
+                  >
+                    ✓ {barrierToast}
+                  </div>
+                )}
+
+                {/* 3 Things Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+                  {(threeThingsData?.items || []).map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        background: 'var(--bg-base, #f8fafc)',
+                        border: '1px solid var(--border-subtle, #cbd5e1)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              background: item.status === 'Done' ? 'rgba(5, 150, 105, 0.1)' : 'rgba(2, 132, 199, 0.1)',
+                              color: item.status === 'Done' ? '#059669' : '#0284c7',
+                            }}
+                          >
+                            {item.item_type} · {item.status}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '4px' }}>
+                          {item.title}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginBottom: '8px' }}>
+                          {item.detail}
+                        </div>
+                        {item.source_citation && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', fontStyle: 'italic', marginBottom: '12px' }}>
+                            📖 {item.source_citation}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.action_type === 'Open_Medicines') {
+                              setActiveNav('prescriptions');
+                            } else if (item.action_type === 'Start_Checkin') {
+                              setActiveNav('chat');
+                              setAssistantSubTab('ask');
+                              if (!inlineCheckinActive) startInlineCheckin();
+                            } else {
+                              handleExecuteAction('Log_Symptom');
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: item.status === 'Done' ? 'var(--bg-card-hover, #e2e8f0)' : 'var(--accent-teal, #0d9488)',
+                            color: item.status === 'Done' ? 'var(--text-secondary, #475569)' : '#ffffff',
+                            fontWeight: 700,
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {item.action_label || 'Open'}
+                        </button>
+
+                        {item.allow_snooze && (
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              type="button"
+                              onClick={() => setSnoozePopoverItem(snoozePopoverItem === item.item_type ? null : item.item_type)}
+                              style={{
+                                padding: '8px 10px',
+                                borderRadius: '8px',
+                                border: '1px solid var(--border-subtle, #cbd5e1)',
+                                background: '#ffffff',
+                                color: 'var(--text-muted, #64748b)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                              title={lang === 'hi' ? 'आज नहीं / बाद में' : 'Not today / Snooze'}
+                            >
+                              {lang === 'hi' ? 'आज नहीं' : 'Not today'}
+                            </button>
+
+                            {/* Snooze Reason Chips Popover */}
+                            {snoozePopoverItem === item.item_type && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  bottom: '100%',
+                                  right: 0,
+                                  width: '240px',
+                                  background: 'var(--bg-surface, #ffffff)',
+                                  border: '1.5px solid var(--border-strong, #cbd5e1)',
+                                  borderRadius: '12px',
+                                  padding: '12px',
+                                  boxShadow: 'var(--shadow-float)',
+                                  zIndex: 50,
+                                  marginBottom: '8px',
+                                }}
+                              >
+                                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                                  {lang === 'hi' ? 'कारण चुनें (नर्स को सूचित किया जाएगा):' : 'Select reason for your nurse:'}
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  {(threeThingsData?.reason_chips || []).map((chip) => (
+                                    <button
+                                      key={chip.id}
+                                      type="button"
+                                      onClick={() => handleNotToday(item.item_type, chip.id)}
+                                      style={{
+                                        padding: '6px 10px',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                                        background: 'var(--bg-base, #f8fafc)',
+                                        color: 'var(--text-primary, #0f172a)',
+                                        fontSize: '11px',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {lang === 'hi' ? chip.label_hi : chip.label_en}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Family Sharing Consent Card / Switch (Section 2.4 & Phase 2) */}
               <div
                 style={{
@@ -3739,6 +4050,27 @@ export default function CareLoopPatientPortal({ user }) {
                     <span>{lang === 'hi' ? 'कैलेंडर और अपॉइंटमेंट्स' : 'Calendar & Appointments'}</span>
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowReminderPrefs(true)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                    background: 'var(--bg-base, #f8fafc)',
+                    color: 'var(--text-secondary, #475569)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>⚙️</span>
+                  <span>{lang === 'hi' ? 'रिमाइंडर प्राथमिकताएं' : 'Reminder Preferences'}</span>
+                </button>
               </div>
 
               {(medicinesSubTab === 'doses' && activeNav !== 'calendar') ? (
@@ -3867,22 +4199,40 @@ export default function CareLoopPatientPortal({ user }) {
                                           {lang === 'hi' ? 'वापस करें' : 'Undo'}
                                         </button>
                                       ) : isSkipped ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleTakeDose(d)}
-                                          style={{
-                                            padding: '5px 12px',
-                                            borderRadius: '6px',
-                                            border: '1px solid var(--border-strong, #cbd5e1)',
-                                            background: 'transparent',
-                                            color: 'var(--text-primary, #0f172a)',
-                                            fontSize: '11px',
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                          }}
-                                        >
-                                          {lang === 'hi' ? 'मैंने ले ली' : 'I took it'}
-                                        </button>
+                                        <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveBarrierDoseId(d.id)}
+                                            style={{
+                                              padding: '5px 10px',
+                                              borderRadius: '6px',
+                                              border: '1px solid #fca5a5',
+                                              background: '#fef2f2',
+                                              color: '#b91c1c',
+                                              fontSize: '11px',
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            {lang === 'hi' ? 'कारण बताएं' : 'Tell nurse why'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTakeDose(d)}
+                                            style={{
+                                              padding: '5px 12px',
+                                              borderRadius: '6px',
+                                              border: '1px solid var(--border-strong, #cbd5e1)',
+                                              background: 'transparent',
+                                              color: 'var(--text-primary, #0f172a)',
+                                              fontSize: '11px',
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            {lang === 'hi' ? 'मैंने ले ली' : 'I took it'}
+                                          </button>
+                                        </div>
                                       ) : isUpcoming ? (
                                         <span
                                           title={lang === 'hi' ? 'आप इसे 1 घंटे पहले ले सकते हैं' : 'You can mark this 1 hour before'}
@@ -8336,6 +8686,435 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 3: Weekly Recap Modal (Facts-Only, Audio Enabled) */}
+      {showWeeklyRecap && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setShowWeeklyRecap(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '560px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'साप्ताहिक रिकवरी सारांश' : 'Weekly Recovery Recap'}
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  {lang === 'hi' ? 'केवल वास्तविक तथ्य (कोई अनुमान या गैर-नैदानिक प्रशंसा नहीं)' : 'Pure factual recovery metrics without health claims'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWeeklyRecap(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted, #94a3b8)',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {weeklyRecapLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary, #475569)' }}>
+                {lang === 'hi' ? 'रिकैप लोड हो रहा है...' : 'Compiling weekly metrics...'}
+              </div>
+            ) : weeklyRecapData ? (
+              <div>
+                {/* 3 Metric Summary Boxes */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '18px' }}>
+                  <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(13, 148, 136, 0.08)', border: '1px solid rgba(13, 148, 136, 0.2)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--accent-teal, #0d9488)' }}>
+                      {weeklyRecapData.summary?.doses_taken || 0}/{weeklyRecapData.summary?.total_scheduled || 0}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginTop: '2px', fontWeight: 600 }}>
+                      {lang === 'hi' ? 'ली गई दवाइयाँ' : 'Doses Taken'}
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.08)', border: '1px solid rgba(2, 132, 199, 0.2)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--accent-blue, #0284c7)' }}>
+                      {weeklyRecapData.summary?.checkins_completed || 0}/7
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginTop: '2px', fontWeight: 600 }}>
+                      {lang === 'hi' ? 'चेक-इन सत्र' : 'Check-ins'}
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#dc2626' }}>
+                      {weeklyRecapData.summary?.doses_skipped || 0}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginTop: '2px', fontWeight: 600 }}>
+                      {lang === 'hi' ? 'छूटी दवाइयाँ' : 'Doses Skipped'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Factual Bullet Points */}
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '8px' }}>
+                    {lang === 'hi' ? 'रिकवरी रिकॉर्ड तथ्य:' : 'Verified Recovery Facts:'}
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--text-primary, #334155)' }}>
+                    {(weeklyRecapData.facts || []).map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Actions: Listen & Dismiss */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const textToRead = [
+                        lang === 'hi' ? 'साप्ताहिक प्रगति सारांश:' : 'Weekly recovery recap:',
+                        `${weeklyRecapData.summary?.doses_taken || 0} of ${weeklyRecapData.summary?.total_scheduled || 0} scheduled doses taken.`,
+                        `${weeklyRecapData.summary?.checkins_completed || 0} check-ins recorded.`,
+                        ...(weeklyRecapData.facts || []),
+                      ].join('. ');
+                      if ('speechSynthesis' in window) {
+                        window.speechSynthesis.cancel();
+                        const utt = new SpeechSynthesisUtterance(textToRead);
+                        utt.lang = lang === 'hi' ? 'hi-IN' : 'en-US';
+                        window.speechSynthesis.speak(utt);
+                      } else {
+                        alert(textToRead);
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--accent-teal, #0d9488)',
+                      background: 'rgba(13, 148, 136, 0.08)',
+                      color: 'var(--accent-teal, #0d9488)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span>🔊</span>
+                    <span>{lang === 'hi' ? 'रिकैप सुनें (Listen)' : 'Listen to Recap'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowWeeklyRecap(false)}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: 'var(--navy-deep, #0b1528)',
+                      color: '#ffffff',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'hi' ? 'बंद करें' : 'Close'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 3: Reminder Preferences Modal (Dose Times Strictly Locked) */}
+      {showReminderPrefs && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setShowReminderPrefs(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '480px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                {lang === 'hi' ? 'दवा रिमाइंडर सेटिंग्स' : 'Medication Reminder Settings'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowReminderPrefs(false)}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Prescribed Dose Times Immutable Notice */}
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: 'rgba(234, 179, 8, 0.1)',
+                border: '1px solid rgba(234, 179, 8, 0.3)',
+                fontSize: '11px',
+                color: '#854d0e',
+                lineHeight: '1.4',
+                marginBottom: '16px',
+              }}
+            >
+              🔒 <strong>{lang === 'hi' ? 'डॉक्टर का शेड्यूल लॉक है:' : 'Doctor prescription times are fixed:'}</strong>{' '}
+              {lang === 'hi'
+                ? 'आपकी दवाइयों का समय (उदा. सुबह 08:00, रात 20:00) डिस्चार्ज आदेशों से तय होता है। यहाँ आप केवल यह तय कर सकते हैं कि आपको कितने समय पहले सूचना मिले।'
+                : 'Prescribed dose hours are clinically fixed by your hospital orders. You may only customize alert lead time and delivery channel.'}
+            </div>
+
+            {/* Lead Time Selection */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
+                {lang === 'hi' ? 'कितने पहले याद दिलाएँ (Lead Time):' : 'Alert Lead Time:'}
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[15, 30, 60].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setReminderLeadMin(mins)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: reminderLeadMin === mins ? '2px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #cbd5e1)',
+                      background: reminderLeadMin === mins ? 'rgba(13, 148, 136, 0.1)' : 'var(--bg-base, #f8fafc)',
+                      color: reminderLeadMin === mins ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {mins} {lang === 'hi' ? 'मिनट पहले' : 'mins prior'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Channel Selection */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '6px' }}>
+                {lang === 'hi' ? 'रिमाइंडर चैनल (Channel):' : 'Notification Channel:'}
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[
+                  { id: 'App', label_en: 'In-App Alerts', label_hi: 'ऐप में सूचना' },
+                  { id: 'SMS', label_en: 'SMS Message', label_hi: 'एसएमएस (SMS)' },
+                ].map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => setReminderChannelPref(ch.id)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: reminderChannelPref === ch.id ? '2px solid var(--accent-teal, #0d9488)' : '1px solid var(--border-subtle, #cbd5e1)',
+                      background: reminderChannelPref === ch.id ? 'rgba(13, 148, 136, 0.1)' : 'var(--bg-base, #f8fafc)',
+                      color: reminderChannelPref === ch.id ? 'var(--accent-teal, #0d9488)' : 'var(--text-secondary, #475569)',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'hi' ? ch.label_hi : ch.label_en}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {reminderPrefsFeedback && (
+              <div style={{ padding: '8px 12px', borderRadius: '6px', background: '#dcfce7', color: '#166534', fontSize: '12px', marginBottom: '12px', fontWeight: 600 }}>
+                {reminderPrefsFeedback}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowReminderPrefs(false)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary, #475569)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {lang === 'hi' ? 'रद्द करें' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveReminderPrefs}
+                disabled={reminderPrefsSaving}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: 'var(--navy-deep, #0b1528)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {reminderPrefsSaving ? (lang === 'hi' ? 'सहेजा जा रहा है...' : 'Saving...') : (lang === 'hi' ? 'सहेजें' : 'Save Preferences')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 3: Medication Barrier Selector Modal (Reason Capture + Nurse Task Hook) */}
+      {activeBarrierDoseId && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => { setActiveBarrierDoseId(null); setBarrierNoteText(''); }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '16px',
+              maxWidth: '480px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  {lang === 'hi' ? 'दवा न लेने का कारण बताएं' : 'Why could you not take this dose?'}
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
+                  {lang === 'hi' ? 'यह जानकारी आपकी नर्स को भेजी जाएगी ताकि वह आपकी मदद कर सके।' : 'Your care team will review this to assist you safely.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setActiveBarrierDoseId(null); setBarrierNoteText(''); }}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+              {[
+                { code: 'Forgot', label_en: 'I forgot the dose', label_hi: 'मैं भूल गया' },
+                { code: 'Felt_unwell', label_en: 'Felt unwell / Nauseous (Requests nurse call)', label_hi: 'तबियत ठीक नहीं लगी (नर्स को कॉल का अनुरोध)' },
+                { code: 'Ran_out', label_en: 'Ran out of medicine (Requests refill review)', label_hi: 'दवा खत्म हो गई (रिफिल समीक्षा अनुरोध)' },
+                { code: 'Side_effects_worry', label_en: 'Worried about side effects (Requests nurse call)', label_hi: 'साइड इफेक्ट्स का डर (नर्स कॉल अनुरोध)' },
+                { code: 'Confusion', label_en: 'Confused by instructions', label_hi: 'निर्देश समझ नहीं आए' },
+                { code: 'Other', label_en: 'Other reason', label_hi: 'अन्य कारण' },
+              ].map((b) => (
+                <button
+                  key={b.code}
+                  type="button"
+                  onClick={() => handleRecordBarrier(activeBarrierDoseId, b.code, barrierNoteText)}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                    background: 'var(--bg-base, #f8fafc)',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary, #0f172a)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(13, 148, 136, 0.08)'; e.currentTarget.style.borderColor = 'var(--accent-teal, #0d9488)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-base, #f8fafc)'; e.currentTarget.style.borderColor = 'var(--border-subtle, #cbd5e1)'; }}
+                >
+                  {lang === 'hi' ? b.label_hi : b.label_en}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <input
+                type="text"
+                placeholder={lang === 'hi' ? 'अतिरिक्त विवरण (वैकल्पिक)...' : 'Additional note for nurse (optional)...'}
+                value={barrierNoteText}
+                onChange={(e) => setBarrierNoteText(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  fontSize: '12px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', textAlign: 'center' }}>
+              {lang === 'hi'
+                ? '⚠️ आपातकालीन स्थिति में तुरंत 112 या अपने नजदीकी अस्पताल से संपर्क करें।'
+                : '⚠️ In an urgent emergency, always contact emergency services or your hospital.'}
+            </div>
           </div>
         </div>
       )}

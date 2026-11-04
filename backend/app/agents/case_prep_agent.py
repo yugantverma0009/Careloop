@@ -237,17 +237,38 @@ class CasePrepAgent:
                 # Check medication logs for medication flags
                 elif source_type == "Medication":
                     cur.execute("""
-                        SELECT medication_log_id, scheduled_for, status
-                        FROM medication_logs
-                        WHERE prescription_id IN (SELECT prescription_id FROM prescriptions WHERE patient_id = %s)
-                          AND status IN ('Missed', 'Unconfirmed')
-                        ORDER BY scheduled_for DESC LIMIT 2;
+                        SELECT ml.medication_log_id, ml.scheduled_for, ml.status, ml.patient_note,
+                               db.reason_code AS barrier_reason, db.note AS barrier_note
+                        FROM medication_logs ml
+                        LEFT JOIN dose_barriers db ON ml.medication_log_id = db.medication_log_id
+                        WHERE ml.prescription_id IN (SELECT prescription_id FROM prescriptions WHERE patient_id = %s)
+                          AND ml.status IN ('Missed', 'Unconfirmed', 'Skipped')
+                        ORDER BY ml.scheduled_for DESC LIMIT 2;
                     """, (patient_id,))
                     mlogs = cur.fetchall()
                     for ml in mlogs:
+                        note_suffix = ""
+                        if ml.get("barrier_reason"):
+                            note_suffix = f" (Patient barrier: {ml['barrier_reason']})"
+                        elif ml.get("patient_note"):
+                            note_suffix = f" ({ml['patient_note']})"
                         what_happened.append({
-                            "fact": f"Dose scheduled for {ml['scheduled_for'].strftime('%H:%M')} recorded as {ml['status']}",
+                            "fact": f"Dose scheduled for {ml['scheduled_for'].strftime('%H:%M')} recorded as {ml['status']}{note_suffix}",
                             "source": f"medication_log#{ml['medication_log_id']}"
+                        })
+
+                    # Also check for any standalone barrier reported in last 24h
+                    cur.execute("""
+                        SELECT reason_code, note, created_at
+                        FROM dose_barriers
+                        WHERE patient_id = %s AND created_at >= NOW() - INTERVAL 24 HOUR
+                        ORDER BY created_at DESC LIMIT 1;
+                    """, (patient_id,))
+                    recent_b = cur.fetchone()
+                    if recent_b:
+                        what_happened.append({
+                            "fact": f"Patient reported medication barrier: {recent_b['reason_code']}" + (f" ({recent_b['note']})" if recent_b.get('note') else ""),
+                            "source": "dose_barriers#recent"
                         })
 
                 # Check emergency / symptom flags

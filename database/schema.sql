@@ -1855,3 +1855,65 @@ CREATE TABLE `phrase_bank` (
   PRIMARY KEY (`phrase_id`),
   KEY `idx_pb_cat_status` (`category`,`status`,`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `dose_barriers`
+--
+
+DROP TABLE IF EXISTS `dose_barriers`;
+CREATE TABLE `dose_barriers` (
+  `barrier_id` int NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `medication_log_id` int DEFAULT NULL,
+  `reason_code` enum('Forgot','Felt_unwell','Ran_out','Side_effects_worry','Confusion','Other') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`barrier_id`),
+  KEY `idx_db_patient` (`patient_id`,`created_at`),
+  KEY `idx_db_med_log` (`medication_log_id`),
+  CONSTRAINT `fk_db_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `patient_preferences`
+--
+
+DROP TABLE IF EXISTS `patient_preferences`;
+CREATE TABLE `patient_preferences` (
+  `patient_id` int NOT NULL,
+  `language` enum('en','hi') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'en',
+  `input_mode` enum('Text','Voice','Easy') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Text',
+  `large_text` tinyint(1) NOT NULL DEFAULT '0',
+  `reading_level` enum('Simple','Standard') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Standard',
+  `checkin_time` time DEFAULT '09:00:00',
+  `reminder_lead_min` int NOT NULL DEFAULT '15',
+  `channel_pref` enum('App','SMS') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'App',
+  `voice_autoplay` tinyint(1) NOT NULL DEFAULT '0',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`patient_id`),
+  CONSTRAINT `fk_pp_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `daily_items`
+--
+
+DROP TABLE IF EXISTS `daily_items`;
+CREATE TABLE `daily_items` (
+  `item_id` int NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `day_number` int NOT NULL DEFAULT '1',
+  `item_type` enum('Medication','Checkin','Activity','Appointment') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `plan_item_id` int DEFAULT NULL,
+  `prescription_id` int DEFAULT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `detail` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_citation` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('Pending','Done','Skipped','Not_today','Snoozed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Pending',
+  `reason_code` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `action_type` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`item_id`),
+  KEY `idx_di_patient_day` (`patient_id`,`day_number`,`status`),
+  CONSTRAINT `fk_di_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
