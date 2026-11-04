@@ -274,7 +274,10 @@ def route_intent_v2(question: str) -> str:
         "what medicine", "which medicine", "which tablet", "medicines today", "doses today", "take today", "morning dose",
         "evening dose", "night dose", "what time do i take", "time do i take", "when do i take", "after meals",
         "दवाइयां आज", "आज कौन सी दवा", "रात की दवा", "सुबह की दवा", "दवा का समय",
-        "कौन सी दवाइयाँ", "कौन सी दवा", "दवा लेनी है", "गोली खानी है", "दवाइयां लेनी"
+        "कौन सी दवाइयाँ", "कौन सी दवा", "दवा लेनी है", "गोली खानी है", "दवाइयां लेनी",
+        "take now", "medicene", "medicine now", "medicines now", "what to take now", "give me medicine",
+        "give me medicene", "what i have take now", "next dose", "next medicine dose", "dose due",
+        "all of them", "all medicines", "list medicines", "all my medicine"
     ]
     if any(k in q for k in today_doses_keywords):
         return INTENT_TODAY_DOSES

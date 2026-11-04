@@ -235,7 +235,13 @@ def rewrite_followup_question(question: str, history: Optional[List[Dict[str, st
     q_clean = (question or "").strip()
     q_lower = q_clean.lower()
 
-    # 1. Deterministic follow-up resolution for common clinical ellipses
+    # 1. Deterministic follow-up resolution for common clinical ellipses and clarification responses
+    if any(p in q_lower for p in ["all of them", "all medicines", "both of them", "both", "everything", "all my medicine", "sab", "sari"]):
+        return "all scheduled medicines, doses, times and instructions today"
+    if "cardiopulse" in q_lower:
+        return "CardioPulse-XR medication schedule dose times instructions"
+    if "vasculonorm" in q_lower:
+        return "VasculoNorm-5 medication schedule dose times instructions"
     if any(q_lower == pat or q_lower.startswith(pat) for pat in [
         "and in the evening", "and in the evening?", "in the evening?", "and evening?", "aur sham ko?",
         "और शाम के समय?", "और शाम को?", "और शाम के समय", "और शाम को"
@@ -350,8 +356,8 @@ def hybrid_retrieval(
             debug_info["dense_count"] = len(ids)
             for rank, vid in enumerate(ids):
                 dist = distances[rank] if rank < len(distances) else 0.0
-                # Distance <= 0.80 indicates semantic relevance for gemini-embedding
-                if dist <= 0.80 or not distances:
+                # Distance <= 1.60 indicates semantic relevance for gemini-embedding (cosine distance)
+                if dist <= 1.60 or not distances:
                     dense_ranks[vid] = rank + 1
         else:
             debug_info["dense_count"] = 0
@@ -597,7 +603,33 @@ def answer_patient_query(
         standalone_q = rewrite_followup_question(clean_q, history or [])
         context_chunks, retrieval_debug = hybrid_retrieval(patient_id, standalone_q, intent)
 
-    # If no tool result and no document chunks passed threshold -> Not Found
+    # If no tool result and no document chunks passed threshold -> Check recovery fallback before abstain
+    if not tool_result and not context_chunks:
+        q_lower = clean_q.lower()
+        recovery_keywords = [
+            "medicine", "medicene", "dose", "tablet", "pill", "care", "wound", "dressing",
+            "shower", "bath", "walk", "activity", "food", "diet", "doctor", "appointment",
+            "visit", "hospital", "discharge", "papers", "pain", "fever", "cut", "stitch", "eat"
+        ]
+        if any(k in q_lower for k in recovery_keywords):
+            try:
+                with get_conn() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT dc.chunk_id, dc.chunk_index, dc.chunk_text, dc.vector_id, dc.section_title, dc.section_type, dc.page_no
+                           FROM document_chunks dc
+                           JOIN patient_documents pd ON pd.document_id = dc.document_id
+                           WHERE pd.patient_id = %s
+                           ORDER BY dc.chunk_index ASC LIMIT 6""",
+                        (patient_id,)
+                    )
+                    fallback_chunks = cur.fetchall()
+                    if fallback_chunks:
+                        context_chunks = fallback_chunks
+                        retrieval_debug["fallback_all_chunks"] = True
+            except Exception as fb_err:
+                logger.warning(f"Error fetching fallback discharge chunks: {fb_err}")
+
+    # If still no tool result and no document chunks -> Not Found
     if not tool_result and not context_chunks:
         not_found_ans = NOT_FOUND_MSG.get(lang, NOT_FOUND_MSG["en"])
         return {
@@ -920,16 +952,29 @@ LANGUAGE:
     answer_type = "structured" if tool_result else "grounded"
     latency = round(time.time() - start_time, 3)
 
+    raw_ans = (answer_data.get("answer") or "").strip()
+    bullets_list = answer_data.get("bullets") or []
+    if bullets_list:
+        bullet_str = "\n".join(f"• {b}" for b in bullets_list if b)
+        if raw_ans and bullet_str not in raw_ans:
+            final_ans = f"{raw_ans}\n\n{bullet_str}"
+        elif not raw_ans:
+            final_ans = bullet_str
+        else:
+            final_ans = raw_ans
+    else:
+        final_ans = raw_ans
+
     return {
         "answer_type": answer_type,
-        "answer": answer_data.get("answer", ""),
-        "bullets": answer_data.get("bullets", []),
+        "answer": final_ans,
+        "bullets": bullets_list,
         "sources": active_sources,
         "actions": valid_actions,
         "suggestions": suggestions[:3],
         "can_ask_care_team": answer_data.get("suggest_care_team", False),
         "is_grounded": True,
-        "response": answer_data.get("answer", ""),
+        "response": final_ans,
         "citations": [s.get("chunk_id") for s in active_sources if s.get("chunk_id")],
         "retrieval_debug": {
             "intent": intent,

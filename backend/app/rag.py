@@ -16,6 +16,7 @@ from typing import Tuple, List, Optional
 import chromadb
 from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
@@ -51,6 +52,7 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
                 r = self.client.models.embed_content(
                     model="gemini-embedding-001",
                     contents=doc,
+                    config=types.EmbedContentConfig(output_dimensionality=768)
                 )
                 res.append(r.embeddings[0].values)
             except Exception as e:

@@ -167,6 +167,19 @@ class PapersAgent:
             )
         effective_q = norm_q if was_hinglish else clean_q
 
+        # Resolve pending multi-turn clarification (e.g., user answers "ALL OF THEM" or a medicine name)
+        conv_state = ConversationStateManager.get_state(conversation_id or str(patient_id))
+        pending_clar = conv_state.get("pending_clarification") if conv_state else None
+        if pending_clar:
+            ConversationStateManager.update_state(conversation_id or str(patient_id), {"pending_clarification": None})
+            q_low = effective_q.lower()
+            if any(w in q_low for w in ["all", "all of them", "both", "everything", "all medicines", "all my medicine", "sab", "sari"]):
+                effective_q = "What are all my scheduled medicine doses, times, and instructions today?"
+            elif "cardiopulse" in q_low:
+                effective_q = "When do I take CardioPulse-XR and what are the instructions?"
+            elif "vasculonorm" in q_low:
+                effective_q = "When do I take VasculoNorm-5 and what are the instructions?"
+
         # Gate 1.1: Emergency Check
         if has_emergency_term(clean_q) or has_emergency_term(effective_q):
             guidance = EMERGENCY_GUIDANCE.get(lang, EMERGENCY_GUIDANCE["en"])

@@ -556,6 +556,10 @@ def detect_ambiguity(patient_id: int, question: str) -> Optional[Dict[str, Any]]
     is_med_timing_q = (
         any(m in q_lower for m in med_terms) and any(t in q_lower for t in query_terms)
     )
+    # If query asks for specific timing like 'now', 'next', 'today', 'all', answer directly rather than asking clarification
+    if any(w in q_lower for w in ["now", "next", "today", "tonight", "morning", "afternoon", "evening", "all"]):
+        return None
+
     generic_med_query = is_med_timing_q and not has_specific_med
 
     if generic_med_query:
