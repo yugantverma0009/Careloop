@@ -122,7 +122,7 @@ export default function ReportIncidentModal({ runId, itemTitle, onClose, onRepor
               }}
             >
               <option value="Wrong fact">Wrong fact (fabricated number, incorrect dose, wrong date)</option>
-              <option value="Unsafe">Unsafe (unapproved medical advice, unauthorized diagnosis)</option>
+              <option value="Unsafe">Unsafe (unapproved medical advice, unauthorized clinical evaluation)</option>
               <option value="Tone">Tone (confusing, dismissive, non-empathetic)</option>
               <option value="Other">Other clinical safety or quality defect</option>
             </select>
@@ -152,7 +152,7 @@ export default function ReportIncidentModal({ runId, itemTitle, onClose, onRepor
           </div>
 
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.4 }}>
-            Safety protocol: Submitting this report links the run trace, generates a candidate test case for doctor review, and immediately demotes the corresponding autonomous action to Draft.
+            Safety protocol: Submitting this report links the run trace, generates a candidate test case for doctor review, and immediately demotes the corresponding automated action to Draft.
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>

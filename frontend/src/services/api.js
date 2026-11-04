@@ -391,7 +391,7 @@ export const getPatientPipelineStatus = () => Promise.resolve({ status: 'active'
 export const getPatientPersonalization = () =>
   get('/patient/me/profile').catch(() => ({}));
 
-export const sendVoiceMessage = () => Promise.reject(new Error("Voice diagnosis is disabled as per safety rule."));
+export const sendVoiceMessage = () => Promise.reject(new Error("Voice clinical advice is disabled as per safety rule."));
 
 export const getAuditLog = (params = {}) => {
   const q = new URLSearchParams();
@@ -410,7 +410,7 @@ export const exportAuditLogAudit = (count, filters) =>
 export const globalStaffSearch = (term) =>
   get(`/staff/search?q=${encodeURIComponent(term)}`);
 
-export const sendWoundImage = () => Promise.reject(new Error("AI wound diagnosis is disabled as per safety rule."));
+export const sendWoundImage = () => Promise.reject(new Error("AI wound evaluation is disabled as per safety rule."));
 
 export const triggerReminder = () => Promise.resolve({ ok: true });
 

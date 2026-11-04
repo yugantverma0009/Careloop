@@ -100,6 +100,17 @@ AGENTS_V2_PATIENT_TRANSPARENCY = os.getenv("AGENTS_V2_PATIENT_TRANSPARENCY", "tr
 # Current AI governance notice version
 CURRENT_AI_NOTICE_VERSION = os.getenv("CURRENT_AI_NOTICE_VERSION", "v2.0-2026-11")
 
+# Phase 6: Hardening, Misuse Prevention & Retention Flags
+AGENTS_V2_HARDENING = os.getenv("AGENTS_V2_HARDENING", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_CANARY_CHECK = os.getenv("AGENTS_V2_CANARY_CHECK", "true").lower() in ("true", "1", "yes")
+CANARY_STRING = os.getenv("CARELOOP_CANARY_STRING", "CARELOOP_CANARY_SECRET_TOKEN_9182")
+AGENTS_V2_INPUT_SCREENING = os.getenv("AGENTS_V2_INPUT_SCREENING", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_OUTPUT_SCANNING = os.getenv("AGENTS_V2_OUTPUT_SCANNING", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_RETENTION = os.getenv("AGENTS_V2_RETENTION", "true").lower() in ("true", "1", "yes")
+AGENTS_V2_RETENTION_DAYS = int(os.getenv("AGENTS_V2_RETENTION_DAYS", "30"))
+MAX_INPUT_LENGTH_CHARS = int(os.getenv("MAX_INPUT_LENGTH_CHARS", "1200"))
+
+
 
 
 

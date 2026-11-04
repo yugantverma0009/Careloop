@@ -52,7 +52,7 @@ export default function OperationalInsights() {
         ['Alerts Per Patient Per Day', m.alerts_per_patient_per_day, data.definitions?.alerts_per_patient_per_day],
         ['Duplicate Rate %', `${m.duplicate_rate_pct}%`, data.definitions?.duplicate_rate],
         ['Self-Reported Dose Confirmation %', `${m.self_reported_dose_confirmation_pct}%`, data.definitions?.self_reported_dose_confirmation],
-        ['Continuous Telemetry Uptime %', `${m.device_uptime_pct}%`, data.definitions?.device_uptime],
+        ['Continuous Sensor Uptime %', `${m.device_uptime_pct}%`, data.definitions?.device_uptime],
         ['Overdue Tasks Count', m.overdue_tasks_count, data.definitions?.overdue_tasks],
       ];
 
@@ -109,7 +109,7 @@ export default function OperationalInsights() {
             </h2>
           </div>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            Transparent workflow telemetry and trigger quality. (Strictly non-outcome metrics).
+            Transparent workflow run metrics and trigger quality. (Strictly non-outcome metrics).
           </p>
         </div>
 

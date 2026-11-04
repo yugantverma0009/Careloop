@@ -444,8 +444,7 @@ export default function LandingPage() {
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-                <span>Simulated watch telemetry readings (rules decide; LLM does not diagnose)</span>
-                <span>Simulated watch sensor readings (rules decide; LLM does not provide medical diagnosis)</span>
+                <span>Simulated watch sensor readings (rules decide; LLM does not provide medical evaluation)</span>
               </div>
             </div>
           </div>
@@ -1118,7 +1117,6 @@ export default function LandingPage() {
             },
             {
               step: 'Step 2',
-              title: 'Rounds & Watch Telemetry',
               title: 'Rounds & Sensor Readings',
               who: 'Background Automation & ESP32 Watch',
               desc: 'Rounds executes 24h schedule with explicit reasons; watch streams vitals, filters invalid noise, and reports possible falls.',

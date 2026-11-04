@@ -65,7 +65,7 @@ export default function AgentHealthView({ user }) {
   if (loading && !healthData) {
     return (
       <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-        Loading agent health and safety telemetry...
+        Loading agent health and safety metrics...
       </div>
     );
   }
@@ -92,7 +92,7 @@ export default function AgentHealthView({ user }) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-              Agent Health & Telemetry
+              Agent Health & Metrics
             </h2>
             <span
               style={{
@@ -104,12 +104,12 @@ export default function AgentHealthView({ user }) {
                 color: 'var(--teal-primary, #0d9488)',
               }}
             >
-              Live Health Guard
+              Health Guard
             </span>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
             {isDoctor
-              ? 'Real-time agent safety, latency percentiles, token burn, shadow agreement, and circuit breaker telemetry.'
+              ? 'Agent safety, latency percentiles, token burn, shadow agreement, and circuit breaker metrics.'
               : 'Read-only clinical agent system status and safety monitor summary.'}
           </p>
         </div>
@@ -256,7 +256,7 @@ export default function AgentHealthView({ user }) {
           </p>
         </div>
       ) : (
-        /* DOCTOR DETAILED TELEMETRY */
+        /* DOCTOR DETAILED METRICS */
         <>
           {/* Key Metric Cards */}
           <div
@@ -350,7 +350,7 @@ export default function AgentHealthView({ user }) {
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)' }}>
               <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                Per-Agent Performance & Telemetry ({windowTime})
+                Per-Agent Performance & Metrics ({windowTime})
               </h3>
             </div>
             <div style={{ overflowX: 'auto' }}>

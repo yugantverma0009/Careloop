@@ -47,7 +47,7 @@ import {
  * 4. Caregiver consent indicators & Silent device tracking
  * 5. Medicines tab with strict "Self-reported" labeling & dose exception notes
  * 6. Alert rules tab with clinician approval tracking & false alarm dismissal counts
- * 7. Upgraded timeline with day grouping, filter chips, event collapse, and telemetry chart
+ * 7. Upgraded timeline with day grouping, filter chips, event collapse, and vitals trend chart
  */
 export default function PatientOverviewTab({
   patientId,
@@ -785,7 +785,7 @@ export default function PatientOverviewTab({
             Break-Glass Access Required
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', lineHeight: 1.5, margin: '0 0 20px 0' }}>
-            This patient is assigned to another clinician's care roster. To view their chart, discharge records, and sensor telemetry, you must declare a valid clinical reason under clinical audit guidelines.
+            This patient is assigned to another clinician's care roster. To view their chart, discharge records, and sensor readings, you must declare a valid clinical reason under clinical audit guidelines.
           </p>
 
           <form onSubmit={handleBreakGlassSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left' }}>
@@ -876,7 +876,7 @@ export default function PatientOverviewTab({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                      Latest Vitals Telemetry
+                      Latest Vital Readings
                     </span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#0284c7', background: 'var(--accent-blue-soft, #eff6ff)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
                       <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#0284c7' }} />
@@ -2091,7 +2091,7 @@ export default function PatientOverviewTab({
                 </div>
               </div>
 
-              {/* Telemetry Chart with Approved Limit Dashed Lines (D-06) */}
+              {/* Vital Readings Chart with Approved Limit Dashed Lines (D-06) */}
               {timelineData?.chart_readings && timelineData.chart_readings.length > 0 && (
                 <div
                   style={{
@@ -2104,7 +2104,7 @@ export default function PatientOverviewTab({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
-                      Heart Rate & Telemetry Trend with Approved Rule Limits
+                      Heart Rate & Sensor Trend with Approved Rule Limits
                     </h3>
                     <div style={{ display: 'flex', gap: '14px', fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -2191,7 +2191,7 @@ export default function PatientOverviewTab({
                               HOSPITAL DISCHARGE TRANSITION (DAYS 1–3 INPATIENT → DAY 4+ HOME RECOVERY)
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
-                              Inpatient post-operative course completed. Remote telemetry monitoring and physician-approved protocol activated at discharge.
+                              Inpatient post-operative course completed. Remote vital sensor monitoring and physician-approved protocol activated at discharge.
                             </div>
                           </div>
                         </div>
@@ -3764,7 +3764,7 @@ export default function PatientOverviewTab({
                 {contactChannel === 'SMS' && (
                   <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary, #475569)', marginBottom: '6px' }}>
-                      Clinical SMS Template (No diagnosis disclosure)
+                      Clinical SMS Template (No clinical details disclosure)
                     </label>
                     <select
                       onChange={(e) => setContactSummary(e.target.value)}

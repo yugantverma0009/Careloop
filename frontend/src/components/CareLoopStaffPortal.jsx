@@ -1265,7 +1265,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                           Decision Items Awaiting Physician Action ({doctorDecisions.items?.length || 0})
                         </h3>
                         <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                          Routine telemetry and task checklists are handled by Nurse Priya. Only items requiring physician authority appear here.
+                          Routine vital readings and task checklists are handled by Nurse Priya. Only items requiring physician authority appear here.
                         </p>
                       </div>
                     </div>
@@ -1468,7 +1468,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: '#ecfdf5', color: '#059669' }}>
-                      Telemetry On Track
+                      Vitals On Track
                     </span>
                   </div>
                 </div>
@@ -1528,7 +1528,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             <AgentSettingsView currentUser={user} />
           )}
 
-          {/* TAB: AGENT HEALTH & TELEMETRY (CareLoop Agents v2 Phase 1) */}
+          {/* TAB: AGENT HEALTH & METRICS (CareLoop Agents v2 Phase 1) */}
           {activeNav === 'agent_health' && (
             <AgentHealthView user={user} />
           )}
@@ -1566,8 +1566,8 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 }}
               >
                 <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0' }}>Patient Telemetry & Event Timeline</h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Select a post-discharge patient to inspect chronological telemetry, symptoms, and self-reported doses</p>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px 0' }}>Patient Vitals & Event Timeline</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Select a post-discharge patient to inspect chronological vitals, symptoms, and self-reported doses</p>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: '680px' }}>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((pid) => (

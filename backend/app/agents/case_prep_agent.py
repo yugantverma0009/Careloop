@@ -769,7 +769,7 @@ class CasePrepAgent:
                 case_id=case_id,
                 run_id=run_id,
                 step_name="CasePrepBriefSynthesized",
-                details={"recommended_step": next_step.get("key"), "draft_id": draft_id}
+                details={"recommended_step": decision.get("next_step", {}).get("key"), "draft_id": draft_id}
             )
         except Exception as e:
             logger.warning(f"Case workflow step attachment skipped: {e}")

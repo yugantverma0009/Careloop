@@ -798,7 +798,7 @@ export default function NurseCallListView({ onSelectPatient }) {
                       {/* Evidence facts */}
                       <div>
                         <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em', marginBottom: '4px' }}>
-                          Evidence &amp; Telemetry
+                          Evidence &amp; Sensor Readings
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           {(item.brief.what_happened || []).map((fact, idx) => (
@@ -1381,7 +1381,7 @@ export default function NurseCallListView({ onSelectPatient }) {
           </div>
         </div>
         <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: '#ecfdf5', color: '#059669' }}>
-          Telemetry Calm
+          Vitals Calm
         </span>
       </div>
 

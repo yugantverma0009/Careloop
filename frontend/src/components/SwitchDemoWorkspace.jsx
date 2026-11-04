@@ -43,7 +43,7 @@ const DEMO_WORKSPACES = [
     initials: 'AP',
     title: 'Recovering Patient',
     name: 'Aarav Patel',
-    department: 'Post-CABG Day 3 Telemetry & Doses',
+    department: 'Post-CABG Day 3 Vitals & Doses',
     email: 'aarav.demo@example.test',
     password: 'Demo@12345',
     targetRoute: '/patient',

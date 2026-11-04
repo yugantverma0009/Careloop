@@ -166,7 +166,7 @@ WOUND CARE: Keep sternal incision dry and clean. Daily inspection for drainage o
             {currentStep === 2 && 'Discharge Summary & Paperwork'}
             {currentStep === 3 && 'Medications & Prescriptions'}
             {currentStep === 4 && 'Proposed Alert Limits'}
-            {currentStep === 5 && 'Telemetry Device Binding'}
+            {currentStep === 5 && 'Watch Device Binding'}
             {currentStep === 6 && 'Family Helper & Recorded Consent'}
             {currentStep === 7 && 'Review & Start Follow-Up'}
           </div>
@@ -253,7 +253,7 @@ WOUND CARE: Keep sternal incision dry and clean. Daily inspection for drainage o
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', marginBottom: '4px' }}>
-              Primary Condition / Diagnosis
+              Primary Condition / Clinical Reason
             </label>
             <input
               type="text"
@@ -364,7 +364,7 @@ WOUND CARE: Keep sternal incision dry and clean. Daily inspection for drainage o
         </div>
       )}
 
-      {/* Step 5: Telemetry Device Binding */}
+      {/* Step 5: Watch Device Binding */}
       {currentStep === 5 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
@@ -432,7 +432,7 @@ WOUND CARE: Keep sternal incision dry and clean. Daily inspection for drainage o
               onChange={(e) => setCaregiverData({ ...caregiverData, consent_granted: e.target.checked })}
               style={{ accentColor: 'var(--accent-teal, #0f766e)' }}
             />
-            <span>Record patient &amp; family telemetry sharing consent (audited under DPDP)</span>
+            <span>Record patient &amp; family update sharing consent (audited under DPDP)</span>
           </label>
         </div>
       )}

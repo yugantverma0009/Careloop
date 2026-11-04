@@ -1288,7 +1288,7 @@ export default function CareLoopPatientPortal({ user }) {
     }
   };
 
-  // Derived telemetry metrics (filtered so invalid noise never becomes the headline)
+  // Derived sensor metrics (filtered so invalid noise never becomes the headline)
   const validReadings = (todayData?.readings || []).filter(
     (r) => r.quality !== 'Invalid' && r.quality !== 'Noise' && r.is_valid !== false && r.is_valid !== 0
   );
@@ -2601,7 +2601,7 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
 
-              {/* Telemetry Live Bar & Watch Status (Phase 5) */}
+              {/* Vital Readings Live Bar & Watch Status (Phase 5) */}
               <div
                 style={{
                   display: 'flex',
@@ -2614,7 +2614,7 @@ export default function CareLoopPatientPortal({ user }) {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {lang === 'hi' ? 'स्मार्टवॉच स्थिति' : 'Watch Telemetry'}
+                    {lang === 'hi' ? 'स्मार्टवॉच स्थिति' : 'Watch Readings'}
                   </span>
                   {todayData?.device_health?.has_device ? (
                     <span className="status-pill status-pill-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '3px 8px' }}>

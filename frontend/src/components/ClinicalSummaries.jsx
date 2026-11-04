@@ -482,7 +482,7 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
                 Nurse-Proposed Rule Limit Adjustments ({proposals.length})
               </h3>
               <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                Nurses may propose telemetry boundary changes based on clinical observation. Changes require attending physician approval to take effect.
+                Nurses may propose vital limit boundary changes based on clinical observation. Changes require attending physician approval to take effect.
               </p>
             </div>
 
@@ -1381,7 +1381,7 @@ export default function ClinicalSummaries({ user = {}, onSelectPatient }) {
                   onClick={() => onSelectPatient && onSelectPatient(selectedSummary.patient_id)}
                 />
                 <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>
-                  Diagnosis: <strong>{selectedSummary.primary_diagnosis}</strong> · Period: {selectedSummary.period_start?.slice(0, 10)} · Model: <code>{selectedSummary.model_name}</code>
+                  Condition: <strong>{selectedSummary.primary_diagnosis}</strong> · Period: {selectedSummary.period_start?.slice(0, 10)} · Model: <code>{selectedSummary.model_name}</code>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>

@@ -9260,6 +9260,30 @@ def update_patient_consent(
     )
 
 
+# ─── Phase 6: Retention, Hardening & Security ─────────────────────────────────
+
+@app.post("/agent/retention/purge")
+def trigger_agent_retention_purge(
+    days: int = Query(30, ge=1, le=365),
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor-only: Purges agent traces and resolved drafts older than specified retention days."""
+    from backend.app.agents.retention_service import AgentRetentionService
+    staff_id = user.get("staff_id", 1)
+    staff_role = user.get("role", "Doctor")
+    return AgentRetentionService.purge_expired_records(retention_days=days, actor_id=staff_id, actor_role=staff_role)
+
+
+@app.post("/agent/redteam/run")
+def trigger_redteam_evaluation(
+    user: Dict[str, Any] = Depends(require_role("Doctor")),
+):
+    """Doctor-only: Runs the 85-case red-team evaluation suite against Policy Guard."""
+    from backend.app.agents.redteam_runner import run_redteam_suite
+    return run_redteam_suite(log_to_audit=True)
+
+
+
 
 
 

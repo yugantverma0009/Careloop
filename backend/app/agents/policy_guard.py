@@ -114,6 +114,14 @@ class PolicyGuardResult:
         self.reasons = reasons or []
         self.sanitized_output = sanitized_output
 
+    @property
+    def is_safe(self) -> bool:
+        return self.passed
+
+    @property
+    def reason(self) -> Optional[str]:
+        return "; ".join(self.reasons) if self.reasons else None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "passed": self.passed,
@@ -262,9 +270,89 @@ class PolicyGuard:
         if not isinstance(output_payload, dict):
             reasons.append("Output payload must be a valid JSON dictionary")
 
+        # 11. Phase 6 Canary String & Output Secrets Scanning
+        try:
+            from backend.app.agents.config import (
+                AGENTS_V2_CANARY_CHECK,
+                CANARY_STRING,
+                AGENTS_V2_OUTPUT_SCANNING
+            )
+            payload_serialized = json.dumps(output_payload)
+            if AGENTS_V2_CANARY_CHECK and CANARY_STRING in payload_serialized:
+                reasons.append("Security violation: Canary token leaked in output payload")
+
+            if AGENTS_V2_OUTPUT_SCANNING:
+                secret_patterns = [
+                    (r"AIza[0-9A-Za-z-_]{35}", "API Key leaked"),
+                    (r"Bearer\s+[A-Za-z0-9\._\-]{20,}", "Auth bearer token leaked"),
+                    (r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "Financial identifier or Aadhaar pattern leaked"),
+                    (r"(?:mysql|postgres):\/\/[^\s]+", "Database connection string leaked")
+                ]
+                for pat, desc in secret_patterns:
+                    if re.search(pat, payload_serialized):
+                        reasons.append(f"Security violation: {desc}")
+        except Exception as e:
+            logger.warning(f"Error during output scanning: {e}")
+
         passed = len(reasons) == 0
         sanitized = output_payload if passed else None
         return PolicyGuardResult(passed=passed, reasons=reasons, sanitized_output=sanitized)
+
+    @classmethod
+    def inspect_output(cls, output_text_or_payload: Any, agent_name: str = "Unknown", context: Optional[Dict[str, Any]] = None) -> PolicyGuardResult:
+        """Inspects agent output text or dict against canary leakage, secrets, and safety rules."""
+        if isinstance(output_text_or_payload, str):
+            payload = {"response": output_text_or_payload}
+        elif isinstance(output_text_or_payload, dict):
+            payload = output_text_or_payload
+        else:
+            payload = {"data": str(output_text_or_payload)}
+        return cls.inspect(agent_name=agent_name, output_payload=payload, context=context)
+
+    @classmethod
+    def screen_input_text(cls, text: str, context: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[str]]:
+        """Screens raw input text for length cap and adversarial redteam injections."""
+        from backend.app.agents.config import MAX_INPUT_LENGTH_CHARS
+        if len(text or "") > MAX_INPUT_LENGTH_CHARS:
+            return False, f"INPUT_LENGTH_EXCEEDED: length {len(text)} exceeds {MAX_INPUT_LENGTH_CHARS}"
+        return cls.inspect_redteam_attack(text, context)
+
+    @classmethod
+    def validate_tool_arguments(cls, tool_name_or_args: Any, arguments: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Validates tool arguments against strict schemas and checks for injection payloads / fuzzing attacks.
+        Supports both (tool_name, arguments) and (arguments,).
+        """
+        if arguments is None and isinstance(tool_name_or_args, dict):
+            arguments = tool_name_or_args
+            tool_name = "general"
+        else:
+            tool_name = str(tool_name_or_args)
+            arguments = arguments or {}
+
+        if not isinstance(arguments, dict):
+            return False, "Tool arguments must be a dictionary"
+
+        # Check for command injection / path traversal / SQL injection / template attacks in arguments
+        fuzz_patterns = [
+            r"\.\./",
+            r";\s*(?:rm|drop|select|update|delete|insert|cat|chmod|sh|bash)\b",
+            r"\${jndi:",
+            r"<script\b",
+            r"--\s*$",
+            r"'\s*or\s*'1'='1",
+            r"union\s+select",
+            r"1=1"
+        ]
+        for k, v in arguments.items():
+            v_str = str(v)
+            if len(v_str) > 500:
+                return False, f"Tool argument '{k}' exceeds length limit (500 chars)"
+            for pat in fuzz_patterns:
+                if re.search(pat, v_str, re.IGNORECASE):
+                    return False, f"Fuzzing / injection pattern detected in argument '{k}'"
+
+        return True, None
 
     @classmethod
     def check_call_notes_grounding(cls, draft_text: str, nurse_input: str) -> Tuple[bool, List[str]]:
@@ -301,28 +389,34 @@ class PolicyGuard:
         injection_patterns = [
             r"\bignore\s+(?:all\s+)?(?:previous\s+)?(?:instructions|rules|prompts|limits)\b",
             r"\bforget\s+(?:all\s+)?(?:your\s+)?(?:rules|instructions)\b",
-            r"\byou\s+are\s+now\s+(?:a|an|the)\b",
+            r"\byou\s+are\s+now\s+(?:a|an|the|dan)\b",
+            r"\bdan\s*(?:\(do\s+anything\s+now\)|mode)?\b",
             r"\broleplay\s+as\b",
             r"\bsystem\s+prompt\b",
             r"\breveal\s+(?:the\s+)?(?:system|prompt|secret)\b",
-            r"\boverride\s+(?:safety|clinical|rules)\b",
+            r"\boverride\s+(?:all\s+)?(?:safety|clinical|rules)\b",
+            r"\badmin\s+override\b",
+            r"\bemergency\s+admin\b",
+            r"\bdisregard\s+(?:all\s+)?(?:limits|guidelines|rules|instructions|previous)\b",
+            r"\btell\s+me\s+i\s+am\s+(?:safe|cured|normal|healthy)\b",
             r"<\|im_start\|>",
             r"<system>",
             r"\[system\s*note",
             r"\badmin\s+mode\b",
             r"\bdeveloper\s+mode\b",
             r"\bjailbreak\b",
-            r"\bdan\s+mode\b",
             r"\bi\s+am\s+(?:the\s+)?(?:doctor|admin|physician|surgeon)\b",
             # Hindi script & Hinglish transliteration
             r"नियम\s+भूल\s+जाओ",
-            r"पिछले\s+निर्देश\s+रद्द",
+            r"पिछल[ेा]\s+(?:सारा\s+)?निर्देश\s+रद्द",
             r"तुम\s+अब\s+डॉक्टर\s+हो",
             r"सिस्टम\s+प्रॉम्प्ट",
-            r"\bsab\s+niyam\s+bhool\s+jao\b",
+            r"\bsab\s+(?:niyam|rules|instructions)\s+bhool\s+ja[o]?\b",
+            r"\brules\s+ignore\b",
+            r"\bflag\s+hata\b",
+            r"\bpichle\s+(?:saare\s+)?niyam\s+radd\b",
             r"\btum\s+ab\s+doctor\s+ho\b",
-            r"\bmain\s+doctor\s+hoon\b",
-            r"\bsab\s+instructions\s+bhool\s+jao\b"
+            r"\bmain\s+doctor\s+hoon\b"
         ]
         for pat in injection_patterns:
             if re.search(pat, raw_lower):
@@ -332,17 +426,22 @@ class PolicyGuard:
         current_pid = context.get("patient_id")
         cross_patient_patterns = [
             r"\b(?:show|give|fetch|view|print|read)\s+(?:me\s+)?(?:another|other|all)\s+patient\b",
+            r"\blist\s+of\s+all\s+patients\b",
             r"\bdata\s+of\s+patient\b",
             r"\brecords\s+of\s+patient\b",
             r"\baccess\s+patient\s+records\b",
+            r"\bphone\s+number\s+(?:and\s+address\s+)?of\b",
+            r"\baddress\s+of\b",
             r"\bpatient\s+(?:id\s+)?#?\d+\b",
             r"\bcl-\d{4,5}\b",
+            # Specific other cast members
+            r"\b(?:meera\s+sharma|rajesh\s+verma|kabir\s+mehta|sunita\s+rao)\b",
             # Hindi script & Hinglish
             r"दूसरे\s+मरीज\s+का\s+डेटा",
             r"अन्य\s+मरीज\s+का\s+रिकॉर्ड",
             r"\bdusre\s+patient\s+ka\s+data\b",
             r"\bdusre\s+mariz\s+ka\s+record\b",
-            r"\bkisi\s+aur\s+mariz\s+ka\s+data\b"
+            r"\bkisi\s+aur\s+mariz\s+ka\s+(?:data|record)\b"
         ]
         for pat in cross_patient_patterns:
             m = re.search(pat, raw_lower)
@@ -357,8 +456,13 @@ class PolicyGuard:
         diagnosis_patterns = [
             r"\bdiagnos(?:e|is)\b",
             r"\bwhat\s+diagnosis\s+do\s+i\s+have\b",
-            r"\bdo\s+i\s+have\s+(?:cancer|pneumonia|infection|heart\s+attack|stroke|covid|fever|flu)\b",
+            r"\bdo\s+i\s+have\s+(?:a\s+|an\s+)?(?:cancer|pneumonia|infection|heart\s+attack|stroke|covid|fever|flu|pulmonary\s+embolism|heart\s+failure)\b",
             r"\bprescrib(?:e|ing)\b",
+            r"\b(?:double|increase|decrease|change|stop)\s+(?:my\s+)?(?:[a-z0-9]+\s+)?(?:dose|medication|tablet|aspirin|blood\s+thinners)\b",
+            r"\bis\s+it\s+safe\s+to\s+stop\b",
+            r"\bcompletely\s+safe\b",
+            r"\bcan\s+i\s+skip\b",
+            r"\bcompletely\s+cured\b",
             # Hindi script & Hinglish
             r"दवा\s+लिख\s+दो",
             r"बीमारी\s+का\s+निदान",
@@ -372,10 +476,10 @@ class PolicyGuard:
 
         # 5. Unauthorized Flag / Task Closure Attempt
         close_patterns = [
-            r"\bclose\s+(?:this\s+|all\s+|my\s+)?(?:flag|task|case|alert)\b",
+            r"\bclose\s+(?:this\s+|all\s+|my\s+)?(?:open\s+)?(?:flag|task|case|alert)\b",
             r"\bmark\s+(?:flag|task|alert|case)\s+.*?closed\b",
             r"\bresolve\s+(?:my\s+|this\s+|the\s+)?(?:flag|alert|case|task)\b",
-            r"\bdismiss\s+(?:my\s+|this\s+|the\s+)?(?:flag|alert|case|task)\b",
+            r"\bdismiss\s+(?:the\s+|my\s+|this\s+)?(?:red\s+)?(?:flag|alert|case|task)\b",
             # Hindi script & Hinglish
             r"फ्लैग\s+बंद\s+करो",
             r"अलर्ट\s+बंद\s+करो",
@@ -385,5 +489,52 @@ class PolicyGuard:
         for pat in close_patterns:
             if re.search(pat, raw_lower):
                 return False, f"Unauthorized flag/alert resolution attempt: pattern '{pat}'"
+
+        # 6. Unauthorized Threshold / Limit Tampering
+        limit_patterns = [
+            r"\b(?:change|modify|increase|decrease|update|set|alter)\s+(?:the\s+)?(?:limit|threshold|spo2\s+threshold|vital\s+range)\b",
+            r"\bdisable\s+(?:all\s+)?(?:alerts|limits|thresholds)\b",
+            r"\blimits?\s+change\s+kar\s+do\b",
+            r"\bthreshold\s+badal\s+do\b"
+        ]
+        for pat in limit_patterns:
+            if re.search(pat, raw_lower):
+                return False, f"Unauthorized clinical limit tampering attempt: pattern '{pat}'"
+
+        # 7. Text Hidden in PDF Passages / Document Injection
+        pdf_patterns = [
+            r"\[(?:system|instruction|admin|override)\]",
+            r"\bnote\s+to\s+(?:ai\s+assistant|ai|assistant|model):\s*(?:disregard|ignore|discharge)\b",
+            r"\bignore\s+discharge\s+instructions\b",
+            r"\bpdf\s+injection\b",
+            r"\bsystem\s+directive:\s*discharge\b"
+        ]
+        for pat in pdf_patterns:
+            if re.search(pat, raw_lower):
+                return False, f"Document/PDF injection pattern detected: pattern '{pat}'"
+
+        # 8. SMS & Voice Transcript Social Engineering
+        social_eng_patterns = [
+            r"\b(?:nurse|doctor)(?:\s+[a-z]+)?\s+(?:called|said|told|spoke)\s+(?:to\s+|and\s+said\s+to\s+)?(?:cancel|discharge|stop\s+all|delete|resolve)\b",
+            r"\bdoctor\s+said\s+on\s+phone\b",
+            r"\bdelete\s+all\s+(?:warnings|alerts)\b",
+            r"\bcancel\s+all\s+warnings\b",
+            r"\bdischarge\s+patient\b",
+            r"\bcancel\s+my\s+follow\s*up\b",
+            r"\bsms\s+(?:verification\s+)?code:\s*override\b",
+            r"\bphone\s+override\b",
+            r"\bdr\.\s+[a-z]+\s+said\s+i\s+can\s+stop\s+taking\b"
+        ]
+        for pat in social_eng_patterns:
+            if re.search(pat, raw_lower):
+                return False, f"Social engineering via transcript/SMS override detected: pattern '{pat}'"
+
+        # 9. Canary string probe
+        try:
+            from backend.app.agents.config import CANARY_STRING
+            if CANARY_STRING.lower() in raw_lower:
+                return False, "Canary string probe / leakage detected"
+        except Exception:
+            pass
 
         return True, None

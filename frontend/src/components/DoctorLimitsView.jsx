@@ -143,7 +143,7 @@ export default function DoctorLimitsView({ user = {} }) {
             Patient Approved Limits
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            All telemetry rules require Dr. Sharma&rsquo;s signature. The system alerts only when readings cross these approved limits.
+            All vitals alert rules require Dr. Sharma&rsquo;s signature. The system alerts only when readings cross these approved limits.
           </p>
         </div>
 
@@ -328,7 +328,7 @@ export default function DoctorLimitsView({ user = {} }) {
               Adjust Doctor-Approved Limit
             </h3>
             <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 16px 0' }}>
-              Modify telemetry boundary for <strong>{editingRule.full_name}</strong> ({editingRule.rule_type}). Changes require a clinical justification and will be signed under Dr. Ananya Sharma.
+              Modify vital threshold boundary for <strong>{editingRule.full_name}</strong> ({editingRule.rule_type}). Changes require a clinical justification and will be signed under Dr. Ananya Sharma.
             </p>
 
             <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

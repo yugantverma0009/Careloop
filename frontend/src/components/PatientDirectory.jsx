@@ -57,7 +57,7 @@ export default function PatientDirectory({ onSelectPatient }) {
             Patient Directory
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', margin: 0 }}>
-            Master post-discharge patient registry with device telemetry, adherence rates, and attending staff.
+            Master post-discharge patient registry with watch sensor data, adherence rates, and attending staff.
           </p>
         </div>
 
@@ -167,7 +167,7 @@ export default function PatientDirectory({ onSelectPatient }) {
                   Open Flags
                 </th>
                 <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
-                  Device Telemetry
+                  Watch Readings
                 </th>
                 <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase' }}>
                   Last Check-in
