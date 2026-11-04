@@ -160,11 +160,11 @@ export default function AgentSettingsView({ currentUser }) {
               textTransform: 'uppercase',
               letterSpacing: '0.04em'
             }}>
-              Physician Governance
+              Clinical Supervision
             </span>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>•</span>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>
-              Section 5 Autonomy &amp; Shadow Controls
+              Autonomy &amp; Supervision Controls
             </span>
           </div>
           <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
@@ -270,7 +270,7 @@ export default function AgentSettingsView({ currentUser }) {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-              Action Autonomy Matrix (Section 5.2)
+              Action Autonomy Matrix
             </h3>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               {settings.autonomy_matrix.length} Registered Actions
@@ -370,7 +370,7 @@ export default function AgentSettingsView({ currentUser }) {
             gap: '12px'
           }}>
             <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-              Shadow Mode Agreement (Section 5.3)
+              Shadow Mode Agreement
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
               Before an action is promoted to Live, the agent shadows human clinicians to measure agreement without acting.
@@ -424,7 +424,7 @@ export default function AgentSettingsView({ currentUser }) {
             </div>
           </div>
 
-          {/* Approved Auto-Close Rules Card (Section 5.4) */}
+          {/* Approved Auto-Close Rules Card */}
           <div style={{
             background: 'var(--bg-card, #ffffff)',
             borderRadius: '12px',
@@ -436,7 +436,7 @@ export default function AgentSettingsView({ currentUser }) {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                Approved Auto-Close Rules (Section 5.4)
+                Approved Auto-Close Rules
               </h3>
               <span style={{
                 fontSize: '11px',
@@ -451,7 +451,7 @@ export default function AgentSettingsView({ currentUser }) {
             </div>
 
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-              Doctor-enabled for low-risk routine alerts only. <span style={{ color: '#dc2626', fontWeight: 700 }}>STRICT SAFETY GUARD:</span> Emergency, SOS, Urgent, and Symptom flags are never auto-closed.
+              Doctor-enabled for low-risk routine alerts only. <span style={{ color: '#dc2626', fontWeight: 700 }}>Safety rule:</span> Emergency, SOS, Urgent, and Symptom flags are never auto-closed.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

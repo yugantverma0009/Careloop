@@ -104,7 +104,7 @@ export default function AgentHealthView({ user }) {
                 color: 'var(--teal-primary, #0d9488)',
               }}
             >
-              Health Guard
+              System Health & Safety
             </span>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>

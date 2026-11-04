@@ -116,6 +116,7 @@ CREATE TABLE `agent_incidents` (
   `status` enum('Open','Reviewed','Closed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Open',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `candidate_test_id` int DEFAULT NULL,
+  `source` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'prod',
   PRIMARY KEY (`incident_id`),
   KEY `idx_incidents_run` (`run_id`),
   KEY `idx_incidents_status` (`status`)
@@ -166,7 +167,7 @@ CREATE TABLE `agent_runs` (
   `case_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `started_at` datetime NOT NULL,
   `finished_at` datetime DEFAULT NULL,
-  `status` enum('Done','Abstained','Failed','Blocked_By_Guard','Paused') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Done',
+  `status` enum('Running','Done','Answered','Abstained','Held_By_Limits','Blocked_By_Guard','Failed','Paused') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Done',
   `autonomy_level` enum('Suggest','Draft','Auto','Never') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Suggest',
   `mode` enum('Shadow','Live') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Shadow',
   `plan` json DEFAULT NULL,
@@ -177,6 +178,7 @@ CREATE TABLE `agent_runs` (
   `latency_ms` int NOT NULL DEFAULT '0',
   `guard_reasons` json DEFAULT NULL,
   `version_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'prod',
   PRIMARY KEY (`run_id`),
   KEY `idx_agent_runs_patient` (`patient_id`),
   KEY `idx_agent_runs_created` (`started_at`)

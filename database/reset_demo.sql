@@ -9,6 +9,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. Delete all transactional tables (DML to avoid DDL metadata lock/invalidation on concurrent connections)
 DELETE FROM shadow_decisions;
+DELETE FROM agent_incidents;
+DELETE FROM agent_candidate_tests;
 DELETE FROM agent_steps;
 DELETE FROM agent_drafts;
 DELETE FROM agent_runs;
@@ -65,6 +67,8 @@ DELETE FROM medicines;
 ALTER TABLE shadow_decisions AUTO_INCREMENT = 1;
 ALTER TABLE agent_steps AUTO_INCREMENT = 1;
 ALTER TABLE agent_drafts AUTO_INCREMENT = 1;
+ALTER TABLE agent_incidents AUTO_INCREMENT = 1;
+ALTER TABLE agent_candidate_tests AUTO_INCREMENT = 1;
 ALTER TABLE agent_runs AUTO_INCREMENT = 1;
 ALTER TABLE checkin_answers AUTO_INCREMENT = 1;
 ALTER TABLE checkin_sessions AUTO_INCREMENT = 1;

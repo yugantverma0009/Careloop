@@ -59,12 +59,13 @@ class AgentHealthService:
                 autonomy_rows = cur.fetchall() or []
                 autonomy_map = {r["action_type"]: r for r in autonomy_rows}
 
-                # 3. Query agent runs in time window
+                # 3. Query agent runs in time window (excluding test suite runs)
                 cur.execute("""
                     SELECT run_id, agent_name, trigger_type, started_at, status, 
-                           tokens_in, tokens_out, latency_ms, version_id, guard_reasons
+                           tokens_in, tokens_out, latency_ms, version_id, guard_reasons, source
                     FROM agent_runs
                     WHERE started_at >= NOW() - INTERVAL %s HOUR
+                      AND source != 'test'
                     ORDER BY started_at DESC;
                 """, (hours,))
                 runs = cur.fetchall() or []
@@ -95,20 +96,38 @@ class AgentHealthService:
                 """, (hours,))
                 shadow_records = cur.fetchall() or []
 
-                # 6. Query recent incidents
+                # 6. Query recent incidents (excluding test incidents)
                 cur.execute("""
                     SELECT i.*, s.full_name as reported_by_name
                     FROM agent_incidents i
                     LEFT JOIN care_staff s ON s.staff_id = i.reported_by_staff_id
                     WHERE i.created_at >= NOW() - INTERVAL %s HOUR
+                      AND i.source != 'test'
                     ORDER BY i.created_at DESC;
                 """, (hours,))
                 incidents = cur.fetchall() or []
 
-        # Aggregate Runs by Agent
+        # Aggregate Runs by Agent (merging PapersAgent / papers_agent into canonical names)
         by_agent: Dict[str, Dict[str, Any]] = {}
         for r in runs:
-            a_name = r["agent_name"]
+            raw_name = r["agent_name"]
+            if raw_name in ("PapersAgent", "papers_agent"):
+                a_name = "papers_agent"
+            elif raw_name in ("CasePrepAgent", "case_prep_agent"):
+                a_name = "case_prep_agent"
+            elif raw_name in ("OutreachAgent", "outreach_agent"):
+                a_name = "outreach_agent"
+            elif raw_name in ("HandoffAgent", "handoff_agent"):
+                a_name = "handoff_agent"
+            elif raw_name in ("PlanAgent", "plan_agent"):
+                a_name = "plan_agent"
+            elif raw_name in ("CallNotesAgent", "call_notes_agent"):
+                a_name = "call_notes_agent"
+            elif "test" in raw_name.lower():
+                continue
+            else:
+                a_name = raw_name
+
             if a_name not in by_agent:
                 ver_info = active_versions.get(a_name, {})
                 by_agent[a_name] = {
@@ -119,6 +138,7 @@ class AgentHealthService:
                     "runs": 0,
                     "success": 0,
                     "abstain": 0,
+                    "held": 0,
                     "blocked": 0,
                     "failed": 0,
                     "latencies": [],
@@ -128,12 +148,14 @@ class AgentHealthService:
             entry = by_agent[a_name]
             entry["runs"] += 1
             st = r["status"]
-            if st == "Done":
+            if st in ("Done", "Answered"):
                 entry["success"] += 1
             elif st == "Blocked_By_Guard":
                 entry["blocked"] += 1
             elif st == "Abstained":
                 entry["abstain"] += 1
+            elif st == "Held_By_Limits":
+                entry["held"] += 1
             elif st == "Failed":
                 entry["failed"] += 1
             else:
@@ -157,7 +179,13 @@ class AgentHealthService:
             tout = data["tokens_out"]
             total_tokens_in += tin
             total_tokens_out += tout
-            cost = ((tin / 1_000_000.0) * COST_PER_MILLION_INPUT) + ((tout / 1_000_000.0) * COST_PER_MILLION_OUTPUT)
+
+            if tin == 0 and tout == 0:
+                cost_label = "not recorded"
+                cost_val = None
+            else:
+                cost_val = round(((tin / 1_000_000.0) * COST_PER_MILLION_INPUT) + ((tout / 1_000_000.0) * COST_PER_MILLION_OUTPUT), 4)
+                cost_label = f"${cost_val:.4f}"
 
             agent_table.append({
                 "agent_name": a_name,
@@ -166,13 +194,15 @@ class AgentHealthService:
                 "runs": data["runs"],
                 "success": data["success"],
                 "abstain": data["abstain"],
+                "held": data["held"],
                 "blocked": data["blocked"],
                 "failed": data["failed"],
                 "latency_p50_ms": p50,
                 "latency_p95_ms": p95,
                 "tokens_in": tin,
                 "tokens_out": tout,
-                "estimated_cost_usd": round(cost, 4),
+                "estimated_cost_usd": cost_val,
+                "cost_display": cost_label,
             })
 
         # Draft accept / edit / reject metrics
@@ -204,10 +234,15 @@ class AgentHealthService:
                 "shadow_agreement_pct": sh_pct
             })
 
-        total_cost = (
-            ((total_tokens_in / 1_000_000.0) * COST_PER_MILLION_INPUT) +
-            ((total_tokens_out / 1_000_000.0) * COST_PER_MILLION_OUTPUT)
-        )
+        if total_tokens_in == 0 and total_tokens_out == 0:
+            total_cost_display = "not recorded"
+            total_cost_val = None
+        else:
+            total_cost_val = round(
+                ((total_tokens_in / 1_000_000.0) * COST_PER_MILLION_INPUT) +
+                ((total_tokens_out / 1_000_000.0) * COST_PER_MILLION_OUTPUT), 4
+            )
+            total_cost_display = f"${total_cost_val:.4f}"
 
         all_latencies = [float(r["latency_ms"]) for r in runs if r.get("latency_ms")]
         overall_p50 = AgentHealthService.calculate_percentile(all_latencies, 50)
@@ -228,7 +263,8 @@ class AgentHealthService:
             "summary": {
                 "total_runs": total_runs,
                 "total_tokens": total_tokens_in + total_tokens_out,
-                "estimated_cost_usd": round(total_cost, 4),
+                "estimated_cost_usd": total_cost_val,
+                "cost_display": total_cost_display,
                 "overall_p50_ms": overall_p50,
                 "overall_p95_ms": overall_p95,
                 "draft_accepted": draft_accepted,

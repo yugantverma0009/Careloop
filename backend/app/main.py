@@ -7719,7 +7719,8 @@ def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"
                    r.started_at, r.latency_ms, r.plan
             FROM agent_runs r
             LEFT JOIN patients p ON p.patient_id = r.patient_id
-            WHERE r.status = 'Done' AND r.mode = 'Live' AND r.autonomy_level = 'Auto'
+            WHERE r.status IN ('Done', 'Answered') AND r.mode = 'Live' AND r.autonomy_level = 'Auto'
+              AND r.source != 'test'
             ORDER BY r.started_at DESC LIMIT 20;
         """)
         runs_raw = cur.fetchall()
@@ -7755,15 +7756,20 @@ def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"
                 "action_id": action_id
             })
 
-        # 3. Needs a decision: Guard-blocked or escalation items
+        # 3. Needs a decision: Guard-blocked or escalation items (collapsed by patient & trigger)
         cur.execute("""
-            SELECT r.run_id, r.agent_name, r.trigger_type, r.patient_id,
-                   p.full_name as patient_name, p.patient_code, r.guard_reasons,
-                   r.started_at
+            SELECT r.agent_name, r.trigger_type, r.patient_id,
+                   p.full_name as patient_name, p.patient_code,
+                   MAX(r.run_id) as run_id,
+                   MAX(r.guard_reasons) as guard_reasons,
+                   MAX(r.started_at) as started_at,
+                   COUNT(*) as repeat_count
             FROM agent_runs r
             LEFT JOIN patients p ON p.patient_id = r.patient_id
             WHERE r.status IN ('Blocked_By_Guard', 'Abstained')
-            ORDER BY r.started_at DESC LIMIT 20;
+              AND r.source != 'test'
+            GROUP BY r.agent_name, r.trigger_type, r.patient_id, p.full_name, p.patient_code
+            ORDER BY started_at DESC LIMIT 20;
         """)
         decisions_raw = cur.fetchall()
         needs_a_decision = []
@@ -7774,17 +7780,19 @@ def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"
                     reasons = json.loads(reasons)
                 except Exception:
                     pass
+            rep_label = f" ({d['repeat_count']} events)" if d.get("repeat_count", 1) > 1 else ""
             needs_a_decision.append({
                 "run_id": d["run_id"],
                 "agent_name": d["agent_name"],
-                "patient_name": d["patient_name"] or "Cohort",
+                "patient_name": (d["patient_name"] or "Cohort") + rep_label,
                 "patient_code": d["patient_code"] or "CL-SYS",
                 "reasons": reasons or ["Policy guard check held output for human verification"],
-                "time": d["started_at"].strftime("%I:%M %p") if d.get("started_at") else ""
+                "time": d["started_at"].strftime("%I:%M %p") if d.get("started_at") else "",
+                "repeat_count": d.get("repeat_count", 1)
             })
 
-        # 4. Work saved today (transparent estimation)
-        cur.execute("SELECT COUNT(*) as cnt FROM agent_runs WHERE status = 'Done' AND autonomy_level = 'Auto';")
+        # 4. Work saved today (gross saved minus review time)
+        cur.execute("SELECT COUNT(*) as cnt FROM agent_runs WHERE status IN ('Done', 'Answered') AND autonomy_level = 'Auto' AND source != 'test';")
         auto_cnt = cur.fetchone()["cnt"]
 
         cur.execute("SELECT COUNT(*) as cnt FROM cases WHERE merged_count > 1;")
@@ -7793,20 +7801,34 @@ def get_agent_desk(user: Dict[str, Any] = Depends(require_role("Doctor", "Nurse"
         cur.execute("SELECT COUNT(*) as cnt FROM agent_drafts WHERE status = 'Accepted';")
         accepted_drafts_cnt = cur.fetchone()["cnt"]
 
-        cur.execute("SELECT COUNT(*) as cnt FROM agent_runs WHERE agent_name = 'case_prep_agent' AND status = 'Done';")
+        cur.execute("SELECT COUNT(*) as cnt FROM agent_drafts;")
+        total_drafts_cnt = cur.fetchone()["cnt"]
+
+        cur.execute("SELECT COUNT(*) as cnt FROM agent_runs WHERE agent_name = 'case_prep_agent' AND status IN ('Done', 'Answered') AND source != 'test';")
         briefs_cnt = cur.fetchone()["cnt"]
 
-        # Estimated minutes saved based on transparent baseline model:
-        # Brief = 4 min, Draft = 3 min, Auto answer/reminder = 2 min, Merge = 3 min
-        est_minutes = (briefs_cnt * 4) + (accepted_drafts_cnt * 3) + (auto_cnt * 2) + (merged_cnt * 3)
+        # Gross minutes saved:
+        gross_minutes = (briefs_cnt * 4) + (accepted_drafts_cnt * 3) + (auto_cnt * 2) + (merged_cnt * 3)
+
+        # Review minutes spent: 1.5 min per draft created
+        review_minutes = round(total_drafts_cnt * 1.5, 1)
+
+        # Net minutes saved:
+        net_minutes = round(gross_minutes - review_minutes, 1)
 
         work_saved = {
             "automated_actions_count": auto_cnt,
             "briefs_prepared_count": briefs_cnt,
             "drafts_accepted_count": accepted_drafts_cnt,
+            "total_drafts_count": total_drafts_cnt,
             "duplicates_merged_count": merged_cnt,
-            "estimated_minutes_saved": est_minutes,
-            "assumptions_label": "Estimated from transparent, editable assumptions (4m/brief, 3m/draft, 2m/routine)",
+            "gross_minutes_saved": gross_minutes,
+            "review_minutes_spent": review_minutes,
+            "estimated_minutes_saved": net_minutes,
+            "net_minutes_saved": net_minutes,
+            "is_negative": net_minutes < 0,
+            "quality_warning": "Agents created more review work than they saved. Too many drafts." if net_minutes < 0 else None,
+            "assumptions_label": "Estimated from editable assumptions (4m/brief, 3m/draft, 2m/routine, 1.5m review)",
         }
 
     return {

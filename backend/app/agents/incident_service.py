@@ -62,6 +62,23 @@ class IncidentService:
                 agent_name = run_row["agent_name"]
                 trigger_type = run_row["trigger_type"]
 
+                # Check for duplicate incident on this run_id or identical note/category
+                cur.execute("""
+                    SELECT incident_id, candidate_test_id FROM agent_incidents
+                    WHERE run_id = %s AND category = %s AND note = %s LIMIT 1;
+                """, (run_id, category, note))
+                existing_inc = cur.fetchone()
+                if existing_inc:
+                    return {
+                        "incident_id": existing_inc["incident_id"],
+                        "candidate_id": existing_inc["candidate_test_id"],
+                        "run_id": run_id,
+                        "category": category,
+                        "status": "Open",
+                        "auto_demoted_action": None,
+                        "duplicate": True
+                    }
+
                 # 2. Insert into agent_incidents
                 cur.execute("""
                     INSERT INTO agent_incidents (

@@ -77,17 +77,17 @@ def test_phase1_agent_health_endpoint():
 
 
 def test_phase1_circuit_breaker_demotes_with_fake_clock():
-    """Verify Circuit Breaker demotes an Auto/Live action when guard failure threshold is breached using fake clock."""
+    """Verify Circuit Breaker requires minimum 30 runs, excludes held reminders, and requires sustained breach."""
     action_type = "dose_reminder"
     fake_clock = datetime(2026, 11, 4, 15, 30, 0)
 
+    # 1. Reproduce screenshot condition: 13 runs, 3 held reminders during quiet hours (must NOT demote)
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # Set to Auto and Live
+            cur.execute("DELETE FROM agent_runs WHERE run_id LIKE 'cb-test-%';")
             cur.execute("UPDATE agent_autonomy SET level = 'Auto', mode = 'Live' WHERE action_type = %s;", (action_type,))
-            # Inject 10 runs with 3 Blocked_By_Guard (30% > 10% threshold)
-            for i in range(10):
-                st = "Blocked_By_Guard" if i < 3 else "Done"
+            for i in range(13):
+                st = "Held_By_Limits" if i < 3 else "Done"
                 cur.execute("""
                     INSERT INTO agent_runs (
                         run_id, agent_name, trigger_type, started_at, status, autonomy_level, mode, version_id
@@ -97,24 +97,46 @@ def test_phase1_circuit_breaker_demotes_with_fake_clock():
         conn.commit()
 
     try:
-        # Evaluate with fake clock
+        # Evaluating 13 runs with held reminders must NOT trigger demotion
         demotion = CircuitBreaker.evaluate_action(action_type, now=fake_clock)
-        assert demotion is not None, "Circuit breaker should have triggered demotion"
+        assert demotion is None, "Circuit breaker should NOT demote on 13 runs with quiet-hours held reminders!"
+        print("  ✓ Circuit breaker correctly refrained from demoting on 13 runs with held reminders.")
+
+        # 2. Test sustained failure across 30 runs with hysteresis (must demote)
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                # Insert 30 runs with 4 Blocked_By_Guard in each 10-run window (40% > 10% sustained)
+                for i in range(30):
+                    st = "Blocked_By_Guard" if (i % 10) < 4 else "Done"
+                    cur.execute("""
+                        INSERT INTO agent_runs (
+                            run_id, agent_name, trigger_type, started_at, status, autonomy_level, mode, version_id
+                        ) VALUES (%s, 'outreach_agent', %s, %s, %s, 'Auto', 'Live', 'ver-outreach-1.0.0')
+                        ON DUPLICATE KEY UPDATE status = VALUES(status);
+                    """, (f"cb-test-run-{i}", action_type, fake_clock - timedelta(minutes=i * 2), st))
+            conn.commit()
+
+        demotion = CircuitBreaker.evaluate_action(action_type, now=fake_clock)
+        assert demotion is not None, "Circuit breaker should have triggered demotion on 30 runs with sustained failure"
         assert demotion["demoted"] is True
         assert demotion["new_level"] == "Draft"
         assert "Guard-block rate" in demotion["reason"]
 
         # Verify DB updated
-        with get_conn() as conn, conn.cursor() as cur:
-            cur.execute("SELECT level, mode FROM agent_autonomy WHERE action_type = %s;", (action_type,))
-            auto_row = cur.fetchone()
-            assert auto_row["level"] == "Draft"
-        print(f"  ✓ Circuit Breaker successfully demoted {action_type} to Draft: {demotion['reason']}")
-    finally:
-        # Clean up test runs
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM agent_runs WHERE run_id LIKE 'cb-test-run-%';")
+                cur.execute("SELECT level, mode FROM agent_autonomy WHERE action_type = %s;", (action_type,))
+                auto_row = cur.fetchone()
+                assert auto_row["level"] == "Draft"
+                # Clean up test runs
+                cur.execute("DELETE FROM agent_runs WHERE run_id LIKE 'cb-test-%';")
+                cur.execute("UPDATE agent_autonomy SET level = 'Auto', mode = 'Live' WHERE action_type = %s;", (action_type,))
+            conn.commit()
+        print(f"  ✓ Circuit Breaker successfully demoted {action_type} to Draft: {demotion['reason']}")
+    finally:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM agent_runs WHERE run_id LIKE 'cb-test-%';")
                 cur.execute("UPDATE agent_autonomy SET level = 'Auto', mode = 'Live' WHERE action_type = %s;", (action_type,))
             conn.commit()
 
@@ -168,7 +190,8 @@ def test_phase1_incident_reporting_creates_candidate_and_demotes():
         with conn.cursor() as cur:
             cur.execute("SELECT level FROM agent_autonomy WHERE action_type = 'case_brief';")
             assert cur.fetchone()["level"] == "Draft"
-            # Reset back for demo state
+            # Reset back for demo state and clean test incident
             cur.execute("UPDATE agent_autonomy SET level = 'Auto' WHERE action_type = 'case_brief';")
+            cur.execute("DELETE FROM agent_incidents WHERE incident_id = %s;", (incident_id,))
         conn.commit()
     print(f"  ✓ Incident #{incident_id} created candidate #{candidate_id} and auto-demoted action to Draft.")

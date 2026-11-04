@@ -38,6 +38,11 @@ function getDraftInitialText(d) {
 
 function renderReadableDraftBody(d) {
   let body = d?.body;
+  if (!body && d?.draft_text && typeof d.draft_text === 'string' && (d.draft_text.trim().startsWith('{') || d.draft_text.trim().startsWith('['))) {
+    try {
+      body = JSON.parse(d.draft_text);
+    } catch (e) {}
+  }
   if (typeof body === 'string') {
     try {
       body = JSON.parse(body);
@@ -46,17 +51,17 @@ function renderReadableDraftBody(d) {
     }
   }
   if (!body || typeof body !== 'object') {
-    return <div style={{ fontSize: '12px', color: '#1e293b' }}>{String(body || '')}</div>;
+    return <div style={{ fontSize: '12px', color: '#1e293b' }}>{String(d?.draft_text || body || '')}</div>;
   }
 
   // 1. Case Brief
-  if (d.draft_type === 'Case_Brief' || body.headline || body.what_happened) {
-    const headline = body.headline || 'Clinical Case Review';
+  if (d.draft_type === 'Case_Brief' || body.headline || body.what_happened || body.case_id || body.context) {
+    const headline = body.headline || (body.case_id ? `Clinical Review: ${body.case_id.replace(/^case-/, '').replace(/-/g, ' ')}` : 'Clinical Case Review');
     const nextStep = body.next_step;
-    const whatHappened = Array.isArray(body.what_happened) ? body.what_happened : [];
+    const whatHappened = Array.isArray(body.what_happened) ? body.what_happened : (Array.isArray(body.context) ? body.context : []);
     const unknowns = Array.isArray(body.unknowns) ? body.unknowns : [];
     const callScript = body.prefilled?.call_script || body.call_script || [];
-    const noteDraft = body.prefilled?.note_draft || body.note_draft || body.draft_text;
+    const noteDraft = body.prefilled?.note_draft || body.note_draft || (body.draft_text && body.draft_text !== d.draft_text ? body.draft_text : null);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -837,13 +842,7 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
                         <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: '6px' }}>
                           Agent Draft ({d.diff?.edit_chars || 0} chars diff)
                         </div>
-                        {d.body && typeof d.body === 'object' && Object.keys(d.body).length > 0 ? (
-                          renderReadableDraftBody(d)
-                        ) : (
-                          <div style={{ color: '#0f172a', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-                            {d.draft_text}
-                          </div>
-                        )}
+                        {renderReadableDraftBody(d)}
                       </div>
                     </div>
 
@@ -1460,7 +1459,9 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
           <div style={{
             padding: '16px',
             borderRadius: '10px',
-            background: 'linear-gradient(135deg, #0b1528 0%, #1e293b 100%)',
+            background: deskData.work_saved?.is_negative
+              ? 'linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)'
+              : 'linear-gradient(135deg, #0b1528 0%, #1e293b 100%)',
             color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
@@ -1468,14 +1469,35 @@ export default function AgentDesk({ currentUser, onSelectPatient }) {
           }}>
             <div>
               <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8', fontWeight: 700 }}>
-                Estimated Clinical Time Saved
+                Net Clinical Time Saved (Gross − Review)
               </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, marginTop: '2px', color: '#38bdf8' }}>
-                ~{deskData.work_saved?.estimated_minutes_saved || 0} min
+              <div style={{ fontSize: '28px', fontWeight: 900, marginTop: '2px', color: deskData.work_saved?.is_negative ? '#fca5a5' : '#38bdf8' }}>
+                {deskData.work_saved?.net_minutes_saved >= 0 ? `~${deskData.work_saved?.net_minutes_saved} min` : `${deskData.work_saved?.net_minutes_saved} min`}
+              </div>
+              <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px' }}>
+                Gross saved: {deskData.work_saved?.gross_minutes_saved || 0}m · Review spent: {deskData.work_saved?.review_minutes_spent || 0}m
               </div>
             </div>
-            <IconActivity style={{ width: '32px', height: '32px', color: '#38bdf8', opacity: 0.8 }} />
+            <IconActivity style={{ width: '32px', height: '32px', color: deskData.work_saved?.is_negative ? '#fca5a5' : '#38bdf8', opacity: 0.8 }} />
           </div>
+
+          {deskData.work_saved?.quality_warning && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              background: '#fff1f2',
+              border: '1px solid #fecdd3',
+              color: '#9f1239',
+              fontSize: '12px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <IconAlertTriangle style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+              <span>{deskData.work_saved.quality_warning}</span>
+            </div>
+          )}
 
           {/* 4 Metrics Tiles */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
