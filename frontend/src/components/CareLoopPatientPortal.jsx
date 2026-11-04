@@ -853,16 +853,27 @@ export default function CareLoopPatientPortal({ user }) {
     setTrend((prev) => (prev === trendId ? null : trendId));
   };
 
+  const updateCheckinHistory = (data) => {
+    if (Array.isArray(data)) {
+      setCheckinHistory(data);
+    } else if (data && Array.isArray(data.reports)) {
+      setCheckinHistory(data.reports);
+    } else if (data && Array.isArray(data.checkins)) {
+      setCheckinHistory(data.checkins);
+    } else {
+      setCheckinHistory([]);
+    }
+  };
+
   // 14-day Check-in History Loader (Brief Sec 6.4 & 8.4)
   const loadCheckinHistory = async () => {
     try {
       setCheckinHistoryLoading(true);
       const res = await getPatientCheckins(14);
-      if (res && res.reports) {
-        setCheckinHistory(res.reports);
-      }
+      updateCheckinHistory(res);
     } catch (err) {
       console.error('Failed to load checkin history:', err);
+      updateCheckinHistory([]);
     } finally {
       setCheckinHistoryLoading(false);
     }
@@ -4621,10 +4632,10 @@ export default function CareLoopPatientPortal({ user }) {
                             text: res.message || 'Check-in completed',
                           },
                         });
-                        getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
+                        loadCheckinHistory();
                       }}
                       onEmergency={() => {
-                        getPatientCheckins(14).then(setCheckinHistory).catch(() => {});
+                        loadCheckinHistory();
                       }}
                     />
 
@@ -5063,63 +5074,67 @@ export default function CareLoopPatientPortal({ user }) {
                   boxShadow: 'var(--shadow-card)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <IconClock width={18} height={18} style={{ color: 'var(--accent-teal, #0d9488)' }} />
-                    <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
-                      {lang === 'hi' ? 'हालिया 7 दिनों का चेक-इन इतिहास' : 'Recent 7 days check-in history'}
-                    </h3>
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
-                    {checkinHistory.length} {lang === 'hi' ? 'रिकॉर्ड' : 'entries'}
-                  </span>
-                </div>
-
-                {checkinHistoryLoading ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
-                    {lang === 'hi' ? 'इतिहास लोड हो रहा है...' : 'Loading check-in history...'}
-                  </div>
-                ) : checkinHistory.length === 0 ? (
-                  <div
-                    style={{
-                      padding: '24px',
-                      textAlign: 'center',
-                      color: 'var(--text-muted, #64748b)',
-                      fontSize: '13px',
-                      fontStyle: 'italic',
-                      background: 'var(--bg-surface-alt, #f8fafc)',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    {lang === 'hi'
-                      ? 'पिछले 14 दिनों में कोई चेक-इन दर्ज नहीं किया गया।'
-                      : 'No check-ins recorded in the last 14 days.'}
-                  </div>
-                ) : (
-                  <div>
-                    {/* Factual comparison note if at least 2 entries exist */}
-                    {checkinHistory.length >= 2 && (
-                      <div
-                        style={{
-                          background: 'var(--bg-surface-alt, #f8fafc)',
-                          border: '1px solid var(--border-subtle, #e2e8f0)',
-                          borderRadius: '8px',
-                          padding: '10px 14px',
-                          fontSize: '12px',
-                          color: 'var(--text-secondary, #475569)',
-                          marginBottom: '14px',
-                        }}
-                      >
-                        <strong>{lang === 'hi' ? 'तुलना (तथ्य):' : 'Fact-based summary:'}</strong>{' '}
-                        {lang === 'hi'
-                          ? `नवीनतम चेक-इन पर दर्द स्तर ${checkinHistory[0].pain_level ?? 'अव्यक्त'} था (${checkinHistory[0].formatted_date || checkinHistory[0].date})। पिछले चेक-इन पर दर्द ${checkinHistory[1].pain_level ?? 'अव्यक्त'} था (${checkinHistory[1].formatted_date || checkinHistory[1].date})।`
-                          : `Pain was ${checkinHistory[0].pain_level ?? 'unrated'} on ${checkinHistory[0].formatted_date || checkinHistory[0].date} and ${checkinHistory[1].pain_level ?? 'unrated'} on ${checkinHistory[1].formatted_date || checkinHistory[1].date}.`}
+                {(() => {
+                  const historyList = Array.isArray(checkinHistory) ? checkinHistory : (checkinHistory?.reports || []);
+                  return (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <IconClock width={18} height={18} style={{ color: 'var(--accent-teal, #0d9488)' }} />
+                          <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
+                            {lang === 'hi' ? 'हालिया 7 दिनों का चेक-इन इतिहास' : 'Recent 7 days check-in history'}
+                          </h3>
+                        </div>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
+                          {historyList.length} {lang === 'hi' ? 'रिकॉर्ड' : 'entries'}
+                        </span>
                       </div>
-                    )}
 
-                    {/* History items list */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {checkinHistory.map((rep) => {
+                      {checkinHistoryLoading ? (
+                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted, #64748b)', fontSize: '13px' }}>
+                          {lang === 'hi' ? 'इतिहास लोड हो रहा है...' : 'Loading check-in history...'}
+                        </div>
+                      ) : historyList.length === 0 ? (
+                        <div
+                          style={{
+                            padding: '24px',
+                            textAlign: 'center',
+                            color: 'var(--text-muted, #64748b)',
+                            fontSize: '13px',
+                            fontStyle: 'italic',
+                            background: 'var(--bg-surface-alt, #f8fafc)',
+                            borderRadius: '8px',
+                          }}
+                        >
+                          {lang === 'hi'
+                            ? 'पिछले 14 दिनों में कोई चेक-इन दर्ज नहीं किया गया।'
+                            : 'No check-ins recorded in the last 14 days.'}
+                        </div>
+                      ) : (
+                        <div>
+                          {/* Factual comparison note if at least 2 entries exist */}
+                          {historyList.length >= 2 && (
+                            <div
+                              style={{
+                                background: 'var(--bg-surface-alt, #f8fafc)',
+                                border: '1px solid var(--border-subtle, #e2e8f0)',
+                                borderRadius: '8px',
+                                padding: '10px 14px',
+                                fontSize: '12px',
+                                color: 'var(--text-secondary, #475569)',
+                                marginBottom: '14px',
+                              }}
+                            >
+                              <strong>{lang === 'hi' ? 'तुलना (तथ्य):' : 'Fact-based summary:'}</strong>{' '}
+                              {lang === 'hi'
+                                ? `नवीनतम चेक-इन पर दर्द स्तर ${historyList[0].pain_level ?? 'अव्यक्त'} था (${historyList[0].formatted_date || historyList[0].date})। पिछले चेक-इन पर दर्द ${historyList[1].pain_level ?? 'अव्यक्त'} था (${historyList[1].formatted_date || historyList[1].date})।`
+                                : `Pain was ${historyList[0].pain_level ?? 'unrated'} on ${historyList[0].formatted_date || historyList[0].date} and ${historyList[1].pain_level ?? 'unrated'} on ${historyList[1].formatted_date || historyList[1].date}.`}
+                            </div>
+                          )}
+
+                          {/* History items list */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {historyList.map((rep) => {
                         const isExpanded = expandedHistoryId === rep.id;
                         const pScore = rep.pain_level;
                         const pillBg =
@@ -5260,9 +5275,12 @@ export default function CareLoopPatientPortal({ user }) {
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
-          )}
+              </>
+            );
+          })()}
+        </div>
+      </div>
+    )}
 
           {/* ─── 10. TAB: CHAT ASSISTANT (Care Guide — Agentic Recovery Assistant) ─── */}
           {activeNav === 'chat' && (
