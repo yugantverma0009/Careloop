@@ -2,7 +2,7 @@
 
 > [!IMPORTANT]
 > **Synthetic-data prototype, not a medical device.**  
-> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring and clinical agent workflows. All patient records, clinical notes, sensor readings, wound photos, and limits are synthetic test data. It is not approved for clinical diagnostic use, does not provide medical diagnoses, and never substitutes for professional clinical judgment.
+> CareLoop is an engineering demonstration platform designed to evaluate post-discharge remote patient monitoring and clinical agent workflows. All patient records, clinical notes, sensor readings, and limits are synthetic test data. It is not approved for clinical diagnostic use, does not provide medical diagnoses, and never substitutes for professional clinical judgment.
 
 ---
 
@@ -100,7 +100,7 @@ Every agent output is intercepted by `PolicyGuard.inspect()` before storage or d
 2. **Identity Verification:** Context patient ID matches payload patient ID; zero patient name leakage to LLMs.
 3. **Sources:** Every factual sentence must cite an existing document chunk or SQL record ID.
 4. **Numeric Grounding:** Every number, dosage, and date must be present in cited source text.
-5. **Fixed Menu:** Next steps restricted to the 7-item administrative menu (`call_now`, `send_checkin`, `request_photo`, `ask_doctor`, `recheck_at`, `merge_duplicate`, `close_rule`).
+5. **Fixed Menu:** Next steps restricted to the 6-item administrative menu (`call_now`, `send_checkin`, `ask_doctor`, `recheck_at`, `merge_duplicate`, `close_rule`).
 6. **Language:** Output language matches patient preference (en/hi).
 7. **Banned Words:** Zero subjective clinical judgment words (unsubstantiated condition labels) and zero diagnosis advice.
 8. **Caregiver Consent:** Family outreach blocked if patient has not granted consent.
@@ -130,7 +130,7 @@ Replay of a 40-event scripted synthetic shift (14 routine questions, 10 reminder
 | Role | User & Login | Section 2.1 One-Liner | What to Look at First | Accent |
 | :--- | :--- | :--- | :--- | :--- |
 | **Doctor** | **Dr. Ananya Sharma**<br>`ananya.demo@example.test` | *"The doctor approves recovery plans, decides escalated alerts, and sets limits."* | **Needs My Decision** (`/staff/doctor/decisions`), Agent Settings (Autonomy Matrix & Kill Switch), Work Saved Panel. | Slate / Navy (`#0284c7`) |
-| **Nurse** | **Priya Nair**<br>`priya.demo@example.test` | *"The nurse runs Rounds, reviews recovery photos, calls patients, and starts follow-ups."* | **Agent Desk** (`/staff/desk`), My Call List with Case Briefs, 3-Click Call Documentation, Shift Handoff. | Amber / Orange (`#d97706`) |
+| **Nurse** | **Priya Nair**<br>`priya.demo@example.test` | *"The nurse runs Rounds, manages case queues, calls patients, and starts follow-ups."* | **Agent Desk** (`/staff/desk`), My Call List with Case Briefs, 3-Click Call Documentation, Shift Handoff. | Amber / Orange (`#d97706`) |
 | **Patient** | **Aarav Patel**<br>`aarav.demo@example.test` | *"The patient follows My Plan, completes voice or SMS check-ins, and asks their papers."* | **My Plan** (`/patient`), Sourced Discharge Assistant with Citations, Guided Check-in, AI Help Switch. | Emerald / Teal (`#059669`) |
 | **Family Helper** | **Neha Patel**<br>`caregiver1.demo@example.test` | *"The family helper supports with consent, sees calm updates, and calls 112 if needed."* | **Today's Support View** (`/family`), helped-dose confirmation, and live patient consent toggle verification. | Violet / Purple (`#7c3aed`) |
 
