@@ -42,6 +42,9 @@ import {
   getAiTransparency,
   toggleAiHelp,
   requestChatPrivacy,
+  explainSimply,
+  saveQuestion,
+  getSavedQuestions,
   logout,
   API_BASE,
 } from '../services/api';
@@ -377,6 +380,44 @@ export default function CareLoopPatientPortal({ user }) {
       setAiHelpLoading(false);
     }
   };
+  // Phase 5: Explain Simply & Saved Questions States
+  const [simplifiedAnswers, setSimplifiedAnswers] = useState({});
+  const [loadingSimplify, setLoadingSimplify] = useState({});
+  const [savedQuestionStatus, setSavedQuestionStatus] = useState({});
+
+  const handleExplainSimply = async (msgId, rawText) => {
+    if (simplifiedAnswers[msgId]) {
+      setSimplifiedAnswers((prev) => {
+        const copy = { ...prev };
+        delete copy[msgId];
+        return copy;
+      });
+      return;
+    }
+    setLoadingSimplify((prev) => ({ ...prev, [msgId]: true }));
+    try {
+      const res = await explainSimply(rawText, lang);
+      setSimplifiedAnswers((prev) => ({ ...prev, [msgId]: res }));
+    } catch (err) {
+      alert(err.message || 'Could not simplify text');
+    } finally {
+      setLoadingSimplify((prev) => ({ ...prev, [msgId]: false }));
+    }
+  };
+
+  const handleSaveQuestionForVisit = async (msgId, text) => {
+    setSavedQuestionStatus((prev) => ({ ...prev, [msgId]: 'saving' }));
+    try {
+      await saveQuestion(text);
+      setSavedQuestionStatus((prev) => ({ ...prev, [msgId]: 'saved' }));
+      setTimeout(() => {
+        setSavedQuestionStatus((prev) => ({ ...prev, [msgId]: 'done' }));
+      }, 3000);
+    } catch (err) {
+      setSavedQuestionStatus((prev) => ({ ...prev, [msgId]: 'error' }));
+    }
+  };
+
   const [checkinSuccessData, setCheckinSuccessData] = useState(null);
   const [checkinError, setCheckinError] = useState(null);
   const [checkinHistory, setCheckinHistory] = useState([]);
@@ -7198,6 +7239,40 @@ export default function CareLoopPatientPortal({ user }) {
                                 </div>
                               )}
 
+                              {/* Phase 5: Side-by-Side Explain Simply Presentation */}
+                              {simplifiedAnswers[msgId] && (
+                                <div
+                                  style={{
+                                    marginTop: '12px',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    background: 'var(--bg-subtle, #f8fafc)',
+                                    border: '1px solid var(--accent-teal, #0d9488)',
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: '12px',
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  <div style={{ borderRight: '1px dashed #cbd5e1', paddingRight: '8px' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-muted, #64748b)', marginBottom: '4px', textTransform: 'uppercase', fontSize: '10px' }}>
+                                      {lang === 'hi' ? 'मूल अंश' : 'Original passage'}
+                                    </div>
+                                    <div style={{ color: 'var(--text-secondary, #334155)', lineHeight: '1.4' }}>
+                                      {simplifiedAnswers[msgId].original_passage}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent-teal, #0d9488)', marginBottom: '4px', textTransform: 'uppercase', fontSize: '10px' }}>
+                                      {lang === 'hi' ? 'सरल भाषा (संख्याएँ सुरक्षित)' : 'Simplified (Exact numbers preserved)'}
+                                    </div>
+                                    <div style={{ color: 'var(--text-primary, #0f172a)', lineHeight: '1.4', fontWeight: 600 }}>
+                                      {simplifiedAnswers[msgId].simplified_text}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Error Retry Option */}
                               {msg.isError && msg.failedText && (
                                 <div style={{ marginTop: '8px' }}>
@@ -7525,6 +7600,66 @@ export default function CareLoopPatientPortal({ user }) {
                                   >
                                     <IconVolume2 width={13} height={13} />
                                     <span>{speakingMsgId === msgId ? (lang === 'hi' ? 'रोकें' : 'Stop') : (lang === 'hi' ? 'सुनें' : 'Listen')}</span>
+                                  </button>
+
+                                  {/* Phase 5: Explain Simply Button */}
+                                  <button
+                                    type="button"
+                                    disabled={loadingSimplify[msgId]}
+                                    onClick={() => handleExplainSimply(msgId, msg.message_text)}
+                                    style={{
+                                      background: simplifiedAnswers[msgId] ? 'rgba(13, 148, 136, 0.15)' : 'none',
+                                      border: simplifiedAnswers[msgId] ? '1px solid var(--accent-teal, #0d9488)' : 'none',
+                                      color: simplifiedAnswers[msgId] ? 'var(--accent-teal, #0d9488)' : 'var(--text-muted, #94a3b8)',
+                                      padding: '2px 6px',
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      borderRadius: '4px',
+                                      fontWeight: 600,
+                                      fontSize: '11px',
+                                    }}
+                                    title={lang === 'hi' ? 'सरल भाषा में समझें' : 'Explain in simpler words'}
+                                  >
+                                    <span>💡</span>
+                                    <span>
+                                      {loadingSimplify[msgId]
+                                        ? '...'
+                                        : simplifiedAnswers[msgId]
+                                        ? (lang === 'hi' ? 'मूल देखें' : 'Show original')
+                                        : (lang === 'hi' ? 'सरल भाषा' : 'Explain simply')}
+                                    </span>
+                                  </button>
+
+                                  {/* Phase 5: Save for Visit Button */}
+                                  <button
+                                    type="button"
+                                    disabled={savedQuestionStatus[msgId] === 'saving' || savedQuestionStatus[msgId] === 'saved'}
+                                    onClick={() => handleSaveQuestionForVisit(msgId, msg.message_text)}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      color: savedQuestionStatus[msgId] === 'saved' || savedQuestionStatus[msgId] === 'done' ? 'var(--accent-teal, #0d9488)' : 'var(--text-muted, #94a3b8)',
+                                      padding: '2px 6px',
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      borderRadius: '4px',
+                                      fontWeight: 600,
+                                      fontSize: '11px',
+                                    }}
+                                    title={lang === 'hi' ? 'आगामी डॉक्टर विज़िट के लिए सहेजें' : 'Save for upcoming doctor visit'}
+                                  >
+                                    <span>📌</span>
+                                    <span>
+                                      {savedQuestionStatus[msgId] === 'saving'
+                                        ? (lang === 'hi' ? 'सहेजा जा रहा है...' : 'Saving...')
+                                        : savedQuestionStatus[msgId] === 'saved' || savedQuestionStatus[msgId] === 'done'
+                                        ? (lang === 'hi' ? '✓ विज़िट हेतु सहेजा गया' : '✓ Saved for visit')
+                                        : (lang === 'hi' ? 'विज़िट हेतु सहेजें' : 'Save for visit')}
+                                    </span>
                                   </button>
 
                                   {feedback?.rating === 1 && (

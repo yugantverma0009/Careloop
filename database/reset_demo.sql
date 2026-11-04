@@ -20,6 +20,7 @@ DELETE FROM agent_autonomy;
 DELETE FROM agent_system_state;
 DELETE FROM phrase_bank;
 DELETE FROM dose_barriers;
+DELETE FROM saved_questions;
 DELETE FROM daily_items;
 DELETE FROM patient_preferences;
 DELETE FROM checkin_answers;

@@ -7703,6 +7703,20 @@ class UnderstandingAnswerIn(BaseModel):
     selected_option_index: int
 
 
+class ExplainSimplyIn(BaseModel):
+    text: str
+    language: Optional[str] = "en"
+
+
+class SaveQuestionIn(BaseModel):
+    question_text: str
+    for_appointment_id: Optional[int] = None
+
+
+class PlanMyDayIn(BaseModel):
+    language: Optional[str] = "en"
+
+
 class AdmitPatientIn(BaseModel):
     patient: Dict[str, Any]
     discharge: Dict[str, Any]
@@ -7827,6 +7841,99 @@ def submit_understanding_check_answer_endpoint(
         return submit_understanding_answer(user["patient_id"], body.check_id, body.selected_option_index)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/patient/me/explain-simply")
+def explain_simply_endpoint(
+    body: ExplainSimplyIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Rewrites text in simple language preserving all numbers side-by-side with original."""
+    from backend.app.agents.planning_service import explain_simply
+    return explain_simply(body.text, language=body.language or "en")
+
+
+@app.get("/patient/me/saved-questions")
+def get_saved_questions_endpoint(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Retrieves questions saved by the patient for doctor's visit."""
+    from backend.app.agents.planning_service import get_saved_questions
+    pid = get_effective_patient_id(user)
+    return {"saved_questions": get_saved_questions(pid)}
+
+
+@app.post("/patient/me/saved-questions")
+def save_question_endpoint(
+    body: SaveQuestionIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Saves a question for the patient's next clinical visit."""
+    from backend.app.agents.planning_service import save_question
+    pid = get_effective_patient_id(user)
+    return save_question(pid, body.question_text, body.for_appointment_id)
+
+
+@app.delete("/patient/me/saved-questions/{question_id}")
+def dismiss_saved_question_endpoint(
+    question_id: int,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Dismisses a saved question."""
+    from backend.app.agents.planning_service import dismiss_saved_question
+    pid = get_effective_patient_id(user)
+    ok = dismiss_saved_question(pid, question_id)
+    return {"status": "ok" if ok else "not_found", "question_id": question_id}
+
+
+@app.get("/patient/me/teach-back")
+def get_teach_back_endpoint(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Alias for understanding-check questions for teach-back."""
+    from .plan_service import get_patient_understanding_check
+    pid = get_effective_patient_id(user)
+    return {"questions": get_patient_understanding_check(pid)}
+
+
+@app.post("/patient/me/teach-back/answer")
+def submit_teach_back_answer_endpoint(
+    body: UnderstandingAnswerIn,
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Alias for understanding-check answer submission."""
+    from .plan_service import submit_understanding_answer
+    pid = get_effective_patient_id(user)
+    try:
+        return submit_understanding_answer(pid, body.check_id, body.selected_option_index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/patient/me/plan-my-day")
+def plan_my_day_endpoint(
+    body: PlanMyDayIn = PlanMyDayIn(),
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Deterministic state machine planning patient's day without staff tasks or dose alterations."""
+    from backend.app.agents.planning_service import plan_my_day
+    pid = get_effective_patient_id(user)
+    return plan_my_day(pid, language=body.language or "en")
+
+
+@app.get("/patient/me/plan-my-day/ics")
+def download_plan_my_day_ics(
+    user: Dict[str, Any] = Depends(require_patient),
+):
+    """Exports patient's planned schedule as standard iCalendar (.ics) format."""
+    from backend.app.agents.planning_service import generate_plan_ics
+    pid = get_effective_patient_id(user)
+    ics_text = generate_plan_ics(pid)
+    return Response(
+        content=ics_text,
+        media_type="text/calendar",
+        headers={"Content-Disposition": f"attachment; filename=careloop_recovery_day_{pid}.ics"}
+    )
 
 
 @app.post("/staff/admit")

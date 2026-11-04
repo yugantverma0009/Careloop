@@ -3,6 +3,8 @@ import {
   getMyPlan,
   getPatientUnderstandingCheck,
   submitUnderstandingAnswer,
+  planMyDay,
+  getPlanIcsUrl,
 } from '../services/api';
 import {
   IconPill,
@@ -25,6 +27,22 @@ export default function PatientMyPlanView({ lang = 'en', onAskAssistant }) {
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [submittingCheck, setSubmittingCheck] = useState({});
   const [checkFeedback, setCheckFeedback] = useState({});
+  const [dayPlan, setDayPlan] = useState(null);
+  const [dayPlanLoading, setDayPlanLoading] = useState(false);
+  const [showDayPlan, setShowDayPlan] = useState(false);
+
+  const handlePlanMyDay = async () => {
+    setDayPlanLoading(true);
+    setShowDayPlan(true);
+    try {
+      const res = await planMyDay(lang);
+      setDayPlan(res);
+    } catch (err) {
+      alert(err.message || 'Could not load day schedule');
+    } finally {
+      setDayPlanLoading(false);
+    }
+  };
 
   const loadPlanAndCheck = async () => {
     setLoading(true);
@@ -221,29 +239,152 @@ export default function PatientMyPlanView({ lang = 'en', onAskAssistant }) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (onAskAssistant) onAskAssistant('Can you explain my recovery plan and medication schedule?');
-          }}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={handlePlanMyDay}
+            style={{
+              padding: '10px 16px',
+              background: 'var(--accent-blue, #0284c7)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>📅</span>
+            {dayPlanLoading
+              ? (isHindi ? 'योजना बन रही है...' : 'Planning...')
+              : (isHindi ? 'मेरे दिन की योजना बनाएं' : 'Plan my day')}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (onAskAssistant) onAskAssistant('Can you explain my recovery plan and medication schedule?');
+            }}
+            style={{
+              padding: '10px 16px',
+              background: 'var(--accent-teal, #0f766e)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span>💬</span>
+            {isHindi ? 'योजना के बारे में पूछें' : 'Ask Assistant About Plan'}
+          </button>
+        </div>
+      </div>
+
+      {/* Phase 5: Plan My Day Schedule View */}
+      {showDayPlan && dayPlan && (
+        <div
           style={{
-            padding: '10px 16px',
-            background: 'var(--accent-teal, #0f766e)',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '13px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--accent-blue, #0284c7)',
+            borderRadius: '12px',
+            padding: '24px',
+            boxShadow: 'var(--shadow-card)',
           }}
         >
-          <span>💬</span>
-          {isHindi ? 'योजना के बारे में पूछें' : 'Ask Assistant About Plan'}
-        </button>
-      </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '20px' }}>📅</span>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                {isHindi ? 'आज का रिकवरी शेड्यूल (निश्चित समय सारिणी)' : "Today's Recovery Schedule"}
+              </h3>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <a
+                href={getPlanIcsUrl()}
+                download="careloop_schedule.ics"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  background: 'var(--accent-teal, #0d9488)',
+                  color: '#ffffff',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                }}
+              >
+                <span>📥</span>
+                {isHindi ? 'कैलेंडर में जोड़ें (.ics)' : 'Add to calendar (.ics)'}
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowDayPlan(false)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'transparent',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                ✕ {isHindi ? 'बंद करें' : 'Close'}
+              </button>
+            </div>
+          </div>
+
+          <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: 'var(--accent-blue, #0284c7)', fontWeight: 600 }}>
+            ℹ️ {dayPlan.safe_planning_notice}
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+            {dayPlan.slots && dayPlan.slots.map((slot, sIdx) => (
+              <div
+                key={sIdx}
+                style={{
+                  background: 'var(--bg-subtle, #f8fafc)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary, #0f172a)', marginBottom: '8px', borderBottom: '1px solid #e2e8f0', paddingBottom: '4px' }}>
+                  {slot.period}
+                </div>
+                {slot.items && slot.items.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {slot.items.map((it, itIdx) => (
+                      <div key={itIdx} style={{ fontSize: '12px', background: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: '#0f172a' }}>
+                          <span>{it.title}</span>
+                          <span style={{ color: 'var(--text-muted, #64748b)', fontSize: '11px' }}>{it.time}</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary, #64748b)', marginTop: '2px' }}>
+                          {it.detail}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', fontStyle: 'italic' }}>
+                    {isHindi ? 'कोई निर्धारित गतिविधि नहीं' : 'No scheduled items'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Emergency Red Flag Callout */}
       <div

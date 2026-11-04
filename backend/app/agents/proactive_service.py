@@ -227,6 +227,15 @@ def generate_visit_prep_sheet(
         """, (patient_id,))
         unfound_rows = cur.fetchall() or []
 
+        # 5b. Explicitly saved questions for doctor visit
+        cur.execute("""
+            SELECT question_id, question_text, created_at
+            FROM saved_questions
+            WHERE patient_id = %s AND status = 'Saved'
+            ORDER BY created_at DESC;
+        """, (patient_id,))
+        saved_q_rows = cur.fetchall() or []
+
     # Format check-ins: facts only
     checkin_facts = []
     for s in symptoms:
@@ -255,6 +264,17 @@ def generate_visit_prep_sheet(
             {"date": "-", "question": "No unresolved patient assistant queries recorded.", "note": "All previous questions were directly grounded in discharge papers."}
         ]
 
+    # Format explicitly saved questions
+    saved_patient_questions = [
+        {
+            "question_id": sq["question_id"],
+            "question": sq["question_text"],
+            "date": sq["created_at"].strftime("%d %b %Y") if sq.get("created_at") else "",
+            "note": "Saved by you for this visit"
+        }
+        for sq in saved_q_rows
+    ]
+
     return {
         "title": "CareLoop Clinical Visit Prep Sheet",
         "appointment_date": appt_dt.strftime("%d %B %Y"),
@@ -276,6 +296,7 @@ def generate_visit_prep_sheet(
         ],
         "recent_checkins": checkin_facts,
         "unfound_questions_for_doctor": unfound_questions,
+        "saved_questions": saved_patient_questions,
         "clinical_disclaimer": "Fact sheet only. Contains no automated diagnostic conclusions, safe/unsafe statements, or clinical advice.",
         "printable": True
     }

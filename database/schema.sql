@@ -1917,3 +1917,21 @@ CREATE TABLE `daily_items` (
   KEY `idx_di_patient_day` (`patient_id`,`day_number`,`status`),
   CONSTRAINT `fk_di_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `saved_questions`
+--
+
+DROP TABLE IF EXISTS `saved_questions`;
+CREATE TABLE `saved_questions` (
+  `question_id` int NOT NULL AUTO_INCREMENT,
+  `patient_id` int NOT NULL,
+  `question_text` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `for_appointment_id` int DEFAULT NULL,
+  `status` enum('Saved','Discussed','Dismissed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Saved',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`question_id`),
+  KEY `idx_saved_questions_patient` (`patient_id`),
+  CONSTRAINT `fk_sq_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients` (`patient_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

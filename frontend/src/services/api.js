@@ -91,6 +91,12 @@ const patch = (path, body) =>
     body: JSON.stringify(body || {}),
   }).then(handleResponse);
 
+const del = (path) =>
+  fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  }).then(handleResponse);
+
 const postFormData = (path, formData) => {
   const token = getToken();
   return fetch(`${API_BASE}${path}`, {
@@ -726,6 +732,33 @@ export const toggleAiHelp = (enabled) =>
 
 export const requestChatPrivacy = (actionType) =>
   post('/patient/me/chat-privacy', { action_type: actionType });
+
+// ─── Phase 5: Comprehension, Planning & Teach-back API (5.E, 5.I) ──────────────
+
+export const explainSimply = (text, language = 'en') =>
+  post('/patient/me/explain-simply', { text, language });
+
+export const getSavedQuestions = () =>
+  get('/patient/me/saved-questions');
+
+export const saveQuestion = (questionText, forAppointmentId = null) =>
+  post('/patient/me/saved-questions', { question_text: questionText, for_appointment_id: forAppointmentId });
+
+export const dismissSavedQuestion = (questionId) =>
+  del(`/patient/me/saved-questions/${questionId}`);
+
+export const getTeachBack = () =>
+  get('/patient/me/teach-back');
+
+export const submitTeachBackAnswer = (checkId, selectedOptionIndex) =>
+  post('/patient/me/teach-back/answer', { check_id: checkId, selected_option_index: selectedOptionIndex });
+
+export const planMyDay = (language = 'en') =>
+  post('/patient/me/plan-my-day', { language });
+
+export const getPlanIcsUrl = () =>
+  `${API_BASE}/patient/me/plan-my-day/ics`;
+
 
 
 

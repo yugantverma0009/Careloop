@@ -91,6 +91,10 @@ DOSE_CHANGE_PATTERNS = [
     "reduce the dose",
     "reduce dose",
     "half my",
+    "can i switch",
+    "switch to",
+    "switch my",
+    "take more",
     # Hindi (with and without nukta)
     "दवा बंद",
     "दवा छोड़",
@@ -152,7 +156,7 @@ def is_dose_change_question(text: str) -> bool:
     t = text.lower()
     if any(p in t for p in DOSE_CHANGE_PATTERNS):
         return True
-    if re.search(r"\b(double|halve|skip|increase|decrease|stop|change|adjust)\b.*?\b(dose|dosage|tablet|pill|medicine|medication)\b", t):
+    if re.search(r"\b(double|halve|skip|increase|decrease|stop|change|adjust|switch)\b.*?\b(dose|dosage|tablet|pill|medicine|medication|mg)\b", t):
         return True
     if re.search(r"(दवा|गोली|खुराक|ख़ुराक).*?(छोड़|रोक|बढ़ा|कम|बदल|दोगुनी|आधी)", t):
         return True

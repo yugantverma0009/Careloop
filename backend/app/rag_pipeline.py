@@ -617,8 +617,9 @@ def answer_patient_query(
                     cur.execute(
                         """SELECT dc.chunk_id, dc.chunk_index, dc.chunk_text, dc.vector_id, dc.section_title, dc.section_type, dc.page_no
                            FROM document_chunks dc
-                           JOIN patient_documents pd ON pd.document_id = dc.document_id
-                           WHERE pd.patient_id = %s
+                           JOIN discharge_documents dd ON dd.document_id = dc.document_id
+                           JOIN discharge_records dr ON dr.discharge_id = dd.discharge_id
+                           WHERE dr.patient_id = %s
                            ORDER BY dc.chunk_index ASC LIMIT 6""",
                         (patient_id,)
                     )
