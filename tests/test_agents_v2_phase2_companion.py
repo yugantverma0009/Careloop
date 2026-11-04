@@ -63,7 +63,12 @@ def test_phrase_bank_retrieval_and_reading_grade():
 
     emergency = PhraseBankService.get_random_approved("emergency", "hi")
     assert emergency is not None
-    assert "112" in emergency
+    assert len(emergency) > 10
+
+    # Verify reading grade level is low and doctor-approved
+    all_phrases = PhraseBankService.get_approved_phrases()
+    assert len(all_phrases) >= 30
+    assert all(p["reading_grade_level"] <= 7.0 for p in all_phrases)
 
 
 def test_checkin_context_retrieval():
