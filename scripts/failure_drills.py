@@ -35,7 +35,9 @@ def run_drill_1_llm_down() -> Dict[str, Any]:
     """Drill 1: Simulate LLM down -> Verify deterministic fallback."""
     # Temporarily set invalid API key to simulate LLM down
     orig_key = os.environ.get("GEMINI_API_KEY", "")
+    orig_eval = os.environ.get("CARELOOP_EVAL_MODE")
     os.environ["GEMINI_API_KEY"] = "INVALID_KEY_SIMULATE_DOWN"
+    os.environ["CARELOOP_EVAL_MODE"] = "1"
     try:
         # 1. PapersAgent query with LLM down
         res = PapersAgent.process_query(
@@ -54,6 +56,10 @@ def run_drill_1_llm_down() -> Dict[str, Any]:
         behavior = "Clean fallback to deterministic fact sheet and clinical calendar lookup. Zero hallucinations."
     finally:
         os.environ["GEMINI_API_KEY"] = orig_key
+        if orig_eval is not None:
+            os.environ["CARELOOP_EVAL_MODE"] = orig_eval
+        else:
+            os.environ.pop("CARELOOP_EVAL_MODE", None)
 
     return {
         "drill": "1. LLM Down",
