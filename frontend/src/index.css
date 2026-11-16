@@ -1,0 +1,261 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root,
+[data-theme="light"] {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* BhoomiSetu Signature Palette */
+  --navy-deep: #0b1528;
+  --navy-darker: #070e1c;
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-input: #ffffff;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --accent-teal: #0d9488;
+  --accent-teal-hover: #0f766e;
+  --accent-teal-soft: #ecfdf5;
+  --accent-teal-text: #065f46;
+
+  --accent-blue: #0284c7;
+  --accent-blue-hover: #0369a1;
+  --accent-blue-soft: #eff6ff;
+  --accent-blue-text: #1d4ed8;
+
+  --alert-red: #dc2626;
+  --alert-red-soft: #fef2f2;
+  --alert-red-text: #991b1b;
+
+  --warning-amber: #d97706;
+  --warning-amber-soft: #fffbeb;
+  --warning-amber-text: #92400e;
+
+  --success-green: #059669;
+  --success-green-soft: #f0fdf4;
+  --success-green-text: #166534;
+
+  /* Role-Specific Identity Accents */
+  --role-doctor: #7c3aed;
+  --role-doctor-soft: #f5f3ff;
+  --role-doctor-text: #6d28d9;
+  --role-nurse: #0284c7;
+  --role-nurse-soft: #eff6ff;
+  --role-nurse-text: #0369a1;
+  --role-patient: #0d9488;
+  --role-patient-soft: #f0fdfa;
+  --role-patient-text: #0f766e;
+  --role-family: #d97706;
+  --role-family-soft: #fffbeb;
+  --role-family-text: #b45309;
+
+  --header-bg: #ffffff;
+  --header-border: #e2e8f0;
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e2e8f0;
+
+  --shadow-subtle: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 4px 6px -1px rgba(15, 23, 42, 0.04), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+  --shadow-float: 0 10px 25px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.03);
+}
+
+[data-theme="dark"] {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --navy-deep: #070d18;
+  --navy-darker: #040810;
+  --bg-base: #0b111e;
+  --bg-surface: #111a2c;
+  --bg-card: #152238;
+  --bg-card-hover: #1b2a45;
+  --bg-input: #0e1726;
+  --border-subtle: #1e2e4a;
+  --border-strong: #2a3f63;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #8497b0;
+
+  --accent-teal: #14b8a6;
+  --accent-teal-hover: #2dd4bf;
+  --accent-teal-soft: rgba(20, 184, 166, 0.15);
+  --accent-teal-text: #5eead4;
+
+  --accent-blue: #38bdf8;
+  --accent-blue-hover: #0284c7;
+  --accent-blue-soft: rgba(56, 189, 248, 0.15);
+  --accent-blue-text: #7dd3fc;
+
+  --alert-red: #f87171;
+  --alert-red-soft: rgba(248, 113, 113, 0.15);
+  --alert-red-text: #fca5a5;
+
+  --warning-amber: #fbbf24;
+  --warning-amber-soft: rgba(251, 191, 36, 0.15);
+  --warning-amber-text: #fde68a;
+
+  --success-green: #34d399;
+  --success-green-soft: rgba(52, 211, 153, 0.15);
+  --success-green-text: #a7f3d0;
+
+  /* Role-Specific Identity Accents (Dark) */
+  --role-doctor: #a78bfa;
+  --role-doctor-soft: rgba(167, 139, 250, 0.15);
+  --role-doctor-text: #c4b5fd;
+  --role-nurse: #38bdf8;
+  --role-nurse-soft: rgba(56, 189, 248, 0.15);
+  --role-nurse-text: #7dd3fc;
+  --role-patient: #2dd4bf;
+  --role-patient-soft: rgba(45, 212, 191, 0.15);
+  --role-patient-text: #5eead4;
+  --role-family: #fbbf24;
+  --role-family-soft: rgba(251, 191, 36, 0.15);
+  --role-family-text: #fde68a;
+
+  --header-bg: #111a2c;
+  --header-border: #1e2e4a;
+  --sidebar-bg: #0f1828;
+  --sidebar-border: #1e2e4a;
+
+  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: var(--font-sans);
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+code, pre, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* BhoomiSetu Subtle Grid Pattern */
+.bg-grid-bhoomi {
+  background-size: 36px 36px;
+  background-image: 
+    linear-gradient(to right, rgba(226, 232, 240, 0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(226, 232, 240, 0.5) 1px, transparent 1px);
+}
+
+/* BhoomiSetu Status Badges with Dots */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.status-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-pill-green {
+  background: var(--success-green-soft);
+  color: var(--success-green-text);
+  border: 1px solid rgba(5, 150, 105, 0.25);
+}
+.status-pill-green::before {
+  background: var(--success-green);
+}
+.status-pill-blue {
+  background: var(--accent-blue-soft);
+  color: var(--accent-blue-text);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+.status-pill-blue::before {
+  background: var(--accent-blue);
+}
+.status-pill-amber {
+  background: var(--warning-amber-soft);
+  color: var(--warning-amber-text);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+}
+.status-pill-amber::before {
+  background: var(--warning-amber);
+}
+.status-pill-red {
+  background: var(--alert-red-soft);
+  color: var(--alert-red-text);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+}
+.status-pill-red::before {
+  background: var(--alert-red);
+}
+
+/* Input & Interactive Element Focus */
+input, textarea, select {
+  font-family: var(--font-sans);
+  color: inherit;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #0284c7 !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15) !important;
+}
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent-teal, #0d9488) !important;
+  outline-offset: 2px !important;
+}
+
+/* Animations */
+@keyframes pulseDot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.6;
+  }
+}
+.pulse-dot {
+  animation: pulseDot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
