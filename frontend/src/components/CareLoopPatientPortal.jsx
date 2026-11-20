@@ -45,6 +45,8 @@ import {
   explainSimply,
   saveQuestion,
   getSavedQuestions,
+  sendDeviceReading,
+  sendDeviceEvent,
   logout,
   API_BASE,
 } from '../services/api';
@@ -238,6 +240,57 @@ export default function CareLoopPatientPortal({ user }) {
 
   // Undo Toast State
   const [undoToast, setUndoToast] = useState(null);
+
+  // ESP32 Hardware Wearable Telemetry & Simulator Modal State
+  const [showHwModal, setShowHwModal] = useState(false);
+  const [hwSimLoading, setHwSimLoading] = useState(false);
+  const [hwSimResult, setHwSimResult] = useState('');
+
+  const handleSimulateHwReading = async (type, val, unit, quality = 'Good') => {
+    setHwSimLoading(true);
+    setHwSimResult('');
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const res = await sendDeviceReading({
+        device_id: 'ESP32-DEMO-01',
+        measurement_type: type,
+        value: val,
+        unit: unit,
+        measured_at: nowSec,
+        quality: quality,
+      });
+      setHwSimResult(`✓ Ingested ${type}: ${val} ${unit} (${res.status || 'stored'}). Clinical telemetry updated.`);
+      setTimeout(() => {
+        loadTodayData(true);
+      }, 600);
+    } catch (err) {
+      setHwSimResult(`Error: ${err.message || 'Ingestion failed'}`);
+    } finally {
+      setHwSimLoading(false);
+    }
+  };
+
+  const handleSimulateFallEvent = async () => {
+    setHwSimLoading(true);
+    setHwSimResult('');
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const res = await sendDeviceEvent({
+        device_id: 'ESP32-DEMO-01',
+        event_type: 'Possible_Fall',
+        occurred_at: nowSec,
+        details: { g_force: 2.85, sensor: 'MPU6050', axis: 'Z-impact' },
+      });
+      setHwSimResult(`🚨 MPU-6050 Fall event logged (${res.status || 'OK'}). Fall protocol triggered.`);
+      setTimeout(() => {
+        loadTodayData(true);
+      }, 600);
+    } catch (err) {
+      setHwSimResult(`Error: ${err.message || 'Event dispatch failed'}`);
+    } finally {
+      setHwSimLoading(false);
+    }
+  };
 
   // Calendar State (Brief Sec 6.3)
   const [calendarMonth, setCalendarMonth] = useState('2026-10');
@@ -2318,6 +2371,38 @@ export default function CareLoopPatientPortal({ user }) {
               <span>{lang === 'hi' ? 'मरीज़ (Patient)' : 'Patient'}</span>
             </div>
 
+            <button
+              type="button"
+              onClick={() => { setShowHwModal(true); setHwSimResult(''); }}
+              title="ESP32 Smart Health Band · Live Telemetry & Hub"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                padding: '5px 12px',
+                borderRadius: '20px',
+                border: '1px solid #10b981',
+                background: 'rgba(16, 185, 129, 0.08)',
+                color: '#059669',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 6px #10b981',
+                  display: 'inline-block',
+                }}
+              />
+              <span>📡 ESP32 Band: Live</span>
+            </button>
+
             <SwitchDemoWorkspace currentUser={user} />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3563,6 +3648,28 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowHwModal(true); setHwSimResult(''); }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid #10b981',
+                      background: '#10b981',
+                      color: '#ffffff',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>🎮 {lang === 'hi' ? 'हार्डवेयर टेस्ट सिम्युलेटर' : 'Test Device Simulator'}</span>
+                  </button>
+                  <div style={{ width: '1px', height: '26px', background: 'var(--border-subtle, #cbd5e1)' }} />
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
                       {lang === 'hi' ? 'सिग्नल गुणवत्ता' : 'Signal Quality'}
@@ -7107,13 +7214,13 @@ export default function CareLoopPatientPortal({ user }) {
                             {/* Message Bubble */}
                             <div
                               style={{
-                                padding: '14px 20px',
-                                borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                                padding: '16px 22px',
+                                borderRadius: isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                 background: isUser
                                   ? 'var(--navy-deep, #0b1528)'
                                   : isEmergency
                                   ? 'rgba(239, 68, 68, 0.08)'
-                                  : 'var(--bg-base, #f1f5f9)',
+                                  : 'var(--bg-surface, #ffffff)',
                                 border: isEmergency
                                   ? '1.5px solid #ef4444'
                                   : isUser
@@ -7122,7 +7229,9 @@ export default function CareLoopPatientPortal({ user }) {
                                 color: isUser ? '#ffffff' : 'var(--text-primary, #0f172a)',
                                 fontSize: '14px',
                                 lineHeight: 1.65,
-                                boxShadow: isUser ? '0 1px 3px rgba(0,0,0,0.1)' : '0 1px 2px rgba(0,0,0,0.02)',
+                                boxShadow: isUser
+                                  ? '0 2px 6px rgba(0,0,0,0.12)'
+                                  : '0 2px 8px -2px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(0,0,0,0.02)',
                               }}
                             >
                               {/* Emergency Banner */}
@@ -7151,13 +7260,16 @@ export default function CareLoopPatientPortal({ user }) {
 
                               {/* Bullets Rendering */}
                               {msg.bullets && msg.bullets.length > 0 && !(msg.content || msg.message_text || '').includes(typeof msg.bullets[0] === 'string' ? msg.bullets[0] : '') && (
-                                <ul style={{ marginTop: '8px', marginBottom: '4px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                   {msg.bullets.map((b, bi) => (
-                                    <li key={bi} style={{ fontSize: '13px', lineHeight: 1.5 }}>
-                                      {typeof b === 'string' ? b : b.text || JSON.stringify(b)}
-                                    </li>
+                                    <div key={bi} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', lineHeight: 1.55 }}>
+                                      <span style={{ color: 'var(--accent-teal, #0d9488)', fontWeight: 800, marginTop: '2px', fontSize: '14px' }}>•</span>
+                                      <span style={{ color: 'var(--text-secondary, #334155)' }}>
+                                        {typeof b === 'string' ? b : b.text || JSON.stringify(b)}
+                                      </span>
+                                    </div>
                                   ))}
-                                </ul>
+                                </div>
                               )}
 
                               {/* Emergency Direct Call Button */}
@@ -7996,10 +8108,10 @@ export default function CareLoopPatientPortal({ user }) {
                         gap: '8px',
                         alignItems: 'center',
                         background: 'var(--bg-surface, #ffffff)',
-                        border: '1.5px solid var(--border-strong, #cbd5e1)',
-                        borderRadius: '12px',
-                        padding: '4px 6px 4px 14px',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+                        border: '1.5px solid var(--accent-teal, #0d9488)',
+                        borderRadius: '14px',
+                        padding: '4px 6px 4px 16px',
+                        boxShadow: '0 2px 8px -2px rgba(13, 148, 136, 0.15)',
                       }}
                     >
                       <input
@@ -8049,20 +8161,24 @@ export default function CareLoopPatientPortal({ user }) {
                         type="submit"
                         disabled={chatLoading || !chatInput.trim()}
                         style={{
-                          padding: '8px 16px',
-                          borderRadius: '8px',
+                          padding: '9px 18px',
+                          borderRadius: '10px',
                           border: 'none',
-                          background: 'var(--navy-deep, #0b1528)',
+                          background: 'var(--accent-teal, #0d9488)',
                           color: '#ffffff',
                           cursor: !chatInput.trim() || chatLoading ? 'not-allowed' : 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
+                          gap: '6px',
                           opacity: !chatInput.trim() || chatLoading ? 0.6 : 1,
                           fontWeight: 700,
+                          fontSize: '13px',
+                          boxShadow: '0 2px 4px rgba(13, 148, 136, 0.2)',
+                          transition: 'all 0.15s ease',
                         }}
                       >
-                        <IconSend width={15} height={15} />
+                        <span>{lang === 'hi' ? 'भेजें' : 'Ask'}</span>
+                        <IconSend width={14} height={14} />
                       </button>
                     </div>
 
@@ -8683,6 +8799,229 @@ export default function CareLoopPatientPortal({ user }) {
                 }}
               >
                 {lang === 'hi' ? 'समझ गया' : 'Got it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── ESP32 Hardware Wearable Telemetry & Simulator Modal ─── */}
+      {showHwModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 130,
+          }}
+          onClick={() => setShowHwModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1.5px solid #10b981',
+              borderRadius: '16px',
+              padding: '24px 28px',
+              width: '92%',
+              maxWidth: '640px',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '24px' }}>📡</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                    ESP32 Wearable Health Band Telemetry Hub
+                  </h3>
+                  <div style={{ fontSize: '12px', color: '#059669', fontWeight: 600, marginTop: '2px' }}>
+                    ● LIVE I2C SENSORS CONNECTED · Device: ESP32-DEMO-01
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHwModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted, #94a3b8)',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Hardware Architecture Grid */}
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '8px' }}>
+                Connected Hardware Modules (Physical Prototype)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 700, fontSize: '12px', color: '#0f172a' }}>⚡ ESP32 CP2102 Board</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Dual-core 240MHz · Wi-Fi + BLE (SDA:21, SCL:22)</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 700, fontSize: '12px', color: '#0f172a' }}>❤️ MAX30102 Optical Sensor</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Photoplethysmography · Heart Rate & SpO2 (0x57)</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 700, fontSize: '12px', color: '#0f172a' }}>📐 MPU-6050 Motion Sensor</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>3-Axis Accelerometer · Fall Spike Detection (0x68)</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 700, fontSize: '12px', color: '#0f172a' }}>📺 1.3" I2C OLED Display</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>128x64 Wrist Screen · Real-time BPM/SpO2 (0x3C)</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 1-Click Simulation Triggers */}
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', marginBottom: '8px' }}>
+                One-Click Hardware Telemetry Simulators (For Presentation)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('Heart_Rate', 74.0, 'bpm')}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #bbf7d0',
+                    background: '#f0fdf4',
+                    color: '#166534',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  💚 Normal Pulse: 74 bpm
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('SpO2', 98.5, '%')}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #bfdbfe',
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  💙 Normal SpO2: 98.5%
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('SpO2', 88.0, '%', 'Questionable')}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fecaca',
+                    background: '#fef2f2',
+                    color: '#b91c1c',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🚨 Trigger Hypoxia (88% SpO2)
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('Heart_Rate', 128.0, 'bpm')}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fed7aa',
+                    background: '#fff7ed',
+                    color: '#c2410c',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  ⚠️ Trigger Tachycardia (128 bpm)
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={handleSimulateFallEvent}
+                  style={{
+                    gridColumn: 'span 2',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fca5a5',
+                    background: '#fff1f2',
+                    color: '#9f1239',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'center',
+                  }}
+                >
+                  🚨 MPU-6050 Fall Detection Spike (2.85G Impact)
+                </button>
+              </div>
+            </div>
+
+            {/* Result / Ingestion Feedback Banner */}
+            {hwSimResult && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  background: hwSimResult.startsWith('Error') ? '#fef2f2' : '#f0fdf4',
+                  border: hwSimResult.startsWith('Error') ? '1px solid #fca5a5' : '1px solid #86efac',
+                  color: hwSimResult.startsWith('Error') ? '#b91c1c' : '#166534',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  marginBottom: '14px',
+                }}
+              >
+                {hwSimResult}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowHwModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#475569',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {lang === 'hi' ? 'बंद करें' : 'Close Hub'}
               </button>
             </div>
           </div>

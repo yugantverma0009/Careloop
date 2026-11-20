@@ -1042,38 +1042,6 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             </div>
 
             {/* ESP32 IoT Wearable Hub Status Badge */}
-            <button
-              type="button"
-              onClick={() => { setShowHwModal(true); setHwSimResult(''); }}
-              title="ESP32 Wearable Telemetry & IoT Hub"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '7px',
-                padding: '5px 12px',
-                borderRadius: '20px',
-                border: '1px solid #10b981',
-                background: 'rgba(16, 185, 129, 0.08)',
-                color: '#059669',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <span
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#10b981',
-                  boxShadow: '0 0 6px #10b981',
-                  display: 'inline-block',
-                }}
-              />
-              <span>📡 ESP32 Hub: Live</span>
-            </button>
-
             <SwitchDemoWorkspace currentUser={user} />
 
             <button
