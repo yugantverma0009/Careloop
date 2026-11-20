@@ -14,6 +14,8 @@ import {
   getDoctorDecisions,
   getNurseCallList,
   simulateInboundSms,
+  sendDeviceReading,
+  sendDeviceEvent,
   logout,
   API_BASE,
 } from '../services/api';
@@ -262,6 +264,58 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
       setSmsSimError(err.message || 'SMS simulation failed');
     } finally {
       setSmsSimLoading(false);
+    }
+  };
+
+  // ESP32 Hardware IoT Hub & Live Telemetry State
+  const [showAdvancedNav, setShowAdvancedNav] = useState(false);
+  const [showHwModal, setShowHwModal] = useState(false);
+  const [hwSimLoading, setHwSimLoading] = useState(false);
+  const [hwSimResult, setHwSimResult] = useState('');
+
+  const handleSimulateHwReading = async (type, val, unit, quality = 'Good') => {
+    setHwSimLoading(true);
+    setHwSimResult('');
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const res = await sendDeviceReading({
+        device_id: 'ESP32-DEMO-01',
+        measurement_type: type,
+        value: val,
+        unit: unit,
+        measured_at: nowSec,
+        quality: quality,
+      });
+      setHwSimResult(`✓ Ingested ${type}: ${val} ${unit} (${res.status || 'stored'}). Clinical rule evaluation triggered.`);
+      setTimeout(() => {
+        loadData();
+      }, 700);
+    } catch (err) {
+      setHwSimResult(`Error: ${err.message || 'Ingestion failed'}`);
+    } finally {
+      setHwSimLoading(false);
+    }
+  };
+
+  const handleSimulateFallEvent = async () => {
+    setHwSimLoading(true);
+    setHwSimResult('');
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const res = await sendDeviceEvent({
+        device_id: 'ESP32-DEMO-01',
+        event_type: 'Possible_Fall',
+        occurred_at: nowSec,
+        details: { g_force: 3.25, sensor: 'MPU6050' },
+      });
+      setHwSimResult(`🚨 Ingested MPU-6050 Fall Event (3.25G). Prompt initiated; flag raised.`);
+      setTimeout(() => {
+        loadData();
+      }, 700);
+    } catch (err) {
+      setHwSimResult(`Error: ${err.message || 'Fall event ingestion failed'}`);
+    } finally {
+      setHwSimLoading(false);
     }
   };
 
@@ -589,25 +643,19 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
               {roleSectionKicker}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '22px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '14px' }}>
               {(isDoctor
                 ? [
                     { id: 'triage', label: 'Needs my decision', Icon: IconAlertTriangle, badge: doctorDecisions.cards?.needs_decision_now || 0 },
+                    { id: 'patients', label: 'Patients & Vitals', Icon: IconPatient },
                     { id: 'summaries', label: 'Approvals', Icon: IconFileText, badge: (doctorDecisions.cards?.summaries_to_approve || 0) + (doctorDecisions.cards?.limit_change_requests || 0) + (doctorDecisions.cards?.plans_to_approve || 0) },
-                    { id: 'limits', label: 'Patient limits', Icon: IconShieldCheck },
-                    { id: 'agent_health', label: 'Agent health', Icon: IconActivity },
-                    { id: 'agent_settings', label: 'Agent settings', Icon: IconShieldCheck },
-                    { id: 'patients', label: 'Patients', Icon: IconPatient },
-                    { id: 'audit', label: 'Audit log viewer', Icon: IconShieldCheck },
-                    { id: 'fhir', label: 'Export FHIR bundle', Icon: IconExternalLink },
+                    { id: 'limits', label: 'Alert Limits', Icon: IconShieldCheck },
                   ]
                 : [
                     { id: 'triage', label: 'My call list', Icon: IconAlertTriangle, badge: nurseCallCount },
                     { id: 'agent_desk', label: 'Agent desk', Icon: IconActivity },
-                    { id: 'patients', label: 'Patients', Icon: IconPatient },
-                    { id: 'admit', label: 'Admit patient', Icon: IconPatient },
-                    { id: 'rounds', label: 'Rounds', Icon: IconClock },
-                    { id: 'handoff', label: 'Shift handoff', Icon: IconActivity },
+                    { id: 'patients', label: 'Patients & Vitals', Icon: IconPatient },
+                    { id: 'rounds', label: 'Daily rounds', Icon: IconClock },
                   ]
               ).map((item) => {
                 const isActive = activeNav === item.id || (item.id === 'patients' && activeNav === 'patient_chart');
@@ -631,6 +679,7 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                       fontSize: '13px',
                       cursor: 'pointer',
                       textAlign: 'left',
+                      transition: 'all 0.15s ease',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -654,6 +703,78 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                   </button>
                 );
               })}
+            </div>
+
+            {/* Collapsible Advanced / System Tools */}
+            <div style={{ paddingTop: '8px', borderTop: '1px dashed var(--sidebar-border, #e2e8f0)' }}>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedNav(!showAdvancedNav)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-muted, #94a3b8)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                <span>⚙️ System & AI Governance</span>
+                <span style={{ fontSize: '9px' }}>{showAdvancedNav ? '▲' : '▼'}</span>
+              </button>
+
+              {showAdvancedNav && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '6px' }}>
+                  {(isDoctor
+                    ? [
+                        { id: 'agent_settings', label: 'Agent Settings', Icon: IconShieldCheck },
+                        { id: 'agent_health', label: 'Agent Health & Telemetry', Icon: IconActivity },
+                        { id: 'audit', label: 'Audit Log Viewer', Icon: IconShieldCheck },
+                        { id: 'fhir', label: 'Export FHIR Bundle', Icon: IconExternalLink },
+                      ]
+                    : [
+                        { id: 'handoff', label: 'Shift Handoff (SBAR)', Icon: IconActivity },
+                        { id: 'admit', label: 'Admit Patient Wizard', Icon: IconPatient },
+                      ]
+                  ).map((item) => {
+                    const isActive = activeNav === item.id;
+                    const ItemIcon = item.Icon;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveNav(item.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: isActive ? roleAccentSoft : 'transparent',
+                          color: isActive ? roleAccent : 'var(--text-muted, #64748b)',
+                          fontWeight: isActive ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <ItemIcon width={14} height={14} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -919,6 +1040,39 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
             >
               <span>{isDoctor ? 'Doctor' : 'Nurse'}</span>
             </div>
+
+            {/* ESP32 IoT Wearable Hub Status Badge */}
+            <button
+              type="button"
+              onClick={() => { setShowHwModal(true); setHwSimResult(''); }}
+              title="ESP32 Wearable Telemetry & IoT Hub"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                padding: '5px 12px',
+                borderRadius: '20px',
+                border: '1px solid #10b981',
+                background: 'rgba(16, 185, 129, 0.08)',
+                color: '#059669',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 6px #10b981',
+                  display: 'inline-block',
+                }}
+              />
+              <span>📡 ESP32 Hub: Live</span>
+            </button>
 
             <SwitchDemoWorkspace currentUser={user} />
 
@@ -2710,6 +2864,217 @@ export default function CareLoopStaffPortal({ user, defaultRole }) {
                 }}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ESP32 Hardware Telemetry & IoT Hub Modal */}
+      {showHwModal && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px',
+          }}
+          onClick={() => setShowHwModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface, #ffffff)',
+              borderRadius: '14px',
+              padding: '26px',
+              maxWidth: '560px',
+              width: '100%',
+              boxShadow: 'var(--shadow-xl, 0 20px 25px -5px rgba(0,0,0,0.1))',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '20px' }}>📡</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                    ESP32 Wearable Telemetry Hub
+                  </h3>
+                  <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
+                    ● HARDWARE PIPELINE ACTIVE · DEVICE ID: ESP32-DEMO-01
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHwModal(false)}
+                style={{ border: 'none', background: 'transparent', fontSize: '18px', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Hardware Specification Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', fontWeight: 700, textTransform: 'uppercase' }}>Microcontroller</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>ESP32 30-Pin Board</div>
+                <div style={{ fontSize: '10px', color: '#64748b' }}>CP2102 · Wi-Fi + BT · Firmware v2</div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', fontWeight: 700, textTransform: 'uppercase' }}>Pulse & SpO2 Sensor</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>MAX30102 Oximeter (0x57)</div>
+                <div style={{ fontSize: '10px', color: '#64748b' }}>I2C Pins: SDA=21, SCL=22</div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', fontWeight: 700, textTransform: 'uppercase' }}>Fall Sensor (IMU)</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>MPU-6050 6-Axis (0x68)</div>
+                <div style={{ fontSize: '10px', color: '#64748b' }}>Accelerometer & Gyroscope (>2.8G)</div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)', fontWeight: 700, textTransform: 'uppercase' }}>Wrist Display</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>1.3" I2C OLED 128x64 (0x3C)</div>
+                <div style={{ fontSize: '10px', color: '#64748b' }}>Live BPM & Status display</div>
+              </div>
+            </div>
+
+            {/* Architecture Explanation Banner */}
+            <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(2, 132, 199, 0.06)', border: '1px solid rgba(2, 132, 199, 0.2)', marginBottom: '16px', fontSize: '11px', color: '#0369a1', lineHeight: '1.5' }}>
+              <strong>CareLoop IoT Architecture:</strong> The ESP32 wearable reads heart rate & SpO2 from the MAX30102 and acceleration from the MPU-6050, showing live vitals on the 1.3" OLED. Ingested over Wi-Fi, readings exceeding physician thresholds automatically raise flags in <em>Needs my decision</em>.
+            </div>
+
+            {/* Live Interactive Trigger Controls */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-primary, #0f172a)', textTransform: 'uppercase', marginBottom: '8px' }}>
+                Interactive Hardware Simulator (Teacher Demo)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('Heart_Rate', 74.0, 'bpm')}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #bbf7d0',
+                    background: '#f0fdf4',
+                    color: '#166534',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🟢 MAX30102 Pulse: 74 bpm
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('SpO2', 98.5, '%')}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #bfdbfe',
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🟢 MAX30102 SpO2: 98.5%
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('SpO2', 88.0, '%', 'Questionable')}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fecaca',
+                    background: '#fef2f2',
+                    color: '#b91c1c',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🚨 Trigger Hypoxia (88% SpO2)
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={() => handleSimulateHwReading('Heart_Rate', 128.0, 'bpm')}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fed7aa',
+                    background: '#fff7ed',
+                    color: '#c2410c',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  ⚠️ Trigger Tachycardia (128 bpm)
+                </button>
+                <button
+                  type="button"
+                  disabled={hwSimLoading}
+                  onClick={handleSimulateFallEvent}
+                  style={{
+                    gridColumn: 'span 2',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #fca5a5',
+                    background: '#fff1f2',
+                    color: '#9f1239',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: hwSimLoading ? 'not-allowed' : 'pointer',
+                    textAlign: 'center',
+                  }}
+                >
+                  🚨 MPU-6050 Fall Detection Spike (&gt;3.2G Impact)
+                </button>
+              </div>
+            </div>
+
+            {/* Ingestion status feedback */}
+            {hwSimResult && (
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: hwSimResult.startsWith('Error') ? '#fef2f2' : '#f0fdf4', border: `1px solid ${hwSimResult.startsWith('Error') ? '#fecaca' : '#bbf7d0'}`, color: hwSimResult.startsWith('Error') ? '#b91c1c' : '#166534', fontSize: '11px', fontWeight: 600, marginBottom: '16px' }}>
+                {hwSimResult}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowHwModal(false)}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle, #cbd5e1)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary, #475569)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Done
               </button>
             </div>
           </div>

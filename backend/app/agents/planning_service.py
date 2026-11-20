@@ -399,3 +399,4 @@ def generate_plan_ics(patient_id: int) -> str:
 
     ics_lines.append("END:VCALENDAR")
     return "\r\n".join(ics_lines)
+

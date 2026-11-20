@@ -311,8 +311,8 @@ def route_intent_v2(question: str) -> str:
 
     # Activity & Restrictions
     activity_keywords = [
-        "shower", "bath", "exercise", "walk", "walking", "lift", "heavy lifting", "heavy objects", "stairs", "bending", "physical activity",
-        "सीढ़ियां", "सीढ़ी", "नहाना", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने", "चल-फिर"
+        "exercise", "walk", "walking", "lift", "heavy lifting", "heavy objects", "stairs", "bending", "physical activity",
+        "सीढ़ियां", "सीढ़ी", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने", "चल-फिर"
     ]
     if any(k in q for k in activity_keywords):
         return INTENT_ACTIVITY
@@ -325,10 +325,10 @@ def route_intent_v2(question: str) -> str:
     if any(k in q for k in diet_keywords) and not any(k in q for k in ["medicine", "tablet", "दवा", "pill", "goli"]):
         return INTENT_DIET
 
-    # Wound Care & Incision
+    # Wound Care & Incision & Bathing Hygiene
     wound_care_keywords = [
-        "wound", "dressing", "incision", "bandage", "stitches", "surgical wound",
-        "टांके", "घाव", "पट्टी", "ड्रेसिंग", "घाव की देखभाल"
+        "wound", "dressing", "incision", "bandage", "stitches", "surgical wound", "shower", "bath", "bathe", "sponge bath", "wash",
+        "टांके", "घाव", "पट्टी", "ड्रेसिंग", "घाव की देखभाल", "नहाना", "स्नान"
     ]
     if any(k in q for k in wound_care_keywords):
         return INTENT_WOUND_CARE

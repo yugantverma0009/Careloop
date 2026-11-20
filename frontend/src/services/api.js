@@ -670,6 +670,16 @@ export const sendDeviceEvent = (payload) =>
     body: JSON.stringify(payload),
   }).then(handleResponse);
 
+export const sendDeviceReading = (payload) =>
+  fetch(`${API_BASE}/device/readings`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Key': 'demo-device-key-change-me',
+    },
+    body: JSON.stringify(payload),
+  }).then(handleResponse);
+
 // ─── CareLoop Agents v2: Health, Incidents & Circuit Breaker API ────────────
 
 export const getAgentHealth = (window = '24h') =>

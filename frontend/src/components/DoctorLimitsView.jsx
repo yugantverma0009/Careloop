@@ -143,7 +143,7 @@ export default function DoctorLimitsView({ user = {} }) {
             Patient Approved Limits
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary, #64748b)' }}>
-            All vitals alert rules require Dr. Sharma&rsquo;s signature. The system alerts only when readings cross these approved limits.
+            All vitals alert rules require physician authorization. Incoming sensor readings from the ESP32 wearable are evaluated in real time against these approved limits.
           </p>
         </div>
 

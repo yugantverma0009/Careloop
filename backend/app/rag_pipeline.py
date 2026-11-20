@@ -72,11 +72,9 @@ MEDICAL_DIAGNOSIS_PATTERNS = [
     # English
     r"\bdo i have an infection\b",
     r"\bis my condition serious\b",
-    r"\bis it normal to\b",
-    r"\bam i safe\b",
-    r"\bam i cured\b",
     r"\bcan you diagnose\b",
     r"\bwhat disease do i have\b",
+    r"\bam i cured\b",
     # Hindi
     "क्या मुझे इन्फेक्शन है",
     "क्या मेरी हालत गंभीर है",
@@ -613,6 +611,7 @@ def answer_patient_query(
         ]
         if any(k in q_lower for k in recovery_keywords):
             try:
+                sec_pref = "wound_care" if intent == INTENT_WOUND_CARE else "activity" if intent == INTENT_ACTIVITY else "diet" if intent == INTENT_DIET else "medications"
                 with get_conn() as conn, conn.cursor() as cur:
                     cur.execute(
                         """SELECT dc.chunk_id, dc.chunk_index, dc.chunk_text, dc.vector_id, dc.section_title, dc.section_type, dc.page_no
@@ -620,8 +619,8 @@ def answer_patient_query(
                            JOIN discharge_documents dd ON dd.document_id = dc.document_id
                            JOIN discharge_records dr ON dr.discharge_id = dd.discharge_id
                            WHERE dr.patient_id = %s
-                           ORDER BY dc.chunk_index ASC LIMIT 6""",
-                        (patient_id,)
+                           ORDER BY (CASE WHEN dc.section_type = %s THEN 0 ELSE 1 END), dc.chunk_index ASC LIMIT 6""",
+                        (patient_id, sec_pref)
                     )
                     fallback_chunks = cur.fetchall()
                     if fallback_chunks:

@@ -239,6 +239,28 @@ export default function PatientMyPlanView({ lang = 'en', onAskAssistant }) {
           </p>
         </div>
 
+        <button
+          type="button"
+          onClick={() => {
+            if (onAskAssistant) onAskAssistant('Can you explain my recovery plan and medication schedule?');
+          }}
+          style={{
+            padding: '10px 16px',
+            background: 'var(--accent-teal, #0f766e)',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>💬</span>
+          {isHindi ? 'योजना के बारे में पूछें' : 'Ask Assistant About Plan'}
+        </button>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"

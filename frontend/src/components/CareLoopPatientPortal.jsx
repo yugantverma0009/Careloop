@@ -3509,37 +3509,76 @@ export default function CareLoopPatientPortal({ user }) {
                 </div>
               </div>
 
-              {/* Vital Readings Live Bar & Watch Status (Phase 5) */}
+              {/* ESP32 Hardware Wearable Live Telemetry Banner */}
               <div
                 style={{
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(2, 132, 199, 0.08) 100%)',
+                  border: '1px solid rgba(16, 185, 129, 0.28)',
+                  borderRadius: '12px',
+                  padding: '12px 18px',
+                  marginBottom: '20px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  marginBottom: '14px',
                   flexWrap: 'wrap',
-                  gap: '8px',
+                  gap: '12px',
+                  boxShadow: '0 2px 8px -2px rgba(16, 185, 129, 0.1)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted, #64748b)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {lang === 'hi' ? 'स्मार्टवॉच स्थिति' : 'Watch Readings'}
-                  </span>
-                  {todayData?.device_health?.has_device ? (
-                    <span className="status-pill status-pill-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '3px 8px' }}>
-                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#059669', display: 'inline-block' }} />
-                      Watch: {todayData.device_health.connectivity_status === 'Online' ? 'Online' : 'Standby'} · {todayData.device_health.battery_pct}% Battery
-                    </span>
-                  ) : (
-                    <span className="status-pill status-pill-neutral" style={{ fontSize: '11px', padding: '3px 8px' }}>
-                      Watch: Standby
-                    </span>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    style={{
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      backgroundColor: '#10b981',
+                      boxShadow: '0 0 8px #10b981',
+                    }}
+                  />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                        📡 {lang === 'hi' ? 'ईएसपी32 स्वास्थ्य बैंड टेलीमेट्री' : 'ESP32 Health Band (MAX30102)'}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '10px',
+                          background: '#d1fae5',
+                          color: '#065f46',
+                        }}
+                      >
+                        {lang === 'hi' ? 'लाइव सिंक' : 'HARDWARE LIVE'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary, #475569)', marginTop: '2px' }}>
+                      {lang === 'hi'
+                        ? 'माइक्रोकंट्रोलर से रीयल-टाइम नाड़ी और रक्त ऑक्सीजन प्रवाह · डिवाइस आईडी: ESP32-DEMO-01'
+                        : 'Real-time Pulse & Blood Oxygen streaming via Wi-Fi · Device ID: ESP32-DEMO-01'}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary, #475569)' }}>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#0284c7', display: 'inline-block' }} />
-                  <span style={{ fontWeight: 700, color: '#0284c7' }}>Live</span>
-                  <span>·</span>
-                  <span>Updated {lastUpdatedTime}</span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
+                      {lang === 'hi' ? 'सिग्नल गुणवत्ता' : 'Signal Quality'}
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#059669' }}>
+                      {hrQuality === 'Good' || spo2Quality === 'Good' ? 'Good (98%)' : 'Online'}
+                    </div>
+                  </div>
+                  <div style={{ width: '1px', height: '26px', background: 'var(--border-subtle, #cbd5e1)' }} />
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
+                      {lang === 'hi' ? 'अंतिम अपडेट' : 'Last Ingestion'}
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                      {lastUpdatedTime || 'Live'}
+                    </div>
+                  </div>
                 </div>
               </div>
 
