@@ -1158,6 +1158,7 @@ export default function CareLoopPatientPortal({ user }) {
           latency_ms: res.latency_ms || Math.floor(Math.random() * 60 + 210),
           answer_type: res.answer_type || 'grounded',
           sources: res.sources || [],
+          suggestions: res.suggestions || [],
           action_suggested: res.action_suggested,
           timestamp: new Date().toISOString(),
           created_at: new Date().toISOString(),
@@ -6463,57 +6464,9 @@ export default function CareLoopPatientPortal({ user }) {
                 </button>
               </div>
 
-              {/* ─── TAB 1: ASK (Chat + Voice + Agentic Cards) ─── */}
+              {/* ─── TAB 1: ASK (Chat + Agentic Recovery Companion) ─── */}
               {assistantSubTab === 'ask' && (
                 <>
-                  {/* Phase 2: Microphone Privacy Notice (Step 2.5) */}
-                  {!voiceNoticeDismissed && (
-                    <div
-                      style={{
-                        padding: '10px 14px',
-                        borderRadius: '10px',
-                        background: 'var(--bg-base, #f8fafc)',
-                        border: '1px solid var(--border-subtle, #cbd5e1)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '12px',
-                        marginBottom: '12px',
-                        fontSize: '12px',
-                        color: 'var(--text-secondary, #475569)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <IconMic width={15} height={15} style={{ color: 'var(--accent-teal, #0d9488)', flexShrink: 0 }} />
-                        <span>
-                          {lang === 'hi'
-                            ? 'वॉयस आपके ब्राउज़र की स्पीच सेवा का उपयोग करता है। CareLoop आपकी रिकॉर्डिंग नहीं रखता, केवल टेक्स्ट सुरक्षित रहता है।'
-                            : "Voice uses your browser's speech service. CareLoop does not keep your audio recordings, only the text."}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVoiceNoticeDismissed(true);
-                          try { localStorage.setItem('careloop_voice_notice_dismissed', 'true'); } catch(e){}
-                        }}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          border: 'none',
-                          background: 'var(--accent-teal, #0d9488)',
-                          color: '#ffffff',
-                          fontWeight: 700,
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {lang === 'hi' ? 'समझ गया' : 'Got it'}
-                      </button>
-                    </div>
-                  )}
-
                   {/* Phase 2: Proactive Today Card (Step 2.1) */}
                   {!inlineCheckinActive && (
                     <div
@@ -7763,6 +7716,46 @@ export default function CareLoopPatientPortal({ user }) {
                                 </div>
                               </div>
                             )}
+
+                            {/* Inline Smart Follow-up Chips for Assistant Replies */}
+                            {!isUser && !msg.isError && msg.suggestions && msg.suggestions.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginTop: '6px',
+                                  paddingLeft: '4px',
+                                }}
+                              >
+                                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <span>✨</span>
+                                  <span>{lang === 'hi' ? 'सुझावित सवाल:' : 'Suggested questions:'}</span>
+                                </span>
+                                {msg.suggestions.map((sug, sIdx) => (
+                                  <button
+                                    key={sIdx}
+                                    type="button"
+                                    onClick={() => handleSendMessage(null, sug)}
+                                    disabled={chatLoading}
+                                    style={{
+                                      padding: '4px 10px',
+                                      borderRadius: '16px',
+                                      border: '1px solid var(--accent-teal, #0d9488)',
+                                      background: 'linear-gradient(135deg, rgba(13,148,136,0.08), rgba(13,148,136,0.02))',
+                                      color: 'var(--accent-teal, #0d9488)',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    {sug} →
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         );
                       })
@@ -7862,51 +7855,64 @@ export default function CareLoopPatientPortal({ user }) {
                     </div>
                   )}
 
-                  {/* Contextual Follow-up Suggestions Tray */}
-                  {!chatLoading && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        overflowX: 'auto',
-                        paddingBottom: '8px',
-                        marginTop: '8px',
-                        whiteSpace: 'nowrap',
-                        scrollbarWidth: 'none',
-                      }}
-                    >
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <span>💡</span>
-                        <span>{lang === 'hi' ? 'सुझाव:' : 'Suggestions:'}</span>
-                      </span>
-                      {QUICK_FOLLOW_UPS.map((fup) => (
-                        <button
-                          key={fup.id}
-                          type="button"
-                          onClick={() => handleSendMessage(null, fup.prompt)}
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: '20px',
-                            border: '1px solid var(--border-subtle, #cbd5e1)',
-                            background: 'var(--bg-surface, #ffffff)',
-                            color: 'var(--text-primary, #0f172a)',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            flexShrink: 0,
-                            transition: 'all 0.15s ease',
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-                          }}
-                        >
-                          <span>{fup.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {/* Contextual Follow-up Suggestions Tray — dynamic from last AI response or static fallback */}
+                  {!chatLoading && (() => {
+                    const lastAssistant = [...chatMessages].reverse().find(m => (m.role === 'assistant' || m.sender === 'AI_Assistant') && !m.isError);
+                    const dynamicSuggestions = lastAssistant?.suggestions?.length > 0 ? lastAssistant.suggestions : null;
+                    const displayItems = dynamicSuggestions
+                      ? dynamicSuggestions.map((s, idx) => ({ id: `dyn-fup-${idx}`, label: s, prompt: s }))
+                      : QUICK_FOLLOW_UPS;
+                    return (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          overflowX: 'auto',
+                          paddingBottom: '8px',
+                          marginTop: '8px',
+                          whiteSpace: 'nowrap',
+                          scrollbarWidth: 'none',
+                        }}
+                      >
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <span>{dynamicSuggestions ? '✨' : '💡'}</span>
+                          <span>{lang === 'hi' ? 'सुझाव:' : dynamicSuggestions ? 'Suggested:' : 'Suggestions:'}</span>
+                        </span>
+                        {displayItems.map((fup) => (
+                          <button
+                            key={fup.id}
+                            type="button"
+                            onClick={() => handleSendMessage(null, fup.prompt)}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '20px',
+                              border: dynamicSuggestions
+                                ? '1px solid var(--accent-teal, #0d9488)'
+                                : '1px solid var(--border-subtle, #cbd5e1)',
+                              background: dynamicSuggestions
+                                ? 'linear-gradient(135deg, rgba(13,148,136,0.08), rgba(13,148,136,0.02))'
+                                : 'var(--bg-surface, #ffffff)',
+                              color: dynamicSuggestions
+                                ? 'var(--accent-teal, #0d9488)'
+                                : 'var(--text-primary, #0f172a)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              flexShrink: 0,
+                              transition: 'all 0.15s ease',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                            }}
+                          >
+                            <span>{fup.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Voice Fix Mode Preview (Step 2.5) */}
                   {voiceFixMode && chatInput && (

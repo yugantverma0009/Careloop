@@ -210,12 +210,10 @@ def route_intent_v2(question: str) -> str:
     if detect_small_talk(q):
         return INTENT_SMALL_TALK
 
-    # 4. Medical Diagnosis Refusal Check
+    # 4. Medical Diagnosis Refusal Check (strict diagnosis only, allows normal post-op sensations)
     medical_diagnosis_patterns = [
         r"\bdo i have an infection\b",
         r"\bis my condition serious\b",
-        r"\bis it normal to\b",
-        r"\bam i safe\b",
         r"\bam i cured\b",
         r"\bcan you diagnose\b",
         r"\bwhat disease do i have\b",
@@ -309,10 +307,13 @@ def route_intent_v2(question: str) -> str:
     if any(k in q for k in warning_signs_keywords):
         return INTENT_WARNING_SIGNS
 
-    # Activity & Restrictions
+    # Activity & Restrictions & Sleep Posture
     activity_keywords = [
         "exercise", "walk", "walking", "lift", "heavy lifting", "heavy objects", "stairs", "bending", "physical activity",
-        "सीढ़ियां", "सीढ़ी", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने", "चल-फिर"
+        "sleep", "sleeping", "sleep position", "posture", "lie down", "laying down", "back", "pillow", "torso",
+        "rest", "resting", "fatigue", "tired", "tiredness", "weakness", "normal to feel", "sensation",
+        "सीढ़ियां", "सीढ़ी", "वजन उठाना", "भारी वजन", "व्यायाम", "चलना", "शारीरिक गतिविधि", "चलने-फिरने", "चल-फिर",
+        "सोना", "सोने", "थकान", "थकावट", "कमजोरी", "करवट", "आराम"
     ]
     if any(k in q for k in activity_keywords):
         return INTENT_ACTIVITY
@@ -320,7 +321,8 @@ def route_intent_v2(question: str) -> str:
     # Diet & Nutrition
     diet_keywords = [
         "diet", "food", "eat", "drink", "water", "meal", "eat and drink", "salt", "sodium", "fluid", "fluids",
-        "खाना", "आहार", "भोजन", "पानी", "डाइट", "पानी पीना", "नमक", "सोडियम", "सुपाच्य"
+        "spicy", "heavy food", "tea", "coffee", "salt limit", "fiber", "constipation", "digest", "digestion", "khichdi", "dalia",
+        "खाना", "आहार", "भोजन", "पानी", "डाइट", "पानी पीना", "नमक", "सोडियम", "सुपाच्य", "खिचड़ी", "दलिया", "मसालेदार", "कब्ज"
     ]
     if any(k in q for k in diet_keywords) and not any(k in q for k in ["medicine", "tablet", "दवा", "pill", "goli"]):
         return INTENT_DIET
@@ -328,7 +330,8 @@ def route_intent_v2(question: str) -> str:
     # Wound Care & Incision & Bathing Hygiene
     wound_care_keywords = [
         "wound", "dressing", "incision", "bandage", "stitches", "surgical wound", "shower", "bath", "bathe", "sponge bath", "wash",
-        "टांके", "घाव", "पट्टी", "ड्रेसिंग", "घाव की देखभाल", "नहाना", "स्नान"
+        "wet", "water on wound", "redness", "warmth", "drainage", "pus", "itch", "itching", "chest pillow", "hug pillow",
+        "टांके", "घाव", "पट्टी", "ड्रेसिंग", "घाव की देखभाल", "नहाना", "स्नान", "गीला", "पानी लगना", "लाल होना", "मवाद"
     ]
     if any(k in q for k in wound_care_keywords):
         return INTENT_WOUND_CARE

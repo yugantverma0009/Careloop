@@ -19,20 +19,20 @@
  * - Auth Header:      X-Device-Key: demo-device-key-change-me
  */
 
-#include <Wire.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include "MAX30105.h"
 #include "heartRate.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
+#include <Wire.h>
 
 // --- CONFIGURATION ---
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASS     = "YOUR_WIFI_PASSWORD";
-const char* SERVER_BASE   = "http://192.168.1.10:8000"; // CareLoop API Server IP
-const char* DEVICE_ID     = "ESP32-DEMO-01";
-const char* DEVICE_KEY    = "demo-device-key-change-me";
+const char *WIFI_SSID = "YOUR_WIFI_SSID";
+const char *WIFI_PASS = "YOUR_WIFI_PASSWORD";
+const char *SERVER_BASE = "http://192.168.1.10:8000"; // CareLoop API Server IP
+const char *DEVICE_ID = "ESP32-DEMO-01";
+const char *DEVICE_KEY = "demo-device-key-change-me";
 
 // OLED Configuration (128x64, I2C address 0x3C)
 #define SCREEN_WIDTH 128
@@ -73,7 +73,8 @@ void initMPU6050() {
 
 // Check for sudden acceleration spikes (Fall Detection)
 void checkFallDetection() {
-  if (!mpuReady) return;
+  if (!mpuReady)
+    return;
 
   Wire.beginTransmission(0x68);
   Wire.write(0x3B); // ACCEL_XOUT_H
@@ -94,7 +95,7 @@ void checkFallDetection() {
     if (totalG > FALL_THRESHOLD_G && (millis() - lastFallTrigger > 15000)) {
       lastFallTrigger = millis();
       Serial.printf("🚨 FALL DETECTED! G-Force: %.2f G\n", totalG);
-      
+
       // Update OLED with immediate warning
       if (oledReady) {
         display.clearDisplay();
@@ -118,7 +119,8 @@ void checkFallDetection() {
 
 // Transmit Fall Event to CareLoop API (/device/events)
 void sendFallEvent(float gForce) {
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (WiFi.status() != WL_CONNECTED)
+    return;
 
   time_t now;
   time(&now);
@@ -132,7 +134,8 @@ void sendFallEvent(float gForce) {
   String body = String("{\"device_id\":\"") + DEVICE_ID +
                 "\",\"event_type\":\"Possible_Fall" +
                 "\",\"occurred_at\":" + String((long)now) +
-                ",\"details\":{\"g_force\":" + String(gForce, 2) + ",\"sensor\":\"MPU6050\"}}";
+                ",\"details\":{\"g_force\":" + String(gForce, 2) +
+                ",\"sensor\":\"MPU6050\"}}";
 
   int code = http.POST(body);
   Serial.printf("📡 POST /device/events -> HTTP %d\n", code);
@@ -140,8 +143,10 @@ void sendFallEvent(float gForce) {
 }
 
 // Transmit Vitals Reading to CareLoop API (/device/readings)
-void sendReading(const char* mtype, float val, const char* unit, const char* quality) {
-  if (WiFi.status() != WL_CONNECTED) return;
+void sendReading(const char *mtype, float val, const char *unit,
+                 const char *quality) {
+  if (WiFi.status() != WL_CONNECTED)
+    return;
 
   time_t now;
   time(&now);
@@ -154,10 +159,9 @@ void sendReading(const char* mtype, float val, const char* unit, const char* qua
 
   String body = String("{\"device_id\":\"") + DEVICE_ID +
                 "\",\"measurement_type\":\"" + mtype +
-                "\",\"value\":" + String(val, 1) +
-                ",\"unit\":\"" + unit +
-                "\",\"measured_at\":" + String((long)now) +
-                ",\"quality\":\"" + quality + "\"}";
+                "\",\"value\":" + String(val, 1) + ",\"unit\":\"" + unit +
+                "\",\"measured_at\":" + String((long)now) + ",\"quality\":\"" +
+                quality + "\"}";
 
   int code = http.POST(body);
   Serial.printf("📡 POST %s -> %s (HTTP %d)\n", mtype, body.c_str(), code);
@@ -166,7 +170,8 @@ void sendReading(const char* mtype, float val, const char* unit, const char* qua
 
 // Update 1.3" OLED Wrist Display
 void updateOLED(bool fingerDetected) {
-  if (!oledReady) return;
+  if (!oledReady)
+    return;
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
@@ -267,7 +272,8 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n✅ Connected! Device IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("\n✅ Connected! Device IP: %s\n",
+                  WiFi.localIP().toString().c_str());
   } else {
     Serial.println("\n⚠️ Wi-Fi connection timed out. Will retry in loop.");
   }
@@ -294,7 +300,8 @@ void loop() {
 
       if (bpm > 35.0 && bpm < 210.0) {
         bpmAvg = (beats == 0) ? bpm : (bpmAvg * 0.8f + bpm * 0.2f);
-        if (beats < 255) beats++;
+        if (beats < 255)
+          beats++;
       }
     }
   }

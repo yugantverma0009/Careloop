@@ -607,11 +607,19 @@ def answer_patient_query(
         recovery_keywords = [
             "medicine", "medicene", "dose", "tablet", "pill", "care", "wound", "dressing",
             "shower", "bath", "walk", "activity", "food", "diet", "doctor", "appointment",
-            "visit", "hospital", "discharge", "papers", "pain", "fever", "cut", "stitch", "eat"
+            "visit", "hospital", "discharge", "papers", "pain", "fever", "cut", "stitch", "eat",
+            "sleep", "sleeping", "rest", "tired", "fatigue", "normal", "stairs", "lift", "weight",
+            "sponge", "drainage", "redness", "swelling", "water", "salt", "sodium", "weakness"
         ]
         if any(k in q_lower for k in recovery_keywords):
             try:
-                sec_pref = "wound_care" if intent == INTENT_WOUND_CARE else "activity" if intent == INTENT_ACTIVITY else "diet" if intent == INTENT_DIET else "medications"
+                sec_pref = (
+                    "wound_care" if intent == INTENT_WOUND_CARE
+                    else "activity" if intent == INTENT_ACTIVITY
+                    else "diet" if intent == INTENT_DIET
+                    else "warning_signs" if intent == INTENT_WARNING_SIGNS
+                    else "medications"
+                )
                 with get_conn() as conn, conn.cursor() as cur:
                     cur.execute(
                         """SELECT dc.chunk_id, dc.chunk_index, dc.chunk_text, dc.vector_id, dc.section_title, dc.section_type, dc.page_no

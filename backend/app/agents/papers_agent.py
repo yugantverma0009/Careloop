@@ -73,6 +73,7 @@ from backend.app.agents.rag_v2_service import (
     compute_evidence_strength,
     detect_ambiguity,
     normalize_hinglish,
+    get_smart_followups,
     ConversationStateManager,
 )
 
@@ -831,6 +832,11 @@ class PapersAgent:
             rag_res.get("is_grounded", False)
         )
         rag_res["evidence_strength"] = evidence_label
+
+        # Smart contextual follow-up suggestions (deterministic, zero LLM)
+        smart_suggestions = get_smart_followups(intent, lang)
+        if smart_suggestions:
+            rag_res["suggestions"] = smart_suggestions
 
         # Ephemeral conversation state update
         ConversationStateManager.update_state(conversation_id or str(patient_id), {

@@ -580,3 +580,180 @@ def detect_ambiguity(patient_id: int, question: str) -> Optional[Dict[str, Any]]
                 }
 
     return None
+
+
+
+# ─── 10. Smart Follow-Up Suggestions (Deterministic, Zero LLM) ──────────────
+
+_SMART_FOLLOWUPS: Dict[str, Dict[str, List[str]]] = {
+    "appointment": {
+        "en": [
+            "What should I bring to my appointment?",
+            "What warning signs should I watch for before my visit?",
+            "Can I reschedule my follow-up?",
+        ],
+        "hi": [
+            "मुलाक़ात में क्या लेकर जाना चाहिए?",
+            "विज़िट से पहले किन लक्षणों पर ध्यान दूँ?",
+            "क्या मैं अपनी फॉलो-अप तारीख बदल सकता हूँ?",
+        ],
+    },
+    "today_doses": {
+        "en": [
+            "What if I miss a dose?",
+            "Can I take my medicines with food?",
+            "What are the side effects I should watch for?",
+        ],
+        "hi": [
+            "अगर मैं एक खुराक भूल जाऊं तो?",
+            "क्या मैं दवा खाने के साथ ले सकता हूँ?",
+            "कौन से साइड इफ़ेक्ट्स पर ध्यान दूँ?",
+        ],
+    },
+    "medicine_plan": {
+        "en": [
+            "Until when do I take my medicines?",
+            "What if I miss a dose?",
+            "Can I take my medicines with food?",
+        ],
+        "hi": [
+            "मुझे कब तक दवाइयाँ लेनी हैं?",
+            "अगर मैं एक खुराक भूल जाऊं तो?",
+            "क्या मैं दवा खाने के साथ ले सकता हूँ?",
+        ],
+    },
+    "vitals": {
+        "en": [
+            "What is a normal heart rate after surgery?",
+            "When should I be worried about my blood pressure?",
+            "How often should I check my SpO2?",
+        ],
+        "hi": [
+            "सर्जरी के बाद सामान्य हृदय गति क्या है?",
+            "ब्लड प्रेशर कितना होने पर चिंता करें?",
+            "SpO2 कितनी बार चेक करना चाहिए?",
+        ],
+    },
+    "warning_signs": {
+        "en": [
+            "What should I do if I see a warning sign?",
+            "Is mild swelling normal after surgery?",
+            "When should I call 112 immediately?",
+        ],
+        "hi": [
+            "अगर कोई खतरे का लक्षण दिखे तो क्या करूं?",
+            "क्या सर्जरी के बाद हल्की सूजन सामान्य है?",
+            "112 पर कब फोन करना चाहिए?",
+        ],
+    },
+    "activity": {
+        "en": [
+            "How long should I walk each day?",
+            "When can I drive a car?",
+            "Can I lift heavy things?",
+        ],
+        "hi": [
+            "रोज़ कितनी देर टहलना चाहिए?",
+            "कार कब चला सकता हूँ?",
+            "क्या मैं भारी सामान उठा सकता हूँ?",
+        ],
+    },
+    "diet": {
+        "en": [
+            "Can I eat spicy food during recovery?",
+            "How much water should I drink daily?",
+            "Should I avoid salt completely?",
+        ],
+        "hi": [
+            "क्या रिकवरी में तीखा खा सकता हूँ?",
+            "रोज़ कितना पानी पीना चाहिए?",
+            "क्या नमक पूरी तरह बंद करना है?",
+        ],
+    },
+    "wound_care": {
+        "en": [
+            "When can I shower normally?",
+            "What are signs of wound infection?",
+            "When do my stitches come out?",
+        ],
+        "hi": [
+            "सामान्य रूप से नहाना कब शुरू कर सकता हूँ?",
+            "घाव में संक्रमण के क्या लक्षण हैं?",
+            "मेरे टांके कब निकलेंगे?",
+        ],
+    },
+    "contacts": {
+        "en": [
+            "Can I call my care team on weekends?",
+            "What number do I call for emergencies?",
+            "Who is my assigned nurse?",
+        ],
+        "hi": [
+            "क्या मैं वीकेंड पर केयर टीम को कॉल कर सकता हूँ?",
+            "इमरजेंसी में किस नंबर पर कॉल करूं?",
+            "मेरी नर्स कौन हैं?",
+        ],
+    },
+    "plan_items": {
+        "en": [
+            "What milestones should I hit this week?",
+            "When is my next recovery check-in?",
+            "Can I see my full recovery plan?",
+        ],
+        "hi": [
+            "इस हफ़्ते मुझे कौन से लक्ष्य पूरे करने हैं?",
+            "मेरी अगली रिकवरी चेक-इन कब है?",
+            "क्या मैं अपनी पूरी रिकवरी योजना देख सकता हूँ?",
+        ],
+    },
+    "general_docs": {
+        "en": [
+            "What does my discharge summary say?",
+            "What medicines were prescribed at discharge?",
+            "When is my next follow-up visit?",
+        ],
+        "hi": [
+            "मेरे डिस्चार्ज सारांश में क्या लिखा है?",
+            "डिस्चार्ज पर कौन सी दवाइयाँ दी गई थीं?",
+            "मेरी अगली फॉलो-अप विज़िट कब है?",
+        ],
+    },
+    "small_talk": {
+        "en": [
+            "What medicines do I take today?",
+            "How is my recovery going?",
+            "What warning signs should I watch for?",
+        ],
+        "hi": [
+            "आज मुझे कौन सी दवाइयाँ लेनी हैं?",
+            "मेरी रिकवरी कैसी चल रही है?",
+            "किन खतरे के लक्षणों का ध्यान रखूं?",
+        ],
+    },
+}
+
+# Default fallback for unknown intents
+_DEFAULT_FOLLOWUPS = {
+    "en": [
+        "When is my next follow-up visit?",
+        "What medicines do I take today?",
+        "What warning signs should I watch for?",
+    ],
+    "hi": [
+        "मेरी अगली डॉक्टर विज़िट कब है?",
+        "आज मुझे कौन सी दवाइयां लेनी हैं?",
+        "मुझे किन खतरे के लक्षणों पर ध्यान देना चाहिए?",
+    ],
+}
+
+
+def get_smart_followups(intent: str, lang: str = "en") -> List[str]:
+    """Returns 3 contextual follow-up question strings based on the detected intent.
+
+    Pure-Python dict lookup — zero LLM calls, zero latency overhead.
+    """
+    lang_key = "hi" if lang in ("hi", "hindi") else "en"
+    followups = _SMART_FOLLOWUPS.get(intent, {}).get(lang_key)
+    if followups:
+        return followups
+    return _DEFAULT_FOLLOWUPS.get(lang_key, _DEFAULT_FOLLOWUPS["en"])
