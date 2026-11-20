@@ -20,7 +20,10 @@ from scripts.seed_demo import main as run_seed
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_database():
-    """Ensure consistent fresh demo data once for the test module."""
+    """Seed only when explicitly directed to use a disposable demo database."""
+    import os
+    if os.getenv("CARELOOP_ALLOW_DEMO_RESET", "").lower() != "true":
+        pytest.skip("Set CARELOOP_ALLOW_DEMO_RESET=true to run DB integration tests against a disposable demo database.")
     run_seed()
 
 

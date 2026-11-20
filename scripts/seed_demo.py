@@ -72,6 +72,10 @@ def main():
             "Refusing to reset the configured database. This demo seeder deletes existing CareLoop data. "
             "Set CARELOOP_ALLOW_DEMO_RESET=true only when using a disposable demo database."
         )
+    if DB_NAME != "careloop":
+        raise SystemExit(
+            f"Refusing to reset database {DB_NAME!r}; the demo seeder is restricted to the 'careloop' database."
+        )
 
     print("🌱 Starting CareLoop Idempotent Demo Seeder...")
     start_time = datetime.now()

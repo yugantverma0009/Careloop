@@ -23,7 +23,10 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def ensure_clean_demo_state():
-    """Reset database to Section 4 baseline before test run."""
+    """Seed only with explicit disposable database opt-in."""
+    import os
+    if os.getenv("CARELOOP_ALLOW_DEMO_RESET", "").lower() != "true":
+        pytest.skip("Set CARELOOP_ALLOW_DEMO_RESET=true to run DB integration tests against a disposable demo database.")
     run_seed()
 
 
