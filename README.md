@@ -164,8 +164,9 @@ Replay of a 40-event scripted synthetic shift (14 routine questions, 10 reminder
 # Set database credentials in backend/.env
 # DB_USER=careloop_api, DB_PASSWORD=careloop_dev_pass, DB_NAME=careloop
 
-# Run the idempotent demo seeder (resets and validates in under 3 seconds)
-PYTHONPATH=. ./backend/env/bin/python scripts/seed_demo.py
+# Run the demo seeder against a disposable database only. It deletes existing
+# CareLoop records before inserting synthetic demo data.
+CARELOOP_ALLOW_DEMO_RESET=true PYTHONPATH=. ./backend/env/bin/python scripts/seed_demo.py
 PYTHONPATH=. ./backend/env/bin/python scripts/validate_demo.py
 ```
 

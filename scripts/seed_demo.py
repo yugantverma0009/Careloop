@@ -67,6 +67,12 @@ def run_sql_file(conn, sql_path):
 
 
 def main():
+    if os.getenv("CARELOOP_ALLOW_DEMO_RESET", "").lower() != "true":
+        raise SystemExit(
+            "Refusing to reset the configured database. This demo seeder deletes existing CareLoop data. "
+            "Set CARELOOP_ALLOW_DEMO_RESET=true only when using a disposable demo database."
+        )
+
     print("🌱 Starting CareLoop Idempotent Demo Seeder...")
     start_time = datetime.now()
 
